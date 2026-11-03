@@ -10,7 +10,7 @@
 | `vendor/vscode-git-graph-rs/native/`（Rust 引擎 git-graph-core） | MIT | 可自由使用與散布 |
 | `vendor/vscode-git-graph-rs/web/`、`src/`（webview UI、extension host） | mhutchie Git Graph 授權 | **禁止散布衍生作品**，只能自用 |
 
-- **本 repo 的原始碼以 MIT 公開**（根目錄 `LICENSE`，Copyright (c) 2026 Kigi Chang；範圍不含 `vendor/`）。**建置產物不得散布**：`prepare-ui.mjs` 會把上游 webview 複製進 App，所以不發布 .app／dmg，使用者自己建置、自用。README 註明和 mhutchie 的 Git Graph、vscode-git-graph-rs 無關聯。公開的 repo 是 https://github.com/kigichang/your-git-graph （從清理後的內容建立，只有新的歷史）；私人 repo `kigichang/git-graph` 保留完整歷史，不公開（裡面的舊 commit 還有上述兩處上游內容）。
+- **本 repo 的原始碼以 MIT 公開**（根目錄 `LICENSE`，Copyright (c) 2026 Kigi Chang；範圍不含 `vendor/`）。**建置產物不得散布**：`prepare-ui.mjs` 會把上游 webview 複製進 App，所以不發布 .app／dmg，使用者自己建置、自用。README 註明和 mhutchie 的 Git Graph、vscode-git-graph-rs 無關聯。**開發在公開 repo** https://github.com/kigichang/your-git-graph （從清理後的內容建立，歷史從一個初始 commit 開始）。原本的私人 repo `kigichang/git-graph` 已封存（唯讀、不公開），保留 0.3.2 以前的完整歷史與 tag `v0.2.0`、`v0.3.0`；那些舊 commit 還有上述兩處上游內容，**不要把它的 ref 或 tag 推到公開 repo**（本機已移除它的 remote 與 tag）。公開 repo 的版本 tag 從下一版重新開始。
 - **repo 裡不能有上游受限的內容**（`web/`、`src/`、`out/`、`media/`、上游 `resources/icon.png` 這類非原創素材）：只能在建置時從 submodule 取用，產物放在 gitignore 的目錄。公開前稽核過（12 個 token 的片段比對）並移除了兩處：App 圖示（原本取自上游 `resources/icon.png`，改成自己畫的 `app/src-tauri/icons/icon.svg`）、`host/main.js` 的 webview HTML 骨架與 graph 顏色注入（原本照抄上游 `src/gitGraphView.ts`，改成 `viewSkeleton()`，元素的 id、class、巢狀與留白和原本相同）。元素 id、`--vscode-*`、設定 key、協定欄位名稱這類互通所需的介面名稱可以用。
 - 只要 App 還打包了上游 `web/` 或沿用 `src/` 的程式碼，**建置出的 App** 就**不能對外散布**。
 - 是否散布 App **還沒決定**。如果要散布，就要做 Stage 2：clean-room 重寫 UI 和 host。重寫時不能參考或複製 `web/`、`src/` 的程式碼，只能沿用引擎。
