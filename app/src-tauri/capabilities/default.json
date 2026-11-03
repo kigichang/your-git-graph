@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Graph windows (the configured one and those File > New Window / Open opens): core IPC, the folder and save pickers, message boxes, setting their title",
+  "windows": ["main", "repo-*"],
+  "permissions": ["core:default", "core:window:allow-set-title", "core:window:allow-close", "dialog:allow-open", "dialog:allow-save", "dialog:allow-message"]
+}

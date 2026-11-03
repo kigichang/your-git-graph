@@ -1,0 +1,292 @@
+/* The --vscode-* token set a VS Code webview injects, mapped onto the macOS appearance: light or
+ * dark, each with Increase Contrast (System Settings > Accessibility > Display) on or off.
+ * Every variable the upstream webview reads is defined here (see `grep -ohE -- "--vscode-[a-z0-9-]+"
+ * web/styles/*.css web/*.ts` upstream). theme.js sets the appearance as classes on <html>
+ * (gg-dark, gg-contrast) and mirrors it onto <body> as VS Code does (vscode-light, vscode-dark,
+ * vscode-high-contrast, vscode-high-contrast-light). tests/theme.test.mjs checks the contrast
+ * of the text colours in all four. */
+:root {
+	color-scheme: light;
+	--vscode-font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+	--vscode-editor-font-family: "SF Mono", Menlo, Monaco, monospace;
+	--vscode-font-size: 13px;
+
+	/* Light (default) */
+	--vscode-foreground: #1d1d1f;
+	--vscode-descriptionForeground: #6e6e73;
+	--vscode-errorForeground: #d70015;
+	--vscode-focusBorder: AccentColor;
+	--vscode-contrastBorder: transparent;
+	--vscode-widget-shadow: rgba(0, 0, 0, 0.18);
+	--vscode-selection-background: color-mix(in srgb, AccentColor 30%, transparent);
+
+	--vscode-editor-background: #ffffff;
+	--vscode-editor-foreground: #1d1d1f;
+	--vscode-editor-findMatchHighlightBackground: rgba(255, 200, 0, 0.35);
+	--vscode-editor-findMatchHighlightBorder: transparent;
+	--vscode-editorWidget-background: #f5f5f7;
+	--vscode-editorWidget-foreground: #1d1d1f;
+	--vscode-editorWidget-border: #d2d2d7;
+	--vscode-editorSuggestWidget-foreground: #1d1d1f;
+	--vscode-editorWarning-foreground: #b25000;
+	--vscode-editorInfo-foreground: #0068da;
+	--vscode-editorLightBulb-foreground: #a37800;
+
+	--vscode-menu-background: #f5f5f7;
+	--vscode-menu-foreground: #1d1d1f;
+	--vscode-menu-selectionBackground: AccentColor;
+	/* White on the accent, as macOS draws its accent buttons and selected menu items (WebKit
+	 * resolves AccentColorText to black). */
+	--vscode-menu-selectionForeground: #ffffff;
+	--vscode-menu-selectionBorder: transparent;
+	--vscode-menu-separatorBackground: #d2d2d7;
+	--vscode-menu-border: #d2d2d7;
+
+	--vscode-list-hoverBackground: rgba(0, 0, 0, 0.05);
+	--vscode-panel-border: #d2d2d7;
+	--vscode-textLink-foreground: #0066cc;
+	--vscode-textLink-activeForeground: #004c99;
+	--vscode-textCodeBlock-background: rgba(0, 0, 0, 0.05);
+
+	--vscode-button-background: AccentColor;
+	--vscode-button-foreground: #ffffff;
+	--vscode-input-background: #ffffff;
+	--vscode-input-foreground: #1d1d1f;
+	--vscode-input-border: #c7c7cc;
+	--vscode-input-placeholderForeground: #8e8e93;
+	--vscode-inputOption-activeBackground: color-mix(in srgb, AccentColor 20%, transparent);
+	--vscode-inputOption-activeBorder: AccentColor;
+	--vscode-inputValidation-errorBackground: #fde8e8;
+	--vscode-inputValidation-errorBorder: #d70015;
+	--vscode-inputValidation-warningBackground: #fff4e0;
+	--vscode-inputValidation-warningBorder: #b25000;
+	--vscode-inputValidation-warningForeground: #1d1d1f;
+	--vscode-dropdown-background: #ffffff;
+	--vscode-dropdown-foreground: #1d1d1f;
+	--vscode-dropdown-border: #c7c7cc;
+
+	--vscode-gitDecoration-addedResourceForeground: #1f7a35;
+	--vscode-gitDecoration-deletedResourceForeground: #d70015;
+	--vscode-gitDecoration-modifiedResourceForeground: #b25000;
+	--vscode-gitDecoration-renamedResourceForeground: #1f7a35;
+	--vscode-charts-green: #1f7a35;
+	--vscode-charts-red: #d70015;
+	--vscode-charts-blue: #0068da;
+	--vscode-charts-yellow: #b28600;
+	--vscode-charts-orange: #c93400;
+	--vscode-charts-purple: #8944ab;
+	--vscode-testing-iconPassed: #1f7a35;
+	--vscode-testing-iconFailed: #d70015;
+
+	/* The repository sidebar (sidebar.css). */
+	--gg-sidebar-background: #f5f5f7;
+	--gg-sidebar-selected: rgba(0, 0, 0, 0.07);
+}
+
+:root.gg-dark {
+	color-scheme: dark;
+	--vscode-foreground: #e5e5e7;
+	--vscode-descriptionForeground: #98989d;
+	--vscode-errorForeground: #ff6961;
+	--vscode-widget-shadow: rgba(0, 0, 0, 0.5);
+
+	--vscode-editor-background: #1e1e1e;
+	--vscode-editor-foreground: #e5e5e7;
+	--vscode-editorWidget-background: #2a2a2c;
+	--vscode-editorWidget-foreground: #e5e5e7;
+	--vscode-editorWidget-border: #3a3a3c;
+	--vscode-editorSuggestWidget-foreground: #e5e5e7;
+	--vscode-editorWarning-foreground: #ffb340;
+	--vscode-editorInfo-foreground: #409cff;
+	--vscode-editorLightBulb-foreground: #ffd426;
+
+	--vscode-menu-background: #2a2a2c;
+	--vscode-menu-foreground: #e5e5e7;
+	--vscode-menu-separatorBackground: #3a3a3c;
+	--vscode-menu-border: #3a3a3c;
+
+	--vscode-list-hoverBackground: rgba(255, 255, 255, 0.06);
+	--vscode-panel-border: #3a3a3c;
+	--vscode-textLink-foreground: #409cff;
+	--vscode-textLink-activeForeground: #70b4ff;
+	--vscode-textCodeBlock-background: rgba(255, 255, 255, 0.08);
+
+	--vscode-input-background: #1c1c1e;
+	--vscode-input-foreground: #e5e5e7;
+	--vscode-input-border: #48484a;
+	--vscode-input-placeholderForeground: #8e8e93;
+	--vscode-inputValidation-errorBackground: #4a1c1c;
+	--vscode-inputValidation-errorBorder: #ff6961;
+	--vscode-inputValidation-warningBackground: #4a3410;
+	--vscode-inputValidation-warningBorder: #ffb340;
+	--vscode-inputValidation-warningForeground: #e5e5e7;
+	--vscode-dropdown-background: #2a2a2c;
+	--vscode-dropdown-foreground: #e5e5e7;
+	--vscode-dropdown-border: #48484a;
+
+	--vscode-gitDecoration-addedResourceForeground: #81b88b;
+	--vscode-gitDecoration-deletedResourceForeground: #e06c60;
+	--vscode-gitDecoration-modifiedResourceForeground: #e2c08d;
+	--vscode-gitDecoration-renamedResourceForeground: #73c991;
+	--vscode-charts-green: #30d158;
+	--vscode-charts-red: #ff453a;
+	--vscode-charts-blue: #0a84ff;
+	--vscode-charts-yellow: #ffd60a;
+	--vscode-charts-orange: #ff9f0a;
+	--vscode-charts-purple: #bf5af2;
+	--vscode-testing-iconPassed: #30d158;
+	--vscode-testing-iconFailed: #ff453a;
+
+	--gg-sidebar-background: #171719;
+	--gg-sidebar-selected: rgba(255, 255, 255, 0.08);
+}
+
+/* Increase Contrast, light: black text, borders that show, outlines on hovered and selected
+ * menu items (upstream draws them for vscode-high-contrast with menu-selectionBorder). */
+:root.gg-contrast {
+	--vscode-foreground: #000000;
+	--vscode-descriptionForeground: #3a3a3c;
+	--vscode-contrastBorder: #6e6e73;
+	--vscode-widget-shadow: rgba(0, 0, 0, 0.35);
+	--vscode-editor-findMatchHighlightBorder: #b25000;
+	--vscode-editor-foreground: #000000;
+	--vscode-editorWidget-foreground: #000000;
+	--vscode-editorWidget-border: #6e6e73;
+	--vscode-editorSuggestWidget-foreground: #000000;
+	--vscode-menu-foreground: #000000;
+	--vscode-menu-selectionBorder: #000000;
+	--vscode-menu-border: #6e6e73;
+	--vscode-menu-separatorBackground: #6e6e73;
+	--vscode-list-hoverBackground: rgba(0, 0, 0, 0.1);
+	--vscode-panel-border: #6e6e73;
+	--vscode-textLink-foreground: #0050a0;
+	--vscode-input-foreground: #000000;
+	--vscode-input-border: #6e6e73;
+	--vscode-input-placeholderForeground: #5e5e63;
+	--vscode-dropdown-foreground: #000000;
+	--vscode-dropdown-border: #6e6e73;
+	--gg-sidebar-selected: rgba(0, 0, 0, 0.12);
+}
+
+/* Increase Contrast, dark. */
+:root.gg-dark.gg-contrast {
+	--vscode-foreground: #ffffff;
+	--vscode-descriptionForeground: #c7c7cc;
+	--vscode-contrastBorder: #98989d;
+	--vscode-widget-shadow: rgba(0, 0, 0, 0.7);
+	--vscode-editor-findMatchHighlightBorder: #ffb340;
+	--vscode-editor-foreground: #ffffff;
+	--vscode-editorWidget-foreground: #ffffff;
+	--vscode-editorWidget-border: #98989d;
+	--vscode-editorSuggestWidget-foreground: #ffffff;
+	--vscode-menu-foreground: #ffffff;
+	--vscode-menu-selectionBorder: #ffffff;
+	--vscode-menu-border: #98989d;
+	--vscode-menu-separatorBackground: #98989d;
+	--vscode-list-hoverBackground: rgba(255, 255, 255, 0.14);
+	--vscode-panel-border: #98989d;
+	--vscode-textLink-foreground: #70b4ff;
+	--vscode-input-foreground: #ffffff;
+	--vscode-input-border: #98989d;
+	--vscode-input-placeholderForeground: #aeaeb2;
+	--vscode-dropdown-foreground: #ffffff;
+	--vscode-dropdown-border: #98989d;
+	--gg-sidebar-selected: rgba(255, 255, 255, 0.16);
+}
+
+/* Upstream draws the edges of its own controls in a fixed translucent grey (about 1.8:1 on
+ * white), the same in every theme. With Increase Contrast the controls one can act on get the
+ * contrast border instead; decorative separators stay as they are. */
+body.vscode-high-contrast .customCheckbox,
+body.vscode-high-contrast .customRadio,
+body.vscode-high-contrast .roundedBtn,
+body.vscode-high-contrast .dropdownCurrentValue,
+body.vscode-high-contrast .dropdownMenu,
+body.vscode-high-contrast .dropdownFilterInput,
+body.vscode-high-contrast .customSelectCurrent,
+body.vscode-high-contrast .dialog,
+body.vscode-high-contrast .dialogContent > table.dialogForm input[type=text],
+body.vscode-high-contrast .dialogContent > table.dialogForm textarea,
+body.vscode-high-contrast .gitRef,
+body.vscode-high-contrast #controls {
+	border-color: var(--vscode-contrastBorder);
+}
+
+/* Upstream's vscode-high-contrast palette assumes a dark background (white tints); in the light
+ * high-contrast theme (both classes) the tints are black. */
+body.vscode-high-contrast.vscode-high-contrast-light {
+	--gg-muted-detail: rgba(0, 0, 0, 0.16);
+	--gg-muted-detail-background: rgba(0, 0, 0, 0.12);
+}
+
+html, body {
+	margin: 0;
+	padding: 0;
+	background-color: var(--vscode-editor-background);
+	color: var(--vscode-foreground);
+	font-family: var(--vscode-font-family);
+	font-size: var(--vscode-font-size);
+}
+
+/* Shown while no repository is open (host/main.js showPicker). */
+#ggOpenRepo {
+	display: flex; flex-direction: column; align-items: center; justify-content: center;
+	height: 100vh; gap: 12px;
+}
+#ggOpenRepo button {
+	font: inherit; padding: 6px 16px; border-radius: 6px; border: none;
+	background: var(--vscode-button-background); color: var(--vscode-button-foreground); cursor: pointer;
+}
+#ggOpenRepo .error { color: var(--vscode-errorForeground); max-width: 80vw; white-space: pre-wrap; }
+
+/* Credential prompt (host/askpass.js), above everything the webview draws. */
+#ggAskpass {
+	position: fixed; inset: 0; z-index: 100000;
+	display: flex; align-items: center; justify-content: center;
+	background: rgba(0, 0, 0, 0.35);
+}
+#ggAskpass .ggAskpassBox {
+	width: min(420px, calc(100vw - 32px)); box-sizing: border-box;
+	padding: 18px 20px 16px; border-radius: 12px;
+	background: var(--vscode-editorWidget-background); color: var(--vscode-editorWidget-foreground);
+	border: 1px solid var(--vscode-editorWidget-border);
+	box-shadow: 0 12px 40px var(--vscode-widget-shadow);
+	display: flex; flex-direction: column; gap: 10px;
+}
+#ggAskpass .ggAskpassTitle { font-weight: 600; font-size: 14px; }
+#ggAskpass .ggAskpassPrompt { word-break: break-word; }
+#ggAskpass input {
+	font: inherit; padding: 6px 8px; border-radius: 6px; outline: none;
+	background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+	border: 1px solid var(--vscode-input-border);
+}
+#ggAskpass input:focus { border-color: var(--vscode-focusBorder); }
+#ggAskpass .ggAskpassButtons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+#ggAskpass button {
+	font: inherit; padding: 4px 14px; border-radius: 6px; cursor: pointer;
+	border: 1px solid var(--vscode-input-border);
+	background: var(--vscode-input-background); color: var(--vscode-foreground);
+}
+#ggAskpass button.ggAskpassOk { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent; }
+
+/* Start page: recent folders (host/main.js showPicker). */
+#ggOpenRepo .recent { width: min(520px, calc(100vw - 32px)); }
+#ggOpenRepo .recent h3 { font-size: 12px; font-weight: 600; color: var(--vscode-descriptionForeground); margin: 16px 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+#ggOpenRepo .recent ul { list-style: none; margin: 0; padding: 0; }
+#ggOpenRepo .recent button.recentRepo {
+	width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;
+	padding: 6px 10px; border-radius: 6px; background: none; color: var(--vscode-foreground); font: inherit;
+}
+#ggOpenRepo .recent button.recentRepo:hover { background: var(--vscode-list-hoverBackground); }
+#ggOpenRepo .recent .where { font-size: 11px; color: var(--vscode-descriptionForeground); }
+
+/* The graph's lines vanish in WKWebView once the window is resized (only the vertices stay,
+ * until hovering one repaints): WebKit loses the vertical paths of the SVG <mask> upstream puts
+ * on the whole graph (graph.ts render: mask="url(#GraphMask)"), which only fades the right edge
+ * when the graph is wider than its column. The SVG mask is switched off and the same fade is
+ * drawn with a CSS mask over the last 10px of the svg (its right padding when it is not cut). */
+#commitGraph g[mask] { mask: none; }
+#commitGraph > svg {
+	-webkit-mask-image: linear-gradient(to right, #000 calc(100% - 10px), transparent);
+	mask-image: linear-gradient(to right, #000 calc(100% - 10px), transparent);
+}

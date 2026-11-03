@@ -1,0 +1,3 @@
+[submodule "vendor/vscode-git-graph-rs"]
+	path = vendor/vscode-git-graph-rs
+	url = https://github.com/neophack/vscode-git-graph-rs
