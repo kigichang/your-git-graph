@@ -158,7 +158,7 @@ const system = {
 	openUrl: (url) => invoke('open_url', { url }),
 	openPath: (path) => invoke('open_path', { path }),
 	terminal: (cwd, gitArgs) => invoke('open_terminal', { cwd, gitArgs }),
-	showError: (message) => dialog.message(message, { title: 'Git Graph', kind: 'error' }),
+	showError: (message) => dialog.message(message, { title: 'Your Git Graph', kind: 'error' }),
 	openDiff: (spec) => invoke('open_diff_window', { spec: JSON.stringify(spec), title: spec.title }),
 	openSettings: async () => invoke('open_path', { path: await invoke('settings_path'), text: true }),
 	openLog: async () => invoke('open_path', { path: await invoke('session_log_path'), text: true }),
@@ -250,7 +250,7 @@ thisWindow.listen('menu-command', ({ payload }) => {
 });
 
 function setTitle() {
-	const title = repoRoot.split('/').pop() + ' — Git Graph';
+	const title = repoRoot.split('/').pop() + ' — Your Git Graph';
 	document.title = title;
 	thisWindow.setTitle(title).catch(() => {});
 }
@@ -539,7 +539,7 @@ async function boot(path) {
 }
 
 async function showPicker(error) {
-	document.body.innerHTML = '<div id="ggOpenRepo"><h2>Git Graph</h2><button id="ggOpenBtn">Open Repository…</button>'
+	document.body.innerHTML = '<div id="ggOpenRepo"><h2>Your Git Graph</h2><button id="ggOpenBtn">Open Repository…</button>'
 		+ '<div class="error" hidden></div><div class="recent" hidden><h3>Recent</h3><ul></ul></div></div>';
 	if (error) Object.assign(document.querySelector('#ggOpenRepo .error'), { hidden: false, textContent: error });
 	document.getElementById('ggOpenBtn').addEventListener('click', async () => {

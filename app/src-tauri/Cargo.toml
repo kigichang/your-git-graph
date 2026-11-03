@@ -1,7 +1,7 @@
 [package]
 name = "git-graph-app"
 version = "0.3.3"
-description = "Git Graph as a standalone macOS app (Tauri 2 + git-graph-core)"
+description = "Your Git Graph: a standalone macOS app (Tauri 2 + git-graph-core)"
 edition = "2021"
 license = "MIT"
 rust-version = "1.82"

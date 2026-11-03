@@ -1,4 +1,4 @@
-# Git Graph for macOS (PoC)
+# Your Git Graph
 
 A Tauri 2 shell around [vscode-git-graph-rs](https://github.com/neophack/vscode-git-graph-rs)
 (submodule in `vendor/`). The upstream webview runs unchanged; `app/ui/host/` stands in for the
@@ -23,13 +23,13 @@ git clone --recursive https://github.com/kigichang/your-git-graph   # or: git su
 (cd vendor/vscode-git-graph-rs && npm ci && npm run compile-src && npm run compile-web)
 (cd app && npm ci)                 # Monaco + esbuild for the diff window
 node app/scripts/prepare-ui.mjs
-app/scripts/build-app.sh --install  # → /Applications/Git Graph.app (add --dmg, --universal)
+app/scripts/build-app.sh --install  # → /Applications/Your Git Graph.app (add --dmg, --universal)
 ```
 
 Builds are ad-hoc signed for use on your own Mac (no Apple Developer account, no notarization).
-Copied to another Mac, the app needs `xattr -dr com.apple.quarantine "/Applications/Git Graph.app"` first.
+Copied to another Mac, the app needs `xattr -dr com.apple.quarantine "/Applications/Your Git Graph.app"` first.
 
-Run against a repository, or a folder holding several: `"Git Graph.app/Contents/MacOS/git-graph-app" /path/to/repo`
+Run against a repository, or a folder holding several: `"Your Git Graph.app/Contents/MacOS/git-graph-app" /path/to/repo`
 (or launch without arguments: it reopens the repository shown last, or the start page).
 The sidebar on the left lists the repositories added to the app (＋, File > Open Repository… ⌘O,
 Open Recent) with how far each is ahead of / behind its upstream; click one to show it, right-click

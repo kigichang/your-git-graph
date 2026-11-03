@@ -201,7 +201,7 @@ pub fn new_window<R: Runtime>(app: &AppHandle<R>, folder: Option<&str>) -> Resul
     };
     app.state::<Windows>().0.lock().unwrap().insert(label.clone(), WindowState::default());
     tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App("index.html".into()))
-        .title("Git Graph")
+        .title("Your Git Graph")
         .inner_size(1280.0, 820.0)
         .min_inner_size(640.0, 400.0)
         .initialization_script(script)

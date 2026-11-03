@@ -80,7 +80,7 @@ git submodule update --init
 (cd app && npm ci)
 node app/scripts/prepare-ui.mjs
 cd app/src-tauri && cargo build                            # debug
-cd app/src-tauri && cargo tauri build --bundles app        # → target/release/bundle/macos/Git Graph.app
+cd app/src-tauri && cargo tauri build --bundles app        # → target/release/bundle/macos/Your Git Graph.app
 app/scripts/build-app.sh [--universal] [--dmg] [--install]  # 打包的正式做法（含 prepare-ui 與驗證）
 ```
 
@@ -131,7 +131,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]  # 打包的正式做
 - **repo 與視窗**（側欄）：
   - **側欄的清單**存在 `state.json` 的 `sidebar`（`{ repos, collapsed }`），所有視窗共用；某個視窗改了，其他視窗經 `state-changed` 跟著更新（`sidebarChangedElsewhere`）。第一次（沒有這個 key 時）用最近清單的 repo 當初始內容。每個視窗一次顯示其中一個 repo（`repoRoot`），全域記住最後顯示的（`lastActiveRepo`），下次沒帶路徑啟動就開它；打不開的（例如外接磁碟沒接上）跳過並在側欄變淡。
   - **切換**：送上游的 `loadRepos`，帶完整的 repo 集合和 `loadViewTo: { repo }`（`showInView`），webview 自己切過去；webview 送來新 repo 的 `loadRepoInfo`/`loadCommits` 時，host 才把 `repoRoot` 改過去（`shown`：標題、側欄、`lastActiveRepo`、`repo_opened`）。不要直接改 `repoRoot`，否則 host 和 webview 會不一致。
-  - **加入**：側欄的 ＋、File > Open Repository…（⌘O）、Open Recent、命令列的路徑、從 Finder 拖到視窗上或 Dock 圖示上（或 `open -a "Git Graph" <資料夾>`）的資料夾都會加進清單並在目前的視窗顯示（`addAndShow`）。前端一律經 `openHere` 排隊：view 還沒載入時一次只做一個 `start`，開機途中送來的資料夾等它完成再加。路徑在某個 repo 裡就加那個 repo；否則往下掃最多 3 層（`repos.rs` 的 `scan`：找到的 repo 不再往裡面找，略過隱藏資料夾、`node_modules`、`target`、`build`、`dist`），找到的全部加入。Rust 的 `open_folder` 選目標視窗的順序：正在顯示它的 → 有焦點的 → `main` → 任何一個，送 `open-repo` 給它；沒有任何視窗才開新的。
+  - **加入**：側欄的 ＋、File > Open Repository…（⌘O）、Open Recent、命令列的路徑、從 Finder 拖到視窗上或 Dock 圖示上（或 `open -a "Your Git Graph" <資料夾>`）的資料夾都會加進清單並在目前的視窗顯示（`addAndShow`）。前端一律經 `openHere` 排隊：view 還沒載入時一次只做一個 `start`，開機途中送來的資料夾等它完成再加。路徑在某個 repo 裡就加那個 repo；否則往下掃最多 3 層（`repos.rs` 的 `scan`：找到的 repo 不再往裡面找，略過隱藏資料夾、`node_modules`、`target`、`build`、`dist`），找到的全部加入。Rust 的 `open_folder` 選目標視窗的順序：正在顯示它的 → 有焦點的 → `main` → 任何一個，送 `open-repo` 給它；沒有任何視窗才開新的。
   - **Finder 與 Dock**：拖到視窗上是 Tauri 的 drag-drop 事件（`getCurrentWebview().onDragDropEvent`）。拖到 Dock 圖示、`open -a` 是 macOS 的 Opened 事件（`main.rs` 的 `opened`）：`main` 的頁面還沒呼叫 `initial_repo` 前先存在 `Launch`，由 `initial_repo` 一起回傳（所以它回傳的是清單）；之後直接走 `open_folder`。Dock 圖示要接受資料夾，靠 `Info.plist` 的 `CFBundleDocumentTypes`。self-test 只能模擬拖到視窗；Opened 要用打包好的 `.app` 測（`open -n --env GG_DATA_DIR=… -a <.app> <資料夾>`；正在執行時 `open -a` 會送給同一個 bundle ID 的 App，可能是 /Applications 那份，先把它關掉）。
   - **移除**（右鍵選單）：移除目前顯示的 repo 時改顯示接替它位置的那一個（`removeRepo`）；清單空了就重新載入成起始畫面（`sessionStorage` 的 `gg.reopen` 設成空字串，避免又開回命令列的路徑）。
   - **排序**：拖拉側欄的項目（`sidebar.js` 用 pointer 事件自己做，移動超過 4px 才算拖拉，否則是點擊；Esc 取消）。**不用 HTML5 drag and drop**，Tauri 的檔案拖放處理會攔走它。新順序經 `moveRepo` 存回 `sidebar.repos`，其他視窗跟著變。`repo_opened` 比對清單時不看順序，所以排序不會重建監看。
@@ -198,7 +198,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]  # 打包的正式做
 - **不上 Mac App Store**：App Sandbox 會擋掉執行 `git` 和存取 `~/.ssh`。最低支援 macOS 13。
 - **簽章（個人使用，沒有 Apple Developer 帳號）**：`tauri.conf.json` 的 `bundle.macOS.signingIdentity` 是 `"-"`，也就是對整個 bundle 做 ad-hoc 簽章（識別碼 `dev.kigi.gitgraph`、封存資源、hardened runtime），不做 notarization。
   - 沒有這個設定時只會有 linker 自動加的簽章：識別碼是隨機的、Info.plist 沒綁定，`codesign --verify` 會失敗。`build-app.sh` 會檢查 `codesign --verify --deep --strict` 和識別碼。
-  - `spctl` 會回 rejected，這是正常的。Gatekeeper 只檢查帶 `com.apple.quarantine` 的檔案，本機建置的沒有。若把 `.app`／dmg 經網路或 AirDrop 傳到另一台 Mac，會被說「已損毀」，要在那台執行 `xattr -dr com.apple.quarantine "/Applications/Git Graph.app"`。
+  - `spctl` 會回 rejected，這是正常的。Gatekeeper 只檢查帶 `com.apple.quarantine` 的檔案，本機建置的沒有。若把 `.app`／dmg 經網路或 AirDrop 傳到另一台 Mac，會被說「已損毀」，要在那台執行 `xattr -dr com.apple.quarantine "/Applications/Your Git Graph.app"`。
   - ad-hoc 簽章每次建置的 cdhash 都不同，所以 macOS 可能在每次重新建置後再問一次權限（例如互動式 rebase 用 AppleScript 控制 Terminal）。不想被重複詢問時，可以在 Keychain Access 建一個自簽的「程式碼簽署」憑證，用 `APPLE_SIGNING_IDENTITY="<憑證名稱>" app/scripts/build-app.sh` 簽（Tauri 的環境變數會覆蓋設定檔），識別就會跨建置固定。目前沒做。
   - hardened runtime 下的 `.app` 已驗證：多 repo self-test、HTTP 帳密、從 Finder 啟動（PATH 只有系統目錄）都通過。
   - 如果以後要公開散布：申請 Developer ID 後，`signingIdentity` 改成憑證名稱，加上 `APPLE_ID`/`APPLE_PASSWORD`/`APPLE_TEAM_ID` 做 notarization（還要先完成 Stage 2，見授權限制）。

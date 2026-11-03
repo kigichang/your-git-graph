@@ -1,12 +1,13 @@
 #!/bin/bash
-# Build "Git Graph.app" for personal use: ad-hoc signed (no Apple Developer account, no
+# Build "Your Git Graph.app" for personal use: ad-hoc signed (no Apple Developer account, no
 # notarization), checked, and optionally a dmg and an install into /Applications.
 #
 #   app/scripts/build-app.sh [--universal] [--dmg] [--install]
 #
 #   --universal  arm64 + x86_64 (needs: rustup target add aarch64-apple-darwin x86_64-apple-darwin)
 #   --dmg        also build the disk image
-#   --install    replace /Applications/Git Graph.app with the new build
+#   --install    replace /Applications/Your Git Graph.app with the new build
+#                (also removes an older install named "Git Graph.app")
 #
 # Prerequisites (once): git submodule update --init; in vendor/vscode-git-graph-rs
 # `npm ci && npm run compile-src && npm run compile-web`; in app/ `npm ci`.
@@ -47,7 +48,7 @@ node "$app_dir/scripts/prepare-ui.mjs"
 echo "==> build ($bundles${target_args:+, universal})"
 (cd "$tauri_dir" && cargo tauri build --bundles "$bundles" ${target_args[@]+"${target_args[@]}"})
 
-bundle="$out/macos/Git Graph.app"
+bundle="$out/macos/Your Git Graph.app"
 echo "==> check $bundle"
 codesign --verify --deep --strict "$bundle"
 identifier="$(codesign -dv "$bundle" 2>&1 | sed -n 's/^Identifier=//p')"
@@ -57,13 +58,21 @@ echo "signed ($(codesign -dv "$bundle" 2>&1 | sed -n 's/^Signature=//p')), $arch
 [ "$dmg" = 1 ] && ls -1 "$out"/dmg/*.dmg
 
 if [ "$install" = 1 ]; then
-	dest="/Applications/Git Graph.app"
+	dest="/Applications/Your Git Graph.app"
+	legacy="/Applications/Git Graph.app"  # the old name of this app (same bundle identifier)
+	ours() { [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null || true)" = dev.kigi.gitgraph ]; }
+	running() { pgrep -f "$1/Contents/MacOS/" >/dev/null; }
 	if [ -e "$dest" ]; then
-		existing="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$dest/Contents/Info.plist" 2>/dev/null || true)"
-		[ "$existing" = dev.kigi.gitgraph ] || { echo "$dest is not this app ($existing): not replaced" >&2; exit 1; }
-		pgrep -f "$dest/Contents/MacOS/" >/dev/null && { echo "Git Graph is running from $dest: quit it first" >&2; exit 1; }
-		rm -rf "$dest"
+		ours "$dest" || { echo "$dest is not this app: not replaced" >&2; exit 1; }
+		running "$dest" && { echo "the app is running from $dest: quit it first" >&2; exit 1; }
 	fi
+	if [ -e "$legacy" ] && ours "$legacy"; then
+		running "$legacy" && { echo "the app is running from $legacy: quit it first" >&2; exit 1; }
+	else
+		legacy=""
+	fi
+	rm -rf "$dest"
 	ditto "$bundle" "$dest"
 	echo "installed $dest"
+	if [ -n "$legacy" ]; then rm -rf "$legacy"; echo "removed $legacy"; fi
 fi

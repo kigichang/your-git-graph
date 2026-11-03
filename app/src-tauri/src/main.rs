@@ -1,4 +1,4 @@
-//! Git Graph for macOS - PoC.
+//! Your Git Graph: a macOS app around vscode-git-graph-rs.
 //!
 //! The upstream webview runs unchanged in the Tauri window; `ui/host/` plays the extension
 //! host and reaches the engine through `engine_request`, which is upstream's single JSON entry
@@ -187,7 +187,7 @@ fn main() {
             state::session_log_path
         ])
         .build(tauri::generate_context!())
-        .expect("error while building Git Graph")
+        .expect("error while building Your Git Graph")
         .run(|app, event| {
             // The view state is written shortly after each change: write what is pending now.
             match event {
