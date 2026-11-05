@@ -69,14 +69,14 @@ export function badgeOf(status) {
 
 const STRINGS = {
 	en: {
-		title: 'Repositories', add: 'Add Repository', addLocal: 'Add Local Repository…', addRemote: 'Add SSH Repository…', collapse: 'Hide Sidebar (⌃⌘S)', expand: 'Show Sidebar (⌃⌘S)', settings: 'Settings',
+		title: 'Repositories', add: 'Add Repository', addLocal: 'Add Local Repository…', addRemote: 'Add SSH Repository…', addServer: 'Connect to Server (SMB)…', collapse: 'Hide Sidebar (⌃⌘S)', expand: 'Show Sidebar (⌃⌘S)', settings: 'Settings',
 		reveal: 'Reveal in Finder', terminal: 'Open in Terminal', newWindow: 'Open in New Window', remove: 'Remove from Sidebar',
 		missing: 'Not found — click to try again', offline: 'Not connected — click to connect', ahead: (n) => n + ' commit' + (n === 1 ? '' : 's') + ' to push', behind: (n) => n + ' commit' + (n === 1 ? '' : 's') + ' to pull'
 	},
 	// The view's Chinese ('zh-cn' is the language code its code knows): Traditional Chinese
 	// (Taiwan) in this app - see host/settings.js and scripts/zh-tw.mjs.
 	'zh-cn': {
-		title: '儲存庫', add: '加入儲存庫', addLocal: '加入本機儲存庫…', addRemote: '加入 SSH 儲存庫…', collapse: '隱藏側邊欄 (⌃⌘S)', expand: '顯示側邊欄 (⌃⌘S)', settings: '設定',
+		title: '儲存庫', add: '加入儲存庫', addLocal: '加入本機儲存庫…', addRemote: '加入 SSH 儲存庫…', addServer: '連線到伺服器 (SMB)…', collapse: '隱藏側邊欄 (⌃⌘S)', expand: '顯示側邊欄 (⌃⌘S)', settings: '設定',
 		reveal: '在 Finder 中顯示', terminal: '在終端機中開啟', newWindow: '在新視窗中開啟', remove: '從側邊欄移除',
 		missing: '找不到 — 點一下重試', offline: '尚未連線 — 點一下連線', ahead: (n) => n + ' 個提交待推送', behind: (n) => n + ' 個提交待拉取'
 	}
@@ -105,7 +105,7 @@ const iconButton = (icon, title, onClick) => {
 	return b;
 };
 
-/** The sidebar in `document.body`. actions: { select(repo), add(), addRemote(), remove(repo), reveal(repo),
+/** The sidebar in `document.body`. actions: { select(repo), add(), addRemote(), addServer(), remove(repo), reveal(repo),
  * terminal(repo), newWindow(repo), move(repo, before), toggle(), settings() }; move: dragged to
  * just before `before` (null: the end). Returns { render(state) } where
  * state is { repos, current, status: { [repo]: { ahead, behind } | { missing: true } },
@@ -121,7 +121,7 @@ export function createSidebar(actions) {
 	const title = el('span', 'ggSidebarTitle');
 	const addBtn = iconButton('plus', '', () => {
 		const box = addBtn.getBoundingClientRect();
-		openMenu([[t().addLocal, actions.add], [t().addRemote, actions.addRemote]], box.left, box.bottom + 2);
+		openMenu([[t().addLocal, actions.add], [t().addRemote, actions.addRemote], [t().addServer, actions.addServer]], box.left, box.bottom + 2);
 	});
 	const hideBtn = iconButton('sidebar', '', () => actions.toggle());
 	head.append(title, addBtn, hideBtn);

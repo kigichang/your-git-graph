@@ -177,6 +177,8 @@ fn main() {
             system::open_url,
             system::open_path,
             system::open_terminal,
+            system::mount_volume,
+            system::network_volume,
             askpass::askpass_reply,
             remote::remote_connect,
             remote::remote_disconnect,

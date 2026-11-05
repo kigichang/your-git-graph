@@ -20,12 +20,19 @@ pub fn write_atomic(file: &Path, contents: &[u8]) -> std::io::Result<()> {
     let dir = file.parent().ok_or_else(|| std::io::Error::other("no parent directory"))?;
     std::fs::create_dir_all(dir)?;
     let tmp = dir.join(format!(".{}.{}.tmp", file.file_name().unwrap_or_default().to_string_lossy(), std::process::id()));
-    {
+    let write = || {
         let mut f = std::fs::File::create(&tmp)?;
         f.write_all(contents)?;
-        f.sync_all()?;
-    }
-    std::fs::rename(&tmp, file)
+        // A network volume (smbfs) cannot be told to flush to disk: the rename still is atomic.
+        match f.sync_all() {
+            Err(e) if e.raw_os_error() != Some(libc::ENOTSUP) => return Err(e),
+            _ => {}
+        }
+        std::fs::rename(&tmp, file)
+    };
+    write().inspect_err(|_| {
+        let _ = std::fs::remove_file(&tmp);
+    })
 }
 
 #[derive(Debug, PartialEq, Serialize)]

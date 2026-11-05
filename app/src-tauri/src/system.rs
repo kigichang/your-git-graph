@@ -1,5 +1,6 @@
 //! macOS integrations the VS Code host got from the editor: the clipboard, opening URLs and
-//! files with their default app, and Terminal.
+//! files with their default app, and Terminal. Also network volumes: mounting a share, and
+//! telling which share a folder is on.
 
 use std::io::Write;
 use std::path::Path;
@@ -112,9 +113,86 @@ pub fn open_terminal(cwd: String, git_args: Option<Vec<String>>) -> Result<(), S
     terminal_do(&line)
 }
 
+/* ---------- Network volumes ---------- */
+
+/// What is wrong with `url` as a share to mount, if anything: `smb://[user@]server/share`.
+fn invalid_share(url: &str) -> Option<&'static str> {
+    let Some(rest) = url.strip_prefix("smb://") else { return Some("The address of a share starts with smb://") };
+    if url.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return Some("The address of a share contains no spaces (write %20).");
+    }
+    match rest.split_once('/') {
+        Some((server, share)) if !server.is_empty() && !share.is_empty() => None,
+        _ => Some("The address of a share is smb://server/share"),
+    }
+}
+
+/// Mount the share at `url` as the Finder's Connect to Server does (macOS asks for the name and
+/// password itself and keeps them in the keychain; a share already mounted is just found):
+/// where it is mounted.
+#[tauri::command]
+pub async fn mount_volume(url: String) -> Result<String, String> {
+    if let Some(problem) = invalid_share(&url) {
+        return Err(format!("{problem}."));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let script = format!("POSIX path of (mount volume {})", applescript_quote(&url));
+        let output = Command::new("/usr/bin/osascript").args(["-e", &script]).stdin(Stdio::null()).output().map_err(|e| e.to_string())?;
+        if !output.status.success() {
+            // "execution error: <what the Finder says> (-<number>)"
+            let said = String::from_utf8_lossy(&output.stderr);
+            let said = said.trim().rsplit_once("execution error: ").map_or(said.trim(), |(_, message)| message);
+            return Err(format!("Cannot connect to {url}: {said}"));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).trim().trim_end_matches('/').to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn c_text(chars: &[libc::c_char]) -> String {
+    let bytes: Vec<u8> = chars.iter().take_while(|&&c| c != 0).map(|&c| c as u8).collect();
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// The share `path` is on, as an address `mount_volume` takes, when it is on an SMB volume.
+fn share_of(path: &Path) -> Option<String> {
+    use std::os::unix::ffi::OsStrExt;
+    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    // SAFETY: statfs fills the struct it is given for a NUL-terminated path.
+    let mut info: libc::statfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statfs(c_path.as_ptr(), &mut info) } != 0 {
+        return None;
+    }
+    // smbfs names what it mounted "//[user@]server/share".
+    (c_text(&info.f_fstypename) == "smbfs").then(|| format!("smb:{}", c_text(&info.f_mntfromname)))
+}
+
+/// The address of the share the folder `path` is on, `null` for a local folder (or one that is
+/// not there): what to mount to get it back when its volume is gone.
+#[tauri::command]
+pub async fn network_volume(path: String) -> Option<String> {
+    if !matches!(crate::remote::parse(&path), Ok(None)) {
+        return None;
+    }
+    tauri::async_runtime::spawn_blocking(move || share_of(Path::new(&path))).await.ok().flatten()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shares() {
+        for fine in ["smb://nas/projects", "smb://me@nas.local/projects/sub", "smb://me@10.0.0.2:1445/My%20Share"] {
+            assert_eq!(invalid_share(fine), None, "{fine}");
+        }
+        for bad in ["nas/projects", "afp://nas/x", "smb://", "smb://nas", "smb://nas/", "smb:///share", "smb://nas/my share", "smb://nas/x\ny"] {
+            assert!(invalid_share(bad).is_some(), "{bad}");
+        }
+        assert_eq!(share_of(Path::new("/")), None, "a local volume");
+        assert_eq!(share_of(Path::new("/nonexistent/gg")), None);
+    }
 
     /// The line Terminal gets, with ssh replaced by a program printing its arguments: what the
     /// other machine's shell is handed is exactly `cd <path> && git <args>`.

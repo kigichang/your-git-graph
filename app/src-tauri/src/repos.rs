@@ -254,8 +254,8 @@ const APPEARANCES: [(&str, &str); 3] = [("system", "System"), ("light", "Light")
 const COMMAND_PREFIX: &str = "command:";
 
 /// The default menu (it carries Edit, without which ⌘C/⌘V do not work in text fields) with
-/// Settings… in the app menu; New Window, Open Repository…, Add SSH Repository… and Open Recent
-/// at the top of File; and the view's commands at the top of View.
+/// Settings… in the app menu; New Window, Open Repository…, Add SSH Repository…, Connect to
+/// Server… and Open Recent at the top of File; and the view's commands at the top of View.
 pub fn menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let menu = Menu::default(app)?;
     let submenus: Vec<Submenu<R>> = menu
@@ -279,8 +279,9 @@ pub fn menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         file.insert(&MenuItem::with_id(app, NEW_WINDOW_ID, "New Window", true, Some("CmdOrCtrl+N"))?, 0)?;
         file.insert(&MenuItem::with_id(app, OPEN_ID, "Open Repository…", true, Some("CmdOrCtrl+O"))?, 1)?;
         file.insert(&command("addRemote", "Add SSH Repository…", None)?, 2)?;
-        file.insert(&recent, 3)?;
-        file.insert(&PredefinedMenuItem::separator(app)?, 4)?;
+        file.insert(&command("addServer", "Connect to Server (SMB)…", None)?, 3)?;
+        file.insert(&recent, 4)?;
+        file.insert(&PredefinedMenuItem::separator(app)?, 5)?;
     }
     if let Some(view) = named("View") {
         // ⌘R and ⌘F are the view's own shortcuts too; the menu takes the keys first and hands

@@ -11,7 +11,7 @@ import { configFrom } from './settings.js';
 import { importRepoConfig } from './repoconfig.js';
 import { createSidebar, addRepos, removeRepo, moveRepo, parseAheadBehind, baseName } from './sidebar.js';
 import { isRemote, parseRemote, hostOf, withPath, absolutePath, remoteId } from './remote.js';
-import { askRemote } from './addremote.js';
+import { askRemote, askServer } from './addremote.js';
 
 const { invoke, Channel } = window.__TAURI__.core;
 const dialog = window.__TAURI__.dialog;
@@ -147,9 +147,10 @@ events.listen('settings-changed', () => reloadConfig());
 thisWindow.onFocusChanged(({ payload: focused }) => {
 	if (!focused) return;
 	reloadConfig();
-	// A repository on another machine: only its git directory is watched there (remote.rs), so
-	// edits of its work tree show when the window comes back to the front.
-	if (viewLoaded && isRemote(repoRoot) && !(repoStatus[repoRoot] && repoStatus[repoRoot].missing) && operationsRunning === 0) {
+	// A repository on another machine: only its git directory is watched there (remote.rs), and
+	// on a network share nothing tells of what other machines change. Both show what happened
+	// meanwhile when the window comes back to the front.
+	if (viewLoaded && (isRemote(repoRoot) || repoRoot in shares()) && !(repoStatus[repoRoot] && repoStatus[repoRoot].missing) && operationsRunning === 0) {
 		window.__ggDeliver({ command: 'refresh' });
 	}
 });
@@ -257,6 +258,7 @@ const MENU_COMMANDS = {
 };
 thisWindow.listen('menu-command', ({ payload }) => {
 	if (payload === 'addRemote') addRemote(); // File > Add SSH Repository…: on the start page too
+	else if (payload === 'addServer') connectServer();
 	else if (viewLoaded && payload in MENU_COMMANDS) MENU_COMMANDS[payload]();
 });
 
@@ -324,12 +326,25 @@ async function addAndShow(path) {
 	setRepos(addRepos(windowRepos, found));
 	showInView(found.includes(repoRoot) ? repoRoot : found[0]);
 	updateStatus(added);
+	rememberShares(added);
 }
 
-/** A click on a faded row: connect to its machine (or look for the folder again), then show it. */
+/* The network shares the sidebar's local repositories are on (state.json "mounts": repo → the
+ * share's address), noted while they are mounted: what to mount when one is not there. */
+const shares = () => store.get('mounts', {});
+async function rememberShares(repos) {
+	for (const repo of repos) {
+		const url = await invoke('network_volume', { path: repo }).catch(() => null);
+		if (url !== null && shares()[repo] !== url) { store.set('mounts', { ...shares(), [repo]: url }); log('on a network share: ' + repo + ' (' + url + ')'); }
+	}
+}
+
+/** A click on a faded row: connect to its machine, or mount its share (else just look for the
+ * folder again), then show it. */
 async function reconnect(repo) {
 	try {
 		if (isRemote(repo)) await invoke('remote_connect', { repo });
+		else if (repo in shares()) await invoke('mount_volume', { url: shares()[repo] });
 		await engine(repo, 'close').catch(() => {}); // a handle from before the volume went away
 		await engine(repo, 'open');
 	} catch (e) {
@@ -369,9 +384,22 @@ async function addRemote(initial, error) {
 	openHere(repo);
 }
 
+/** File > Connect to Server…, the sidebar's + menu, the start page: mount a share (macOS asks
+ * for the name and password), then pick the repository on it. */
+async function connectServer(initial, error) {
+	const language = config !== null ? config.interfaceLanguage : (await readConfig()).config.interfaceLanguage;
+	const answer = await askServer({ language, initial, error });
+	if (answer === null) return;
+	let mounted;
+	try { mounted = await invoke('mount_volume', { url: answer.url }); } catch (e) { connectServer(answer, String((e && e.message) || e)); return; }
+	const picked = await dialog.open({ directory: true, multiple: false, defaultPath: mounted, title: 'Add Repository' });
+	if (typeof picked === 'string') openHere(picked);
+}
+
 function removeFromSidebar(repo) {
 	const { list, show } = removeRepo(windowRepos, repo, repoRoot);
 	delete repoStatus[repo];
+	if (repo in shares()) { const rest = shares(); delete rest[repo]; store.set('mounts', rest); }
 	if (show === null) { // nothing left: the start page
 		saveSidebar({ repos: [] });
 		sessionStorage.setItem('gg.reopen', '');
@@ -409,6 +437,7 @@ function installSidebar() {
 			if (typeof picked === 'string') addAndShow(picked);
 		},
 		addRemote: () => addRemote(),
+		addServer: () => connectServer(),
 		remove: removeFromSidebar,
 		reveal: (repo) => invoke('open_path', { path: repo }).catch((e) => system.showError(String(e))),
 		terminal: (repo) => invoke('open_terminal', { cwd: repo, gitArgs: null }).catch((e) => system.showError(String(e))),
@@ -532,7 +561,10 @@ async function boot(path) {
 	repoRoot = null;
 	for (const repo of candidates) {
 		try {
-			if (isRemote(repo) && repo === candidates[0]) await invoke('remote_connect', { repo });
+			if (repo === candidates[0]) {
+				if (isRemote(repo)) await invoke('remote_connect', { repo });
+				else if (repo in shares() && (await invoke('network_volume', { path: repo })) === null) await invoke('mount_volume', { url: shares()[repo] });
+			}
 			await engine(repo, 'open'); repoRoot = repo; break;
 		} catch (e) { log('cannot open ' + repo + ': ' + e.message); repoStatus[repo] = { missing: true }; }
 	}
@@ -581,6 +613,7 @@ async function boot(path) {
 	window.dispatchEvent(new Event('load'));
 	viewLoaded = true;
 	updateStatus(list);
+	rememberShares(list.filter((repo) => !isRemote(repo)));
 	log(`booted ${path || '(last shown)'} (${repos.length} repositor${repos.length === 1 ? 'y' : 'ies'} in the sidebar, showing ${repoRoot}; engine ${engineVersion}, git ${gitInfo ? gitInfo.version : 'none'}, language ${config.interfaceLanguage}) in ${Math.round(performance.now() - t0)}ms`);
 	const previewScenes = await invoke('preview');
 	if (previewScenes !== null) runPreview(previewScenes.split(','));
@@ -603,7 +636,7 @@ async function boot(path) {
 }
 
 async function showPicker(error) {
-	document.body.innerHTML = '<div id="ggOpenRepo"><h2>Your Git Graph</h2><div><button id="ggOpenBtn">Open Repository…</button> <button id="ggOpenRemoteBtn">Add SSH Repository…</button></div>'
+	document.body.innerHTML = '<div id="ggOpenRepo"><h2>Your Git Graph</h2><div><button id="ggOpenBtn">Open Repository…</button> <button id="ggOpenRemoteBtn">Add SSH Repository…</button> <button id="ggOpenServerBtn">Connect to Server (SMB)…</button></div>'
 		+ '<div class="error" hidden></div><div class="recent" hidden><h3>Recent</h3><ul></ul></div></div>';
 	if (error) Object.assign(document.querySelector('#ggOpenRepo .error'), { hidden: false, textContent: error });
 	document.getElementById('ggOpenBtn').addEventListener('click', async () => {
@@ -611,6 +644,7 @@ async function showPicker(error) {
 		if (typeof picked === 'string') start(picked);
 	});
 	document.getElementById('ggOpenRemoteBtn').addEventListener('click', () => addRemote());
+	document.getElementById('ggOpenServerBtn').addEventListener('click', () => connectServer());
 	const recent = await invoke('recent_repos').catch(() => []);
 	const list = document.querySelector('#ggOpenRepo .recent ul');
 	for (const path of recent) {
@@ -682,6 +716,8 @@ async function runPreview(scenes) {
 				document.querySelector('.ggSidebarHead .ggIconBtn').click();
 			} else if (scene === 'addremote') {
 				addRemote({ destination: 'me@build.example.com', port: '', path: '' }, 'Cannot connect to me@build.example.com: Permission denied (publickey,password).');
+			} else if (scene === 'addserver') {
+				connectServer();
 			} else if (scene === 'resize') {
 				await invoke('preview_resize', { width: 2400, height: 1300 });
 			} else if (scene === 'diff') {
