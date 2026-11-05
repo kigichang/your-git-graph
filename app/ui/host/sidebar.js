@@ -146,14 +146,15 @@ const iconButton = (icon, title, onClick) => {
 
 /** The sidebar in `document.body`. actions: { select(repo), add(), addRemote(), addServer(), remove(repo), reveal(repo),
  * terminal(repo), newWindow(repo), move(repo, group, before), newGroup(), renameGroup(name),
- * deleteGroup(name), moveGroup(name, before), toggle(), settings() }; move: dragged into `group`
+ * deleteGroup(name), moveGroup(name, before), foldGroup(name), toggle(), settings() }; move: dragged into `group`
  * (null: default), to just before `before` (null: its end); moveGroup: to just before the
  * group `before` (null: last). Returns { render(state) } where
- * state is { repos, groups, groupOf, current, status: { [repo]: { ahead, behind } | { missing: true } },
+ * state is { repos, groups, groupOf, folded (the names of the groups whose repositories are
+ * hidden, DEFAULT_GROUP for the default one), current, status: { [repo]: { ahead, behind } | { missing: true } },
  * collapsed, language }. select is also called for the current repository when it is missing
  * (not found, not connected): a click tries again. */
 export function createSidebar(actions) {
-	let state = { repos: [], groups: [], groupOf: {}, current: null, status: {}, collapsed: false, language: 'en' };
+	let state = { repos: [], groups: [], groupOf: {}, folded: [], current: null, status: {}, collapsed: false, language: 'en' };
 	const t = () => STRINGS[state.language] || STRINGS.en;
 
 	const nav = el('nav');
@@ -337,15 +338,19 @@ export function createSidebar(actions) {
 			return item;
 		};
 		list.replaceChildren(...groupsOf(state.repos, state.groups, state.groupOf).flatMap(({ group, repos }) => {
-			const header = el('div', 'ggGroup', group === null ? DEFAULT_GROUP : group);
+			const name = group === null ? DEFAULT_GROUP : group, folded = state.folded.includes(name);
+			const header = el('div', 'ggGroup' + (folded ? ' folded' : ''), name);
 			header.dataset.group = groupKey(group);
+			header.dataset.count = String(repos.length); // shown while folded (sidebar.css)
+			header.setAttribute('aria-expanded', String(!folded));
+			header.addEventListener('click', () => actions.foldGroup(name));
 			if (group !== null) {
 				header.addEventListener('contextmenu', (e) => {
 					e.preventDefault();
 					openMenu([[t().renameGroup, () => actions.renameGroup(group)], [t().deleteGroup, () => actions.deleteGroup(group)]], e.clientX, e.clientY);
 				});
 			}
-			return [header, ...repos.map((repo) => row(repo, group))];
+			return [header, ...(folded ? [] : repos.map((repo) => row(repo, group)))];
 		}));
 		markDrag();
 	}

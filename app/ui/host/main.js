@@ -282,18 +282,21 @@ const reportShown = () => invoke('repo_opened', { folder: repoRoot, repos: windo
 
 /* The groups of the sidebar (sidebar.js): their names in order, and each repository's group. */
 const groupsState = () => ({ groups: sidebarState().groups ?? [], groupOf: sidebarState().groupOf ?? {} });
+/* The names of the folded groups ("default" for that of the ungrouped). */
+const foldedGroups = () => sidebarState().foldedGroups ?? [];
 
 /** The + menu's New Group…, a group's Rename Group…: ask for the name and keep it. */
 async function nameGroup(current) {
 	const { groups, groupOf } = groupsState();
 	const answer = await askGroup({ language: config.interfaceLanguage, groups, current });
 	if (answer === null || answer.name === current) return;
-	saveSidebar(current === undefined ? { groups: [...groups, answer.name] } : renameGroup(groups, groupOf, current, answer.name));
+	saveSidebar(current === undefined ? { groups: [...groups, answer.name] }
+		: { ...renameGroup(groups, groupOf, current, answer.name), foldedGroups: foldedGroups().map((g) => (g === current ? answer.name : g)) });
 	renderSidebar();
 }
 
 function renderSidebar() {
-	if (sidebar !== null) sidebar.render({ repos: windowRepos, ...groupsState(), current: repoRoot, status: repoStatus, collapsed: sidebarState().collapsed, language: config.interfaceLanguage });
+	if (sidebar !== null) sidebar.render({ repos: windowRepos, ...groupsState(), folded: foldedGroups(), current: repoRoot, status: repoStatus, collapsed: sidebarState().collapsed, language: config.interfaceLanguage });
 }
 
 /** The view now shows `repo`: title, sidebar, watcher and the next launch follow. */
@@ -465,7 +468,14 @@ function installSidebar() {
 		moveGroup: (name, before) => { saveSidebar({ groups: moveRepo(groupsState().groups, name, before) }); renderSidebar(); },
 		newGroup: () => nameGroup(),
 		renameGroup: (name) => nameGroup(name),
-		deleteGroup: (name) => { saveSidebar(removeGroup(groupsState().groups, groupsState().groupOf, name)); renderSidebar(); },
+		deleteGroup: (name) => {
+			saveSidebar({ ...removeGroup(groupsState().groups, groupsState().groupOf, name), foldedGroups: foldedGroups().filter((g) => g !== name) });
+			renderSidebar();
+		},
+		foldGroup: (name) => {
+			saveSidebar({ foldedGroups: foldedGroups().includes(name) ? foldedGroups().filter((g) => g !== name) : [...foldedGroups(), name] });
+			renderSidebar();
+		},
 		toggle: toggleSidebar,
 		settings: () => click('settingsBtn')
 	});
@@ -1188,13 +1198,20 @@ async function selfTest(t0, gitInfo, options) {
 			check(JSON.stringify(store.get('sidebar').groups) === '["gg second","gg selftest"]' && JSON.stringify(groupNames()) === '["default","gg second","gg selftest"]'
 				&& row(otherFolder).dataset.group === 'gg selftest', 'dragging a group above another: ' + JSON.stringify(groupNames()));
 			groupMenu('gg second', 'Delete Group');
+			// A click on a group's name folds it away, and its rename keeps it folded.
+			await new Promise((r) => setTimeout(r, 0)); // the click right after a drag's release is not one
+			header('gg selftest').click();
+			check(row(otherFolder) === null && header('gg selftest').classList.contains('folded') && header('gg selftest').dataset.count === '1'
+				&& JSON.stringify(store.get('sidebar').foldedGroups) === '["gg selftest"]', 'folding the group: ' + JSON.stringify(store.get('sidebar')));
 			groupMenu('gg selftest', 'Rename Group…');
 			nameForm = await until('the Rename Group dialog', () => document.querySelector('#ggGroupName form'));
 			check(nameForm.elements.name.value === 'gg selftest', 'the dialog starts with the group\'s name');
 			nameForm.elements.name.value = 'gg renamed';
 			nameForm.requestSubmit();
 			await until('the renamed group', () => header('gg renamed'));
-			check(header('gg selftest') === undefined && store.get('sidebar').groupOf[otherFolder] === 'gg renamed' && row(otherFolder).dataset.group === 'gg renamed', 'renaming the group: ' + JSON.stringify(store.get('sidebar')));
+			check(header('gg selftest') === undefined && header('gg renamed').classList.contains('folded') && row(otherFolder) === null, 'the renamed group is no longer folded: ' + JSON.stringify(store.get('sidebar')));
+			header('gg renamed').click();
+			check(store.get('sidebar').foldedGroups.length === 0 && store.get('sidebar').groupOf[otherFolder] === 'gg renamed' && row(otherFolder).dataset.group === 'gg renamed', 'renaming and unfolding the group: ' + JSON.stringify(store.get('sidebar')));
 			groupMenu('gg renamed', 'Delete Group');
 			check(header('gg renamed') === undefined && row(otherFolder).dataset.group === '' && store.get('sidebar').groups.length === 0 && !(otherFolder in store.get('sidebar').groupOf),
 				'deleting the group: ' + JSON.stringify(store.get('sidebar')));
@@ -1205,7 +1222,7 @@ async function selfTest(t0, gitInfo, options) {
 			await until('the dropped folder shown here', () => repoRoot === otherFolder && rowsInSidebar().includes(otherFolder));
 			removeFromSidebar(otherFolder);
 			await until('back on ' + originally, () => repoRoot === originally);
-			log(`selftest: ${otherFolder.split('/').pop()} added and shown here, switched back through the sidebar, opened in window ${report.label} (its askpass prompt only there), dragged to the top, into a new group (reordered, renamed, deleted), removed, dropped on the window OK`);
+			log(`selftest: ${otherFolder.split('/').pop()} added and shown here, switched back through the sidebar, opened in window ${report.label} (its askpass prompt only there), dragged to the top, into a new group (reordered, folded, renamed, deleted), removed, dropped on the window OK`);
 		}
 
 		if (options.remote) {

@@ -167,6 +167,20 @@ body.ggSidebarCollapsed #ggSidebar {
 .ggGroup:first-child {
 	margin-top: 2px;
 }
+/* A click on the name folds the group away: the triangle turns, the number of its repositories shows. */
+.ggGroup::before {
+	content: '▾';
+	display: inline-block;
+	width: 12px;
+}
+.ggGroup.folded::before {
+	content: '▸';
+}
+.ggGroup.folded::after {
+	content: attr(data-count);
+	margin-left: 6px;
+	font-weight: 400;
+}
 /* A group dragged by its name: it fades, a line marks where it lands. */
 .ggGroup.dragging {
 	opacity: 0.4;

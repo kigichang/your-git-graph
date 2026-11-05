@@ -36,7 +36,7 @@ Run against a repository, or a folder holding several: `"Your Git Graph.app/Cont
 The sidebar on the left lists the repositories added to the app (＋, File > Open Repository… ⌘O,
 Open Recent) with how far each is ahead of / behind its upstream; click one to show it, right-click
 for Reveal in Finder, Open in Terminal, Open in New Window and Remove. Drag a repository to reorder it, or into a group: ＋ > New Group… makes one (right-click
-its name to rename or delete it, drag it to reorder the groups); repositories in no group are listed under "default". Toggle the
+its name to rename or delete it, drag it to reorder the groups, click it to fold the group away); repositories in no group are listed under "default". Toggle the
 sidebar with the button at its top or ⌃⌘S. File > New Window (⌘N) opens another window on the same list. The graph
 follows changes made elsewhere (a commit in a terminal, an edit in an editor) by itself.
 
