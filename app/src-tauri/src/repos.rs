@@ -392,8 +392,9 @@ pub fn on_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
         let _ = new_window(app, None);
     } else if id == OPEN_ID {
         let handle = app.clone();
-        app.dialog().file().set_title("Open Git Repository").pick_folder(move |picked| {
-            if let Some(path) = picked.and_then(|p| p.into_path().ok()) {
+        // Several folders can be selected: each is added, the last one ends up shown.
+        app.dialog().file().set_title("Open Git Repository").pick_folders(move |picked| {
+            for path in picked.into_iter().flatten().filter_map(|p| p.into_path().ok()) {
                 let _ = open_folder(&handle, &path.display().to_string());
             }
         });

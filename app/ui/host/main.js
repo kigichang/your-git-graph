@@ -240,6 +240,9 @@ events.listen('repo-changed', ({ payload }) => {
 let opening = Promise.resolve();
 const openHere = (path) => { opening = opening.then(() => (viewLoaded ? addAndShow(path) : start(path))); return opening; };
 thisWindow.listen('open-repo', ({ payload }) => openHere(payload));
+/** The folders picked in the system's dialog (several can be selected; none when cancelled).
+ * Each goes to openHere: added one after the other, the last one ends up shown. */
+const pickFolders = async (title, defaultPath) => (await dialog.open({ directory: true, multiple: true, defaultPath, title })) ?? [];
 window.__TAURI__.webview.getCurrentWebview().onDragDropEvent(({ payload }) => {
 	if (payload.type === 'drop') for (const path of payload.paths) openHere(path);
 });
@@ -392,8 +395,7 @@ async function connectServer(initial, error) {
 	if (answer === null) return;
 	let mounted;
 	try { mounted = await invoke('mount_volume', { url: answer.url }); } catch (e) { connectServer(answer, String((e && e.message) || e)); return; }
-	const picked = await dialog.open({ directory: true, multiple: false, defaultPath: mounted, title: 'Add Repository' });
-	if (typeof picked === 'string') openHere(picked);
+	(await pickFolders('Add Repository', mounted)).forEach(openHere);
 }
 
 function removeFromSidebar(repo) {
@@ -433,8 +435,7 @@ function installSidebar() {
 	sidebar = createSidebar({
 		select: (repo) => (repoStatus[repo] && repoStatus[repo].missing ? reconnect(repo) : showInView(repo)),
 		add: async () => {
-			const picked = await dialog.open({ directory: true, multiple: false, title: 'Add Repository' });
-			if (typeof picked === 'string') addAndShow(picked);
+			(await pickFolders('Add Repository')).forEach(openHere);
 		},
 		addRemote: () => addRemote(),
 		addServer: () => connectServer(),
@@ -640,8 +641,7 @@ async function showPicker(error) {
 		+ '<div class="error" hidden></div><div class="recent" hidden><h3>Recent</h3><ul></ul></div></div>';
 	if (error) Object.assign(document.querySelector('#ggOpenRepo .error'), { hidden: false, textContent: error });
 	document.getElementById('ggOpenBtn').addEventListener('click', async () => {
-		const picked = await dialog.open({ directory: true, multiple: false, title: 'Open Git Repository' });
-		if (typeof picked === 'string') start(picked);
+		(await pickFolders('Open Git Repository')).forEach(openHere);
 	});
 	document.getElementById('ggOpenRemoteBtn').addEventListener('click', () => addRemote());
 	document.getElementById('ggOpenServerBtn').addEventListener('click', () => connectServer());
