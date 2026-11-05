@@ -1,6 +1,6 @@
 [package]
 name = "gg-remote"
-version = "0.5.0"
+version = "0.5.1"
 description = "Your Git Graph: the helper the app runs on a remote machine over ssh"
 edition = "2021"
 license = "MIT"
