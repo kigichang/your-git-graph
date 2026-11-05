@@ -23,6 +23,8 @@ git clone --recursive https://github.com/kigichang/your-git-graph   # or: git su
 (cd vendor/vscode-git-graph-rs && npm ci && npm run compile-src && npm run compile-web)
 (cd app && npm ci)                 # Monaco + esbuild for the diff window
 node app/scripts/prepare-ui.mjs
+rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl   # the helper for repositories over ssh
+brew install filosottile/musl-cross/musl-cross                           # its linkers
 app/scripts/build-app.sh --install  # → /Applications/Your Git Graph.app (add --dmg, --universal)
 ```
 
@@ -37,6 +39,24 @@ for Reveal in Finder, Open in Terminal, Open in New Window and Remove. Toggle it
 at its top or ⌃⌘S. File > New Window (⌘N) opens another window on the same list. The graph
 follows changes made elsewhere (a commit in a terminal, an edit in an editor) by itself.
 
+**Repositories on other machines.** ＋ (or the File menu) also offers:
+
+- *Add SSH Repository…*: a host (`user@host`, or a `Host` of `~/.ssh/config`) and a folder there.
+  Nothing is mounted: as VS Code's Remote-SSH does, the app copies a small helper (the engine and
+  a git runner, `~/.cache/your-git-graph/` on that machine) and talks to it over one `ssh`
+  connection; git runs there. Linux (x86_64, arm64) and macOS (arm64) machines, with git and gzip
+  installed. ssh's questions (password, passphrase, host key) and those of the git over there
+  appear in the app. Commits, checkouts and fetches made there show by themselves; edits of the
+  work tree when the window comes back to the front. Not for such repositories: Reveal in Finder,
+  opening a file, the external directory diff, archives.
+- *Connect to Server (SMB)…*: mounts a share (`smb://server/share`; macOS asks for the name and
+  password) and lets you pick a repository on it. A repository on a share is an ordinary folder
+  to the app, which remembers the share's address.
+
+A repository whose machine is not connected, or whose share is not mounted, is faded in the
+sidebar: click it to connect or mount again. Only the repository shown last is reconnected at
+launch.
+
 `app/scripts/selftest.sh <binary> <repo or folder>` runs the built-in end-to-end self-test (it
 writes temporary branches/files into the repository: use a scratch clone).
 
@@ -44,7 +64,7 @@ writes temporary branches/files into the repository: use a scratch clone).
 
 ```sh
 cd app && npm test                 # host git operations against real git (temp repos), diff specs
-cd app/src-tauri && cargo test     # Rust commands
+cd app/src-tauri && cargo test --workspace   # Rust: the app, the shared backend, the remote helper
 ```
 
 ## Scope

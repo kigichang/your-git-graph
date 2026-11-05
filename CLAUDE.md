@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 把 VS Code 擴充套件 [vscode-git-graph-rs](https://github.com/neophack/vscode-git-graph-rs) 移植成 macOS App，使用 **Tauri 2**。
-目前狀態：**Stage 1 完成**（自用版）。PoC、第 1 項 `git_exec`、第 2 項（host 涵蓋完整協定，走路線 (b)）、第 4 項 repo 管理、第 5 項 diff 檢視（Monaco）、第 6 項 askpass、第 7 項設定與狀態存檔、第 8 項打包（個人使用、ad-hoc 簽章）、第 3 項主題都已完成；各項留下的缺口見「尚未實作的行為」與路線圖的要點欄。
+目前狀態：**Stage 1 完成**（自用版），另加第 9 項遠端 repo（SSH 與 Samba，分支 `feature/remote-repos`）。PoC、第 1 項 `git_exec`、第 2 項（host 涵蓋完整協定，走路線 (b)）、第 4 項 repo 管理、第 5 項 diff 檢視（Monaco）、第 6 項 askpass、第 7 項設定與狀態存檔、第 8 項打包（個人使用、ad-hoc 簽章）、第 3 項主題都已完成；各項留下的缺口見「尚未實作的行為」與路線圖的要點欄。
 
 ## 授權限制（每次動手前都要記得）
 
@@ -21,14 +21,18 @@
 ```
 app/
   src-tauri/            Rust 端（獨立 Cargo workspace）
+    Cargo.toml          workspace：App 本身、crates/backend、crates/remote（`cargo build` 只建 App；測試用 `cargo test --workspace`）
+    crates/backend/     gg-backend：不依賴 Tauri 的核心，App 與遠端 helper 共用。git.rs（`run`、`locate_git`）、repo.rs（operation state、寫 repo 設定）、files.rs（讀工作目錄檔案、掃描、`write_atomic`）、watch.rs（檔案監看）、wire.rs（App 與 helper 的協定）、`engine()`
+    crates/remote/      gg-remote：放到遠端機器上執行的 helper（引擎、git、讀檔、監看、askpass），經 ssh 的 stdin/stdout 服務 App
+    remote-dist/        由 scripts/build-remote.sh 產生（已 gitignore）：三個平台的 helper（gzip）與 id，`remote.rs` 用 `include_bytes!` 嵌入；沒建時 build.rs 放空檔
     src/main.rs         commands：engine_request、initial_repo、host_log、self_test、preview
-    src/git.rs          git CLI：git_exec、git_cancel、git_info
-    src/repo.rs         repo_operation_state：從 git dir 判斷 merge/rebase/cherry-pick/revert 進行中；export_repo_config（只寫 .vscode/vscode-git-graph.json）
+    src/git.rs          git CLI 的 command：git_exec、git_cancel、git_info（本機跑 `gg_backend::git::run`，遠端 repo 轉給 helper）
+    src/remote.rs       遠端 repo（`ssh://…`）：名稱解析與檢查、連線與 helper 部署（bootstrap）、session、remote_connect／remote_disconnect
+    src/repo.rs         repo_operation_state、export_repo_config 的 command（核心在 backend）
     src/state.rs        Application Support 裡的檔案：state.json（view state）、settings.json（設定）、session.log；data_dir、write_atomic
-    src/system.rs       clipboard_write、open_url、open_path、open_terminal（macOS 整合）
+    src/system.rs       clipboard_write、open_url、open_path、open_terminal（macOS 整合）；mount_volume（掛載 SMB share）、network_volume（路徑在哪個 share 上）
     src/askpass.rs      git/ssh 的帳密提示：helper 模式（main() 最前面）＋ Unix socket 伺服器＋askpass_reply
-    src/diff.rs         open_diff_window（開 diff 視窗並注入 spec）、worktree_file（讀工作目錄檔案，限 repo 內）
-    src/watch.rs        檔案監看（notify/FSEvents）：事件合併後由 classify() 判斷哪些 repo 需要刷新
+    src/diff.rs         open_diff_window（開 diff 視窗並注入 spec）、worktree_file 的 command
     src/repos.rs        視窗與 repo 的對應、最近清單、子 repo 掃描、開新視窗（open_new_window）、選單（App、File、View）
     Info.plist          Tauri 合併進 bundle：宣告接受資料夾（`public.folder`，rank None，不會變成開資料夾的預設 App）
     icons/icon.svg      App 圖示的原始檔（自己畫的）；其他尺寸用 `cargo tauri icon <1024px PNG>` 產生（`rsvg-convert` 轉 PNG），只保留 repo 已追蹤的那些檔名
@@ -46,6 +50,8 @@ app/
     host/repoconfig.js  匯出／匯入 repo 設定（.vscode/vscode-git-graph.json）；純函式
     host/sidebar.js     左側的 repo 側欄：純函式（頭像、同名提示、清單增刪、ahead/behind）＋ DOM 元件（不碰 Tauri）
     sidebar.css         側欄的版面，以及把 #view 等往右推的規則
+    host/remote.js      遠端 repo 的名稱（`ssh://…`）與 share 位址：解析、檢查、路徑處理；純函式
+    host/addremote.js   Add SSH Repository 與 Connect to Server 對話框（只負責問，不碰 Tauri）
     host/askpass.js     帳密對話框（接 `askpass` 事件，排隊顯示，回 askpass_reply）
     host/diffspec.js    diff 請求 → 視窗 spec（左右各讀哪個 revision/路徑）；純函式，主視窗與 diff 視窗共用
     diff.html           diff 視窗頁面（工具列、檔案清單、編輯器、圖片比較）
@@ -59,13 +65,17 @@ app/
   tests/repoconfig.test.mjs  repoconfig.js 的匯出欄位與匯入規則
   tests/theme.test.mjs  解析 theme.css，檢查四種外觀的 WCAG 對比（含側欄）
   tests/sidebar.test.mjs  sidebar.js 的純函式
+  tests/remote.test.mjs  remote.js 的純函式
+  tests/fake-ssh.sh     假的 ssh（`GG_REMOTE_SSH`）：在本機用 `sh -c` 跑 bootstrap，cargo 測試與 self-test 用
+  tests/ssh-server.sh、real-ssh.sh  用 Docker 開真的 sshd，讓 self-test 走真的 ssh（可選）
   tests/basic_auth_server.py  self-test 用的 HTTP Basic Auth 伺服器（只用 Python 標準函式庫）
   scripts/prepare-ui.mjs  從 vendor 複製編譯好的 webview（把其中的簡體中文轉成臺灣正體）、用上游 config.js 產生預設設定，並呼叫 build-diff.mjs
   scripts/zh-tw.mjs     簡體 → 臺灣正體：OpenCC s2twp ＋ 臺灣 Git 用語替換表（TAIWAN_TERMS）；只在建置時用
   scripts/build-diff.mjs  用 esbuild 打包 diff 視窗（也可單獨跑 `npm run build:diff`）
   scripts/selftest.sh   執行 App 內建的 self-test 並印出 log（PASS 時 exit 0）
   scripts/preview.sh    用 GG_PREVIEW 開到指定畫面再截圖（看主題用；需要螢幕錄製權限）
-  scripts/build-app.sh  打包：prepare-ui → cargo tauri build → 驗證簽章與架構；可加 --universal、--dmg、--install
+  scripts/build-remote.sh  建置遠端 helper（darwin-arm64、linux-x86_64、linux-aarch64 的 musl 靜態執行檔）到 src-tauri/remote-dist/；`--native` 只建本機的
+  scripts/build-app.sh  打包：prepare-ui → build-remote → cargo tauri build → 驗證簽章與架構；可加 --universal、--dmg、--install
   package.json        建置期依賴：esbuild、monaco-editor、opencc-js（版本鎖定；只在打包時用）
 vendor/vscode-git-graph-rs  上游 submodule（鎖在 v1.0.28）
 ```
@@ -79,12 +89,25 @@ git submodule update --init
 (cd vendor/vscode-git-graph-rs && npm ci && npm run compile-src && npm run compile-web)
 (cd app && npm ci)
 node app/scripts/prepare-ui.mjs
-cd app/src-tauri && cargo build                            # debug
+rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl   # 遠端 helper（一次）
+brew install filosottile/musl-cross/musl-cross                           # 它的 linker（一次）
+app/scripts/build-remote.sh                                # 遠端 helper → src-tauri/remote-dist/（改了 crates/ 之後要重跑）
+cd app/src-tauri && cargo build --workspace                # debug（--workspace 也建出 self-test 用的 target/debug/gg-remote）
 cd app/src-tauri && cargo tauri build --bundles app        # → target/release/bundle/macos/Your Git Graph.app
 app/scripts/build-app.sh [--universal] [--dmg] [--install]  # 打包的正式做法（含 prepare-ui 與驗證）
 ```
 
 - **自我測試**：`app/scripts/selftest.sh <App 執行檔> <repo 或含多個 repo 的資料夾> [log 檔]`（內部就是 `GG_SELFTEST=1 <執行檔> <路徑>`，並把 `GG_DATA_DIR` 指到臨時目錄，不會動到你的最近清單）。頁面會先把介面語言切成繁體中文再切回英文（各重新載入一次，確認會開回同一個 repo、工具列與側欄文字跟著變、`settings.json` 存的是 `zh-tw`），接著自動點一個 commit、透過 IPC 驗證 `git_exec` 的 cwd/串流/取消、經由路由跑 8 種讀取、做一次可還原的寫入（建立再刪除 `gg-selftest-*` 分支），確認會拒絕其他 repo 路徑，走一次完整的 data-loss 警告（用 `commit-tree` 做一個只有某分支才有的 commit，強制移動該分支 → 收到 `lossWarning` → webview 顯示警告對話框 → 點繼續後帶 `confirmed` 重送 → 分支真的移動，最後刪掉），再用真的 helper 執行檔驗證 askpass（回答並遮罩、取消、git 逾時後對話框自動關閉、ssh-keygen 的 passphrase），依序打開 5 種 diff 視窗（viewDiff、viewFileAtRevision、openCompareTab、viewDiffWithWorkingFile、viewDiffBinary），每個視窗渲染後回報結果，有 editor 的會先驗證「搜尋框開著時 Esc 只關搜尋框」，最後都用 Esc 關閉（主視窗確認 diff 視窗全部關掉了）；若點到的 commit 含有修改過的圖片，會多測一次圖片並排比較（檢查兩張圖都能解碼）。接著檢查子 repo 掃描與最近清單、在多 repo 的視窗裡切換 repo、檔案監看（在工作目錄建立和刪除檔案，各應觸發一次刷新）、設定（存檔後收到 `configChanged`、超出範圍的值被拒絕、還原；`settings.json` 的 `dialog.createBranch.checkOut` 讓 Create Branch 對話框預設勾選 Check out、`commitDetailsView.location` 讓新打開的詳細資料停靠在底部）、state 經 Rust 寫入 state.json 且不留在 `localStorage`、匯出 repo 設定再讀回（repo 已有該檔時略過，不覆寫）、View > Find 打開 find widget、側欄（清單與目前的 repo、收合／展開時 `#view` 的位置、commit 的右鍵選單開在游標旁；File > Open 另一個 repo 會加進側欄並在這個視窗顯示、點側欄切回、Open in New Window 開出新視窗（新視窗的 askpass 對話框只出現在它自己，主視窗不會出現）、拖拉到最上面、Remove 移除、模擬把資料夾拖到視窗上（送 `tauri://drag-drop`）會加進側欄並顯示）、主題（`AccentColor` 能解析、強調色上的文字是白色、用 `set_appearance` 切淺色與深色後 WebKit 跟著變、強制增強對比後的 body class 與顏色、每個 diff 視窗的 Monaco 主題與外觀一致）。最後在 stderr 輸出 `selftest: PASS|FAIL`。沒有螢幕截圖權限時，這是主要的端到端驗證方式。每次改動 host 或 UI 都要跑。**它會寫入目標 repo**（臨時分支、臨時檔與 `.vscode/vscode-git-graph.json`，都會刪掉），建議對 scratch 裡的 clone 跑，不要對 vendor submodule 跑。兩種情況都要跑：單一 repo，以及含多個 repo 的資料夾（例如 scratch 裡放 git/git clone 和圖片測試 repo 的那一層）。
+  - **遠端 repo 的段落**：`selftest.sh` 會設 `GG_REMOTE_SSH=tests/fake-ssh.sh`（假的 ssh，在本機臨時的 HOME 下跑 helper），把同一個 repo 當成 `ssh://selftest@localhost<路徑>`：經 Add SSH Repository 對話框加入（以 `-` 開頭的主機被拒絕）、標題與側欄顯示主機、git 與引擎在那個路徑執行、讀工作目錄檔案、拒絕 archive、遠端 git 的帳密提示出現在這裡並回傳、在背後建立與刪除分支各刷新一次、`remote_disconnect` 後項目變淡且請求失敗、點一下重連、移除。helper 用執行檔旁邊的 `gg-remote`（debug 建置），沒有就用嵌入的（打包好的 `.app`）。
+  - **真的 ssh**（可選，需要 Docker；改動 `remote.rs`、bootstrap、`crates/remote` 時要跑）：
+    ```sh
+    app/tests/ssh-server.sh [sh|bash|fish]     # Alpine 的 sshd 在 127.0.0.1:2222，帳號 dev、密碼 gg-pass
+    GG_SELFTEST_SSH=ssh://dev@127.0.0.1:2222/home/dev/repo GG_SELFTEST_SSH_PASSWORD=gg-pass \
+    GG_REMOTE_SSH=app/tests/real-ssh.sh app/scripts/selftest.sh <執行檔> <本機 repo>
+    docker rm -f gg-ssh-test
+    ```
+    `real-ssh.sh` 強制每次都問 host key 與密碼，不讀也不寫 `~/.ssh`。log 會列出回答過的提示。已用 sh、bash、fish 三種登入 shell 跑過。
+  - **SMB**（沒有自動測試）：`mount_smbfs -N //user:pass@host:port/share <目錄>` 可以不經系統對話框掛載，再對上面的 repo 跑 self-test（已對 Docker 的 Samba 跑過）。掛載對話框（`mount volume`）與「點變淡的項目重新掛載」要手動測。
 - **看畫面**（改主題或 CSS 後）：`app/scripts/preview.sh <執行檔> <repo> <場景> <light|dark|system> <輸出前綴>`。場景用逗號分隔、依序執行：`details`（打開一個 commit）、`settings`、`menu`（右鍵選單）、`dialog`（Create Branch）、`find`（搜尋 "fix"）、`diff`（開 diff 視窗）、`resize`（把視窗放大到 2400×1300，模擬手動拉大；`preview_resize` 只在 `GG_PREVIEW` 下有效）、`fold`（收合側欄）、`repomenu`（側欄第二個 repo 的右鍵選單）；路徑給含多個 repo 的資料夾就能看到側欄有好幾項；加上 `contrast` 強制增強對比。每個視窗輸出一張 PNG。App 跑在臨時的 `GG_DATA_DIR`，外觀用預先寫好的 `state.json` 指定，不會動到你的設定。終端機需要「螢幕錄製」權限。
 - **監看的手動檢查**（self-test 涵蓋不到）：一般模式開著 App，閒置幾秒應該 0 次刷新；在終端機 `git commit`、`git checkout -b` 各應剛好刷新一次，之後不能持續刷新（log 裡的 `watcher:` 行數）。
 - **真的 git 走 HTTP 帳密**（可選）：
@@ -95,11 +118,14 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]  # 打包的正式做
   ```
   self-test 會用 `-c credential.helper=` 關掉 Keychain，不讀也不存。改動 askpass 時要跑，打包後也要用 `.app` 內的執行檔再跑一次（路徑含空格）。
 - **測圖片 diff**：做一個「同一個 commit 同時改一個文字檔和一個 PNG」的小 repo 再跑 self-test，例如複製 `src-tauri/icons/32x32.png` 後換成 `64x64.png` 並 commit。
-- **host 的測試**：`cd app && npm test`（目前 57 個；sidebar 6 個；theme 5 個；gitops 38 個在臨時 repo 上用真的 git 測所有寫入操作、data-loss 警告與全域作者同步，`GIT_CONFIG_GLOBAL` 指向臨時檔，不會動到你的全域設定；settings 的測試需要先 `npm run compile-src` 產生上游 `out/config.js`，沒有就略過）。
-- **App 單元測試**：`cd app/src-tauri && cargo test`（目前 32 個：監看的判斷與真正的 FSEvents（被忽略的檔案不刷新、一陣變動只回報一次、linked worktree 裡的 commit 與主 repo 的分支都會回報）、子 repo 掃描、最近清單、工作目錄讀檔與路徑限制、git 解析與執行、operation state、URL 過濾與 shell/AppleScript 跳脫、askpass 的 token/目錄權限/連線中斷/殘留清理/只送給發出請求的視窗、state.json 的合併寫入與損毀處理、settings.json 逐 key 改寫且不覆蓋無法解析的手動編輯、repo 設定只寫固定路徑且不經過 symlink）。
+- **host 的測試**：`cd app && npm test`（目前 61 個；sidebar 6 個；remote 4 個；theme 5 個；gitops 38 個在臨時 repo 上用真的 git 測所有寫入操作、data-loss 警告與全域作者同步，`GIT_CONFIG_GLOBAL` 指向臨時檔，不會動到你的全域設定；settings 的測試需要先 `npm run compile-src` 產生上游 `out/config.js`，沒有就略過）。
+- **Rust 的測試**：`cd app/src-tauri && cargo test --workspace`（目前 52 個）。
+  - backend 23 個：監看的判斷與真正的 FSEvents（被忽略的檔案不刷新、一陣變動只回報一次、linked worktree、缺一個 root 時其他照常監看）、子 repo 掃描、工作目錄讀檔與路徑限制、git 解析與執行、operation state、repo 設定只寫固定路徑且不經過 symlink、協定的 frame。
+  - remote 7 個（以 pipe 啟動 helper）：引擎與讀檔、git 的環境／串流／逾時／取消、5 MB 檔案不擋住小請求、監看事件、帳密提示（回答、取消、git 先結束）、連線結束時殺掉執行中的 git。
+  - App 22 個：最近清單、URL 過濾與 shell/AppleScript 跳脫、askpass、state.json 與 settings.json、遠端名稱的解析與拒絕、遠端 shell 的跳脫、bootstrap 的字元限制、經假的 ssh 連線（上傳一次、之後沿用；斷線時等待中的請求失敗；連不上時回報 ssh 的訊息）、share 位址檢查。App 的遠端測試用 `target/debug/gg-remote`，所以要帶 `--workspace`。
 - **模擬從 Finder 啟動**（PATH 只有系統目錄）：`env -i HOME=$HOME PATH=/usr/bin:/bin:/usr/sbin:/sbin GG_SELFTEST=1 target/debug/git-graph-app <repo>`。
 - **引擎測試**：`cd vendor/vscode-git-graph-rs && cargo test -p git-graph-core`（PoC 時 147 個全過）。
-- **效能基準**（git/git，8.6 萬個 commit，release 版，暖機後）：`loadCommits`（300 筆）約 85ms，同樣查詢 `git log` 要 600ms；首屏約 155–190ms；啟動時的 `loadConfig` 會呼叫引擎 `authors`（約 600ms），排在 `loadCommits` 之後，不影響首屏；`.app` 12 MB（只有 arm64；diff 視窗的 4.8 MB bundle 經 Tauri 壓縮後約佔 1 MB）。之後的改動不應讓這些數字明顯變差。
+- **效能基準**（git/git，8.6 萬個 commit，release 版，暖機後）：`loadCommits`（300 筆）約 85ms，同樣查詢 `git log` 要 600ms；首屏約 155–190ms；啟動時的 `loadConfig` 會呼叫引擎 `authors`（約 600ms），排在 `loadCommits` 之後，不影響首屏；`.app` 20 MB（只有 arm64；其中三個平台的遠端 helper 約 8 MB，diff 視窗的 4.8 MB bundle 經 Tauri 壓縮後約佔 1 MB）。之後的改動不應讓這些數字明顯變差。
 
 ## 已知坑與慣例
 
@@ -139,6 +165,8 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]  # 打包的正式做
   - **版面**：上游的 `body` 佔滿視窗，浮動元件大多是掛在 `body` 下的 `position:fixed`、靠右對齊。側欄是另一個固定在左邊的元素；`sidebar.css` 只把 `#view`、`#cdv.docked` 的 `left` 改成 `--gg-sidebar-offset`，置中的 `.dialog` 跟著偏移，靠右的 widget 限制最大寬度。上游把 commit 的右鍵選單掛在 `#view` 裡、用「游標減 `#view` 左緣」定位，但選單是 `position:fixed`（相對視窗），所以 `#view > .contextMenu` 要補上 `margin-left: var(--gg-sidebar-offset)`，否則會往左偏一個側欄寬、被側欄蓋住。不要用 transform 讓 `body` 變成 fixed 元素的 containing block，否則用 `clientX` 定位的右鍵選單會偏掉。
   - **ahead/behind**：`git rev-list --left-right --count @{upstream}...HEAD`，啟動時算全部，檔案監看回報某個 repo 變動時重算那一個（不受 `ECHO_MS` 影響，所以自己 push 之後也會更新）。沒有 upstream 就不顯示。
   - **路由**接受側欄清單裡任何一個 repo（`windowRepos`）。
+  - **變淡的項目**（`repoStatus[repo].missing`：找不到資料夾、主機沒連線、share 沒掛載）點了會呼叫 `reconnect`，即使它是目前顯示的 repo；成功後清掉 `missing`。
+  - **＋** 是選單：Add Local Repository…、Add SSH Repository…、Connect to Server (SMB)…（File 選單與起始畫面也有後兩項）。
   - **webview state 依視窗分開存**（`shim.js` 經 `window.__ggStore` 存在 `state.json` 的 `webviewState:window:<label>`），由 `host/main.js` 在載入 bundle 前設定 `window.__ggStateFolder`。
   - **視窗**：`main` 是設定檔裡的第一個視窗，其他是 `repo-N`。⌘N 開新視窗（顯示最後看的 repo）；側欄的 Open in New Window 用 `open_new_window`，以 `initialization_script` 帶入 `window.__GG_OPEN_REPO`。只有 `main` 會讀命令列的路徑（`initial_repo`）。`repo_opened` 在顯示的 repo 或清單改變時呼叫；只有清單變了才重建監看。視窗關閉時，`WindowEvent::Destroyed` 會一併停掉它的監看。
   - **選單**：用 `Menu::default` 再往 File 插入 New Window（⌘N）、Open Repository…（⌘O）、Open Recent。**不要整個自建選單而漏掉 Edit**，否則輸入框的 ⌘C/⌘V 會失效。
@@ -148,6 +176,30 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]  # 打包的正式做
   - **linked worktree 與 submodule**：`.git` 是指向別處的檔案（`repo.rs` 的 `git_dir`），所以另外監看它的 git dir（`main/.git/worktrees/<名稱>`）和 `commondir` 指向的共用 git dir（`watch.rs` 的 `Repo`；已在監看範圍內的目錄不重複監看）。git dir 裡的 HEAD、index、進行中操作的標記只算那個 worktree 的；共用 git dir 裡只有 refs、packed-refs、config 算所有用它的 repo 的（主 repo 的 HEAD、index 不影響 worktree）。`main/.git/worktrees/…` 的變動不會刷新主 repo。
   - **前端去重**：`host/main.js` 只在變動的 repo 正是目前顯示的 repo 時才送 `refresh`。git 寫入操作執行中，以及結束後 1 秒內的事件都忽略（`ECHO_MS`），因為 webview 操作完會自己刷新；讀取類的 handler（`gitops.js` 的 `READ_COMMANDS`）不會觸發這個忽略。
   - gitops 執行的 git 一律帶 `GIT_OPTIONAL_LOCKS=0`（`gitops.js` 的 `exec()`），避免 `git diff` 之類順手改寫 index 而觸發監看，進而無限刷新。
+- **遠端 repo（SSH）**（`remote.rs`、`crates/remote`、`host/remote.js`）：
+  - **做法和 VS Code Remote-SSH 一樣**：不掛載。App 把 helper 複製到遠端的 `~/.cache/your-git-graph/gg-remote-<id>`，每台主機一條常駐的 `ssh` 連線，經 stdin/stdout 用 frame 溝通；引擎、git、讀檔、監看都在遠端執行。helper 只含 `native/`（MIT）與自己的程式碼。
+  - **名稱**：`ssh://[user@]host[:port]/絕對路徑`，不做 percent-encoding，凡是本機 repo 用路徑的地方（`sidebar.repos`、`repoState:<id>`、`recent.json`、command 的 `repo` 參數）都直接放這個字串。`host` 可以是 `~/.ssh/config` 的別名。`ssh://authority` 是同一台主機上所有 repo 的共同前綴。
+  - **路由在 Rust**：收 repo 的 command（`engine_request`、`git_exec`、`repo_operation_state`、`worktree_file`、`export_repo_config`、`scan_repos`、`repo_opened`、`open_terminal`、`open_path`）先問 `remote::parse()`，是遠端就轉給該主機的 session，所以前端與 diff 視窗照舊呼叫。新增收 repo 路徑的 command 時也要這樣做。`git_exec` 要**先路由、再加 askpass 環境變數**（那些變數指向這台 Mac 的執行檔與 socket）。
+  - **只有 `remote_connect` 會連線**（加入 repo、顯示該 repo、點變淡的項目）。沒有連線時其他 command 立刻回 `Not connected to …`。不要改成自動連線：開機時 `updateStatus`、`importRepoConfigs` 會碰側欄裡的每個 repo，會連到每一台主機。開機只連「最後顯示的那個」；其他遠端 repo 以 `{ missing: true }` 變淡，點了才連（`reconnect`）。
+  - **安全**：user、host 只允許 `[A-Za-z0-9._-]+`（或方括號 IPv6），不能以 `-` 開頭（和 `unsafe()` 同樣的理由）；ssh 的 argv 用陣列，目的地前有 `--`；repo 路徑只放在協定的 JSON 裡，不進指令列。唯一例外是終端機（`ssh -t`），用 `remote_quote`（`'` 與 `\` 寫在單引號外，sh、bash、zsh、fish 解析相同）再套 `shell_quote`、`applescript_quote`。
+  - **bootstrap**（`remote.rs` 的 `BOOTSTRAP`）：`exec sh -c '…'`，內容不能有 `'`、`\`、`!`、換行（任何登入 shell 都要能原樣交給 sh；有測試檢查）。流程：遠端印 `@@GG-BOOT@@ <uname -s> <uname -m>` → App 送 `<id> <gzip 大小> <原始大小>` → 遠端回 `@@GG-HAVE@@` 或 `@@GG-SEND@@`（App 才送 gzip）→ `exec` helper → helper 印 `@@GG-READY@@ <hello JSON>`。marker 之前的輸出（MOTD、shell profile）會被丟掉。**雙方一來一往，不能預先多送**：`head -c` 會多讀。之後 stdout 只有 frame。
+  - **ssh 的選項**：`-T -o RemoteCommand=none -o ClearAllForwardings=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ConnectTimeout=15`，不用 ControlMaster、BatchMode。連線的密碼、passphrase、host key 走 askpass，出現在呼叫 `remote_connect` 的視窗。連線是整個 App 共用的（所有視窗）。
+  - **協定**（`crates/backend/src/wire.rs`）：frame 是一行 `<id> <kind> <len>\n` 加 `len` 個位元組。App 送 `Q`（請求 JSON `{op, …}`）、`C`（取消）；helper 回 `P`／`R`（結果的片段／最後一片，每片最多 64 KiB，大結果不會擋住其他請求）、`E`（錯誤）、`O`／`S`（串流的 git stdout／stderr）、`V`（事件：監看的 `{repos}`、askpass）。op：`engine`、`git`、`operationState`、`worktreeFile`、`exportRepoConfig`、`scan`、`watch`、`answer`。
+  - **helper 的版本**：id 是內容的 sha256 前 16 碼，所以 App 和 helper 一定相符；新的 helper 啟動時刪掉同目錄的舊版。helper 在 stdin EOF 時取消所有 git（連同 process group）後結束。
+  - **`GG_REMOTE_SSH`**（取代 `ssh` 的程式）與 **`GG_REMOTE_HELPER`**（不論平台都送這個執行檔，id 以 `dev-` 開頭）只給測試與開發用。
+  - **監看**：helper 只監看 git 目錄（`watch()` 的 `worktrees: false`；inotify 每個目錄一個 watch，`node_modules` 會撞到系統上限），所以遠端的 commit、checkout、stage、fetch 會即時刷新，工作目錄未暫存的修改要等視窗取得焦點（`onFocusChanged` 對遠端與 share 上的 repo 送 `refresh`）。`repo_opened` 對每台已連線的主機開一個 `watch` 請求；連線狀態變了（重連）要再呼叫一次 `reportShown`。
+  - **遠端 git 的帳密**（`crates/remote/src/askpass.rs`）：helper 自己當遠端 git／ssh 的 askpass（`GG_REMOTE_ASKPASS_SOCKET`，0700 目錄裡的 Unix socket，每次 git 執行一個 token），問題以該 git 請求的 `V` 事件 `{askpass, prompt}` 送回，App 用 `Askpass::prompt` 顯示在發出請求的視窗，再以 `answer` 回覆；git 先結束時送 `{askpassClosed}` 關掉對話框。
+  - **遠端 repo 不提供**：Reveal in Finder、開啟檔案（`open_path` 回錯誤）、`openExternalDirDiff`、`createArchive`（handler 回 `error`）。`copyFilePath` 複製遠端的路徑。設定 `commitAuthors` 時不同步全域作者（那是遠端帳號的 `~/.gitconfig`）。`git_info`／`gitCliAvailable` 仍看本機的 git；遠端沒有 git 時連線就會失敗並說明。
+  - **平台**：Linux x86_64、arm64（musl 靜態連結，從 Mac 用 `x86_64-linux-musl-gcc`／`aarch64-linux-musl-gcc` 連結；引擎的相依都是純 Rust）、macOS arm64。遠端需要 git、gzip、sh。musl 版引擎在 Docker 內 `loadCommits`（git/git）約 72 ms。
+  - **還沒做／沒驗證**：helper 的 askpass socket 目錄在 helper 被強制終止時不會清掉；引擎請求不能取消；遠端 repo 屬於其他使用者時（`safe.directory`）的行為；`open_terminal` 的 `ssh -t` 只有單元測試，沒在真的 Terminal 跑過；新對話框與 ＋ 選單的外觀沒有截圖確認。
+- **網路磁碟（Samba）**（`system.rs`、`host/main.js` 的 `shares`、`connectServer`）：
+  - share 上的 repo 就是一般的本機路徑。**Connect to Server (SMB)…** 用 `osascript` 的 `mount volume`（帳密由 macOS 的對話框與 Keychain 處理；已掛載就直接回掛載點），再從掛載點開資料夾選擇器。只接受 `smb://server/share`，不含空白。
+  - **記住 share**：加入 repo 與開機後，對本機 repo 呼叫 `network_volume`（`statfs`：`smbfs` 時回 `smb:` 加 `f_mntfromname`），存在 `state.json` 的 `mounts`（repo → 位址），所以用 Finder 掛的 share 也算。移出側欄時一併刪除。
+  - **重新掛載**：點變淡的項目（`reconnect`）或開機時它是最後顯示的 repo，就先 `mount_volume` 再開。重新掛載前先送引擎的 `close`，丟掉舊的 handle。share 若掛成別的名字（`/Volumes/share-1`），路徑對不上，會顯示找不到。
+  - **其他機器的變動不會回報**（FSEvents 只看得到這台 Mac 的寫入），所以 `mounts` 裡的 repo 在視窗取得焦點時刷新。
+  - **SMB 不支援 fsync**：`write_atomic` 忽略 `ENOTSUP`（否則匯出 repo 設定會失敗）。
+  - **檔案模式**：在 Linux 建立的 repo（`core.fileMode=true`）經 SMB 會顯示所有檔案都被修改（權限變成 700），這是 git 在 SMB 上的行為，要在那個 repo 設 `git config core.fileMode false`。
+  - 已知限制：掛載卡死時，同步的檔案系統呼叫（`is_dir`、`statfs`）可能卡住；引擎與 git 的讀取都沒有逾時。
 - **上游現成的 stub host 參考**：`vendor/.../tests/browserRepro/generate.mjs`。
 - **gix 不支援 push、fetch**：所有寫入操作一律走 `git` CLI（上游原本的做法也一樣）。
 - **呼叫 git 一律走 `git_exec`**：handler 裡用 `ctx.git(args, opts)`（gitops.js 內部再包一層 `exec()`/`run()`）；`host/main.js` 的 `git(cwd, args, { env, timeoutMs, id, onOutput })` 是底層實作。不要另外開路徑。
@@ -216,6 +268,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]  # 打包的正式做
 | 6 | 認證：GIT_ASKPASS helper、osxkeychain、ssh-agent | ✅ 完成 | `askpass.rs` + `host/askpass.js`；HTTPS 帳密、ssh passphrase 與 host key 確認都走 App 內的對話框；Keychain 與 ssh-agent 照常運作（git/ssh 只在它們沒有答案時才問）。細節見「已知坑與慣例」 |
 | 7 | 設定與狀態存檔、選單列、快捷鍵、命令 | ✅ 完成 | `state.rs` + `settings.js` + `repoconfig.js`：view state 存在 `state.json`（從 `localStorage` 自動搬移）、設定存在可手動編輯的 `settings.json` 並即時套用到所有視窗（語言改變時重新載入）、`commitAuthors` 同步全域作者、匯出／匯入 repo 設定、session log、App 與 View 選單的指令。對話框預設值與 Commit Details View 的設定也能寫在 `settings.json`。尚未支援：自訂 keybindings、其餘上游設定（要手動加進 `settings.js`） |
 | 8 | 打包：universal（arm64+x64）、簽章、dmg | ✅ 完成（個人使用） | `scripts/build-app.sh`：ad-hoc 簽章並驗證、dmg（5.6 MB）、安裝到 /Applications（只會取代識別碼相同、而且沒在執行的舊版）。不做 notarization（沒有開發者帳號）。`--universal` 需要 `rustup target add x86_64-apple-darwin`，**還沒實際建置過**。細節見「已知坑與慣例」的簽章 |
+| 9 | 遠端 repo：SSH 與 Samba | ✅ 完成（分支 `feature/remote-repos`） | SSH 走遠端 helper（VS Code Remote-SSH 的做法）：`crates/backend`、`crates/remote`、`remote.rs`；Samba 由 App 掛載並記住 share。變淡的項目點了才重連。已用 Docker 的真 sshd（sh、bash、fish）與 Samba 驗證。沒驗證的見「已知坑與慣例」的遠端 repo |
 
 協定以外的請求會在 log 印出 `unhandled webview request: <command>`；升級上游 submodule 後，若出現這行，代表有新的請求種類要補。
 
