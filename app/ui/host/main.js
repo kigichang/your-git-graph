@@ -774,6 +774,15 @@ async function runPreview(scenes) {
 				const d = await respond({ command: 'commitDetails', repo: repoRoot, commitHash: row.dataset.hash, hasParents: true, stash: null, avatarEmail: null, refresh: false });
 				const f = d.commitDetails.fileChanges.find((x) => x.type === 'M') ?? d.commitDetails.fileChanges[0];
 				await respond({ command: 'viewDiff', repo: repoRoot, fromHash: row.dataset.hash, toHash: row.dataset.hash, oldFilePath: f.oldFilePath, newFilePath: f.newFilePath, type: f.type });
+			} else if (scene === 'markdown') {
+				// The first Markdown file of the repository, as it is on disk, with its preview.
+				const listed = await git(repoRoot, ['ls-files', '--', '*.md', '*.markdown']);
+				const filePath = listed.stdout.split('\n').find((name) => name !== '');
+				if (filePath === undefined) log('preview: no Markdown file in ' + repoRoot);
+				else {
+					await respond({ command: 'viewFileAtRevision', repo: repoRoot, hash: '*', filePath });
+					await pause(3000); // the renderer and Mermaid load on demand
+				}
 			} else if (scene !== 'contrast') log('preview: unknown scene ' + scene);
 			await pause(700);
 		}
@@ -965,7 +974,8 @@ async function selfTest(t0, gitInfo, options) {
 		const fileRequest = { fromHash: head, toHash: head, oldFilePath: file.oldFilePath, newFilePath: file.newFilePath, type: file.type };
 		const diffs = [
 			['viewDiff', fileRequest, (r) => r.kind === 'text' && r.changes > 0],
-			['viewFileAtRevision', { hash: head, filePath: file.newFilePath }, (r) => r.kind === 'file' && r.lines > 0],
+			// Only a Markdown file comes with a preview.
+			['viewFileAtRevision', { hash: head, filePath: file.newFilePath }, (r) => r.kind === 'file' && r.lines > 0 && (r.preview !== undefined) === /\.(md|markdown)$/i.test(file.newFilePath)],
 			['openCompareTab', { fromHash: head, toHash: head, singleCommit: true }, (r) => r.kind === 'compare' && r.files === details.commitDetails.fileChanges.length],
 			['viewDiffWithWorkingFile', { hash: head, filePath: file.newFilePath }, (r) => r.kind === 'text'],
 			['viewDiffBinary', fileRequest, (r) => r.kind === 'binary' && r.identical === false]
@@ -996,6 +1006,43 @@ async function selfTest(t0, gitInfo, options) {
 		const withCmd = await reportOf('⌘-click on a file', clickFile(true));
 		check(textRow ? withCmd.kind === 'file' && withCmd.lines > 0 : ['file', 'binary', 'image'].includes(withCmd.kind), '⌘-click on a file opened ' + JSON.stringify(withCmd));
 		summary.push('click ' + JSON.stringify(plain), '⌘-click ' + JSON.stringify(withCmd));
+		/* A Markdown file is shown with its rendered page beside the source: a file of the working
+		 * tree with a table, a task list, code, math, an image of the repository, a Mermaid and a
+		 * PlantUML diagram, raw HTML (which must stay text), and enough text to scroll. */
+		const mdName = 'gg-selftest-preview.md', pngName = 'gg-selftest-preview.png';
+		const mdText = ['# Preview self-test', '', '<script>window.__ggInjected = true</script>', '', '| a | b |', '|---|---|', '| 1 | 2 |', '', '- [x] done', '- [ ] open', '',
+			'```js', 'const answer = 42;', '```', '', 'Inline $a^2 + b^2$ and', '', '$$', 'x = 1', '$$', '', '![pixel](' + pngName + ')', '',
+			'```mermaid', 'graph TD; A-->B', '```', '', '```plantuml', 'Alice -> Bob : hello', '```', '',
+			...Array.from({ length: 120 }, (_, i) => ['Paragraph ' + (i + 1) + ' of the text that makes the page long enough to scroll.', '']).flat()].join('\n');
+		const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+		const sh = (script) => git(repoRoot, ['-c', 'alias.ggsh=!' + script, 'ggsh']);
+		const made = await sh(`printf %s ${btoa(mdText)} | base64 --decode > ${mdName} && printf %s ${png} | base64 --decode > ${pngName}`);
+		check(made.exitCode === 0, 'creating ' + mdName + ': ' + JSON.stringify(made));
+		try {
+			const openPreview = async () => (await openAndReport({ command: 'viewFileAtRevision', hash: '*', filePath: mdName })).preview;
+			// Without a plantuml.jar in the settings, that block keeps its source and says what to set.
+			const p = await openPreview();
+			check(p !== undefined && p.shown && p.error === undefined, 'the Markdown preview: ' + JSON.stringify(p));
+			check(p.blocks > 100 && p.katex >= 2 && p.coloured > 0 && p.images === 1 && p.mermaid === 1 && p.scripts === 0, 'the Markdown preview rendered ' + JSON.stringify(p));
+			check(window.__ggInjected === undefined, 'HTML of a Markdown file ran in the app');
+			check(p.synced === true, 'the preview and the source do not scroll together: ' + JSON.stringify(p));
+			check(p.plantuml === 0 && p.notes.length === 1 && p.notes[0].includes('markdownPreview.plantumlJar'), 'PlantUML without a jar: ' + JSON.stringify(p));
+			summary.push('Markdown preview ' + JSON.stringify(p));
+			if (options.plantumlJava || options.plantumlJar) {
+				// With one (any file will do for the stand-in for java) the block becomes an image.
+				await invoke('settings_write', { key: 'markdownPreview.plantumlJar', value: options.plantumlJar ?? repoRoot + '/' + mdName });
+				try {
+					const drawn = await openPreview();
+					check(drawn.plantuml === 1 && drawn.notes.length === 0, 'PlantUML through the jar of the settings: ' + JSON.stringify(drawn));
+					summary.push('PlantUML drawn' + (options.plantumlJar ? ' by ' + options.plantumlJar : ''));
+				} finally {
+					await invoke('settings_write', { key: 'markdownPreview.plantumlJar', value: null });
+				}
+			}
+		} finally {
+			await sh(`rm -f ${mdName} ${pngName}`);
+			await new Promise((r) => setTimeout(r, 1500)); // the watcher's reports of these files, before its own test below
+		}
 		// Each closed itself on the Esc the test sent.
 		for (let tries = 0; tries < 50 && (await window.__TAURI__.window.getAllWindows()).some((w) => w.label.startsWith('diff-')); tries++) await new Promise((r) => setTimeout(r, 100));
 		check(!(await window.__TAURI__.window.getAllWindows()).some((w) => w.label.startsWith('diff-')), 'a diff window did not close on Esc');

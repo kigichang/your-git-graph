@@ -1,11 +1,12 @@
-/* The diff window (ui/diff.html): a Monaco diff editor, a read-only file view, an image / binary
- * comparison, or a file list with a diff beside it. Bundled by scripts/build-diff.mjs into
- * ui/diff-dist/. What to show arrives as window.__GG_DIFF_SPEC (see ui/host/diffspec.js); the
+/* The diff window (ui/diff.html): a Monaco diff editor, a read-only file view (a Markdown file
+ * with its rendered page beside it), an image / binary comparison, or a file list with a diff
+ * beside it. Bundled by scripts/build-diff.mjs into ui/diff-dist/. What to show arrives as window.__GG_DIFF_SPEC (see ui/host/diffspec.js); the
  * contents are read here, from the engine (revisions) and the worktree_file command (disk). */
 import * as monaco from 'monaco-editor/editor';
 import 'monaco-editor/features/register.all';
 import 'monaco-editor/languages/definitions/register.all'; // syntax colouring only, no language services
 import { fileSides, WORKTREE } from '../ui/host/diffspec.js';
+import { isMarkdown, resolveRelative, monotonic, lineToOffset, offsetToLine } from './mdview.js';
 
 const { invoke } = window.__TAURI__.core;
 const spec = window.__GG_DIFF_SPEC;
@@ -64,8 +65,12 @@ function languageFor(path) {
 
 /* The editor's theme follows the appearance (ui/theme.js), Increase Contrast included. */
 const monacoTheme = (t) => (t.contrast ? (t.dark ? 'hc-black' : 'hc-light') : t.dark ? 'vs-dark' : 'vs');
-let editorTheme = null;
-const applyTheme = () => window.__ggTheme.onChange((t) => { editorTheme = monacoTheme(t); monaco.editor.setTheme(editorTheme); });
+let editorTheme = null, onAppearance = null;
+const applyTheme = () => window.__ggTheme.onChange((t) => {
+	editorTheme = monacoTheme(t);
+	monaco.editor.setTheme(editorTheme);
+	if (onAppearance !== null) onAppearance(t);
+});
 
 const EDITOR_OPTIONS = {
 	readOnly: true, automaticLayout: true, scrollBeyondLastLine: false, minimap: { enabled: false },
@@ -160,7 +165,223 @@ async function showFile(side) {
 	models.push(model);
 	singleEditor = monaco.editor.create($('editor'), { ...EDITOR_OPTIONS, model });
 	$('stats').textContent = model.getLineCount().toLocaleString() + ' lines';
-	return { kind: 'file', language: model.getLanguageId(), lines: model.getLineCount() };
+	const result = { kind: 'file', language: model.getLanguageId(), lines: model.getLineCount() };
+	if (isMarkdown(side.path) && file.text.length <= PREVIEW_MAX) result.preview = await setupPreview(side, file.text);
+	return result;
+}
+
+/* ---------- The preview of a Markdown file ---------- */
+
+/* The file view of a .md / .markdown file shows the rendered page to the right of the source
+ * (the toolbar's Preview box hides it; kept in gg.diffPrefs). The renderer (markdown.js: raw
+ * HTML escaped) and Mermaid are bundles of their own, loaded when a file needs them. Code is
+ * coloured by Monaco, images of the repository are read at the revision shown, links open in
+ * the browser, PlantUML is rendered by the plantuml.jar of the settings (Rust: plantuml.rs).
+ * The two panes scroll together. */
+const PREVIEW_MAX = 2 * 1024 * 1024;
+const loaded = new Map();
+/** One of the bundles in diff-dist/ (with its stylesheet), once. */
+function loadBundle(name, withStyles) {
+	if (!loaded.has(name)) {
+		loaded.set(name, new Promise((resolve, reject) => {
+			if (withStyles) {
+				const link = document.createElement('link');
+				link.rel = 'stylesheet';
+				link.href = 'diff-dist/' + name + '.css';
+				document.head.appendChild(link);
+			}
+			const script = document.createElement('script');
+			script.src = 'diff-dist/' + name + '.js';
+			script.onload = resolve;
+			script.onerror = () => reject(new Error('diff-dist/' + name + '.js did not load'));
+			document.head.appendChild(script);
+		}));
+	}
+	return loaded.get(name);
+}
+
+/** Monaco's language for the name after ``` (an id or one of its aliases), or null. */
+function languageNamed(name) {
+	const wanted = name.toLowerCase();
+	for (const l of monaco.languages.getLanguages()) {
+		if (l.id === wanted || (l.aliases || []).some((a) => a.toLowerCase() === wanted) || (l.extensions || []).includes('.' + wanted)) return l.id;
+	}
+	return null;
+}
+
+async function colourCode(page) {
+	await Promise.all(Array.from(page.querySelectorAll('pre > code[class*="language-"]')).map(async (code) => {
+		const name = Array.from(code.classList).find((c) => c.startsWith('language-')).slice('language-'.length);
+		const language = languageNamed(name);
+		if (language === null) return;
+		try {
+			code.innerHTML = await monaco.editor.colorize(code.textContent.replace(/\n$/, ''), language, { tabSize: 4 });
+		} catch (_) { /* stays as plain text */ }
+	}));
+}
+
+/** Images: one of the repository is read where the file itself comes from; http(s) and data:
+ * images load as they are; anything else is not loaded. Called before the page is attached. */
+function repositoryImages(page, side) {
+	return Promise.all(Array.from(page.querySelectorAll('img')).map(async (img) => {
+		const src = img.getAttribute('src') || '';
+		if (/^(https?:|data:image\/)/i.test(src)) return;
+		img.removeAttribute('src');
+		const path = resolveRelative(side.path, src);
+		const mime = path === null ? undefined : IMAGE_TYPES[(path.split('.').pop() || '').toLowerCase()];
+		if (mime === undefined) return;
+		const file = await readSide({ rev: side.rev, path }, true);
+		if (!file.exists) return;
+		if (file.base64) img.src = 'data:' + mime + ';base64,' + file.base64;
+		else if (file.text !== '') img.src = 'data:' + mime + ',' + encodeURIComponent(file.text); // an SVG of the working tree
+	}));
+}
+
+let mermaidTheme = null;
+async function drawMermaid(page, appearance) {
+	const nodes = Array.from(page.querySelectorAll('pre.mermaid'));
+	if (nodes.length === 0) return;
+	try {
+		await loadBundle('mermaid', false);
+		const theme = appearance.dark ? 'dark' : 'default';
+		if (theme !== mermaidTheme) {
+			window.__ggMermaid.initialize({ startOnLoad: false, theme, securityLevel: 'strict' });
+			mermaidTheme = theme;
+		}
+		for (const node of nodes) {
+			// Drawn before (the appearance changed): from its source again.
+			if (node.dataset.source === undefined) node.dataset.source = node.textContent;
+			else { node.textContent = node.dataset.source; node.removeAttribute('data-processed'); }
+		}
+		await window.__ggMermaid.run({ nodes, suppressErrors: true });
+	} catch (e) {
+		log('mermaid: ' + ((e && e.message) || e)); // the diagrams stay as their source
+	}
+}
+
+const openSettings = () => invoke('settings_path').then((path) => invoke('open_path', { path, text: true })).catch((e) => log('settings: ' + e));
+
+/** PlantUML blocks not drawn yet, through the jar of the settings; one that cannot be drawn
+ * keeps its source, with the reason and a way to the settings below it. */
+function drawPlantuml(page) {
+	return Promise.all(Array.from(page.querySelectorAll('pre.plantuml:not(.rendered)')).map(async (node) => {
+		if (node.dataset.source === undefined) node.dataset.source = node.textContent;
+		try {
+			const svg = await invoke('render_plantuml', { code: node.dataset.source });
+			const img = document.createElement('img'); // an image, never inline SVG: nothing of it runs
+			img.src = 'data:image/svg+xml,' + encodeURIComponent(svg);
+			img.alt = 'PlantUML diagram';
+			node.replaceChildren(img);
+			node.classList.add('rendered');
+		} catch (e) {
+			const note = document.createElement('div');
+			note.className = 'diagramNote';
+			const reason = document.createElement('span');
+			reason.textContent = String(e);
+			const button = document.createElement('button');
+			button.textContent = 'Open Settings';
+			button.addEventListener('click', openSettings);
+			note.append(reason, button);
+			node.replaceChildren(document.createTextNode(node.dataset.source), note);
+		}
+	}));
+}
+
+let preview = null; // { pane, page, sync } once a Markdown file is shown with its preview
+async function setupPreview(side, text) {
+	const pane = $('preview'), toggle = $('previewToggle');
+	$('previewControl').hidden = false;
+	toggle.checked = prefs.preview !== false;
+	let rendered = null;
+	// Rendered once, when first shown; a failure is told in the pane.
+	const render = () => (rendered ??= renderPreview(pane, side, text).catch((e) => {
+		pane.textContent = 'The preview cannot be shown: ' + ((e && e.message) || e);
+		return { shown: true, error: String((e && e.message) || e) };
+	}));
+	toggle.addEventListener('change', () => {
+		prefs.preview = toggle.checked; savePrefs();
+		pane.hidden = !toggle.checked;
+		if (toggle.checked) render().then(() => { if (preview !== null) preview.sync('editor'); });
+	});
+	if (!toggle.checked) return { shown: false };
+	pane.hidden = false;
+	return render();
+}
+
+async function renderPreview(pane, side, text) {
+	await loadBundle('preview', true);
+	const template = document.createElement('template'); // inert: its images do not load yet
+	template.innerHTML = window.__ggPreview.renderMarkdown(text);
+	const page = document.createElement('div');
+	page.className = 'md';
+	page.appendChild(template.content);
+	const images = repositoryImages(page, side);
+	pane.replaceChildren(page);
+	// Links never navigate this window: web and mail links open in their apps.
+	page.addEventListener('click', (e) => {
+		const anchor = e.target instanceof Element ? e.target.closest('a') : null;
+		if (anchor === null) return;
+		e.preventDefault();
+		const href = anchor.getAttribute('href') || '';
+		if (/^(https?:\/\/|mailto:)/i.test(href)) invoke('open_url', { url: href }).catch((err) => log('link: ' + err));
+	});
+	preview = { pane, page, sync: syncScrolling(pane, page) };
+	onAppearance = (t) => drawMermaid(page, t);
+	// A jar set in the settings meanwhile draws what could not be drawn before.
+	window.addEventListener('focus', () => drawPlantuml(page));
+	await Promise.all([images, colourCode(page), drawMermaid(page, window.__ggTheme.current()), drawPlantuml(page)]);
+	return {
+		shown: true,
+		blocks: page.querySelectorAll('[data-line]').length,
+		coloured: page.querySelectorAll('pre > code span[class*="mtk"]').length,
+		images: page.querySelectorAll('img[src^="data:image/"]:not(pre img)').length,
+		katex: page.querySelectorAll('.katex').length,
+		mermaid: page.querySelectorAll('pre.mermaid svg').length,
+		plantuml: page.querySelectorAll('pre.plantuml.rendered img').length,
+		notes: Array.from(page.querySelectorAll('.diagramNote span')).map((n) => n.textContent),
+		scripts: page.querySelectorAll('script').length
+	};
+}
+
+/** Keeps the editor and the page at the same place of the document. Only the pane being used
+ * (pointer over it, keys in it) moves the other, so the two do not answer each other. Returns
+ * sync(from), to bring the other pane to where `from` ('editor' | 'preview') is. */
+function syncScrolling(pane, page) {
+	const editor = singleEditor;
+	let active = 'editor', marks = null;
+	for (const type of ['pointerenter', 'wheel', 'keydown', 'pointerdown']) {
+		pane.addEventListener(type, () => { active = 'preview'; }, { passive: true });
+		$('editor').addEventListener(type, () => { active = 'editor'; }, { passive: true, capture: true });
+	}
+	// Where each block of the page is; measured again once the page's size changed (images,
+	// diagrams, the window's width).
+	new ResizeObserver(() => { marks = null; }).observe(page);
+	const measured = () => {
+		if (marks === null) {
+			const top = page.getBoundingClientRect().top;
+			const blocks = Array.from(page.querySelectorAll('[data-line]')).map((el) => ({ line: Number(el.dataset.line), top: el.getBoundingClientRect().top - top }));
+			marks = monotonic([{ line: 1, top: 0 }, ...blocks, { line: editor.getModel().getLineCount() + 1, top: page.scrollHeight }]);
+		}
+		return marks;
+	};
+	const editorMax = () => Math.max(0, editor.getScrollHeight() - editor.getLayoutInfo().height);
+	const paneMax = () => Math.max(0, pane.scrollHeight - pane.clientHeight);
+	const lineHeight = () => editor.getOption(monaco.editor.EditorOption.lineHeight);
+	const fromEditor = () => {
+		const top = editor.getScrollTop();
+		if (top >= editorMax() - 1 && editorMax() > 0) { pane.scrollTop = paneMax(); return; }
+		const first = (editor.getVisibleRanges()[0] || { startLineNumber: 1 }).startLineNumber;
+		const line = first + (top - editor.getTopForLineNumber(first)) / lineHeight();
+		pane.scrollTop = lineToOffset(measured(), line);
+	};
+	const fromPreview = () => {
+		if (pane.scrollTop >= paneMax() - 1 && paneMax() > 0) { editor.setScrollTop(editorMax()); return; }
+		const line = offsetToLine(measured(), pane.scrollTop), whole = Math.max(1, Math.floor(line));
+		editor.setScrollTop(editor.getTopForLineNumber(whole) + (line - whole) * lineHeight());
+	};
+	editor.onDidScrollChange((e) => { if (active === 'editor' && e.scrollTopChanged && !pane.hidden) fromEditor(); });
+	pane.addEventListener('scroll', () => { if (active === 'preview') fromPreview(); }, { passive: true });
+	return (from) => { active = from; if (from === 'editor') fromEditor(); else fromPreview(); };
 }
 
 async function showCompare() {
@@ -254,6 +475,29 @@ async function checkEscape() {
 	return { findFirst, closes };
 }
 
+/** Self-test: the page follows the editor to the end and back to the start, and the editor
+ * follows the page. null when the document is too short to scroll. */
+async function checkSync() {
+	const { pane, sync } = preview, editor = singleEditor;
+	const editorMax = editor.getScrollHeight() - editor.getLayoutInfo().height, paneMax = pane.scrollHeight - pane.clientHeight;
+	if (editorMax <= 0 || paneMax <= 0) return null;
+	sync('editor');
+	editor.setScrollTop(editorMax);
+	await pause(100);
+	const end = pane.scrollTop >= paneMax - 1;
+	editor.setScrollTop(0);
+	await pause(100);
+	const start = pane.scrollTop === 0;
+	sync('preview');
+	pane.scrollTop = paneMax;
+	await pause(100);
+	const back = editor.getScrollTop() >= editorMax - 1;
+	sync('editor');
+	editor.setScrollTop(0);
+	await pause(100);
+	return end && start && back;
+}
+
 async function main() {
 	applyTheme();
 	setupToolbar();
@@ -268,6 +512,7 @@ async function main() {
 	}
 	log(spec.mode + ' ' + JSON.stringify(result));
 	if (await invoke('self_test') !== null) {
+		if (result.preview && result.preview.shown && !result.preview.error) result.preview.synced = await checkSync();
 		const escape = await checkEscape();
 		await window.__TAURI__.event.emit('diff-selftest', { mode: spec.mode, title: spec.title, result, workerProblems, theme: editorTheme, escape });
 		// Closed the way a person would: Esc.

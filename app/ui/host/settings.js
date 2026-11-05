@@ -98,6 +98,10 @@ export const SETTINGS = {
 	'dialog.resetCurrentBranchToCommit.mode': named('dialogDefaults.resetCommit.mode', { 'Soft': 'soft', 'Mixed': 'mixed', 'Hard': 'hard' }),
 	'dialog.resetUncommittedChanges.mode': named('dialogDefaults.resetUncommitted.mode', { 'Mixed': 'mixed', 'Hard': 'hard' }),
 	'dialog.stashUncommittedChanges.includeUntracked': field(bool, 'dialogDefaults.stashUncommittedChanges.includeUntracked'),
+	/* Not the view's: where plantuml.jar is, for the PlantUML blocks of the Markdown preview of
+	 * the file view (Rust plantuml.rs reads settings.json itself). Known here so it is not
+	 * reported as an unknown setting. */
+	'markdownPreview.plantumlJar': { valid: (v) => typeof v === 'string' && v.trim() !== '', expected: 'the path of plantuml.jar', apply: () => {} },
 	'commitAuthors': {
 		valid: (v) => Array.isArray(v) && v.every(isAuthor),
 		expected: 'a list of { "name", "email" }, neither empty',

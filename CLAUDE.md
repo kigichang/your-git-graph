@@ -33,6 +33,7 @@ app/
     src/system.rs       clipboard_write、open_url、open_path、open_terminal（macOS 整合）；mount_volume（掛載 SMB share）、network_volume（路徑在哪個 share 上）
     src/askpass.rs      git/ssh 的帳密提示：helper 模式（main() 最前面）＋ Unix socket 伺服器＋askpass_reply
     src/diff.rs         open_diff_window（開 diff 視窗並注入 spec）、worktree_file 的 command
+    src/plantuml.rs     render_plantuml：Markdown 預覽的 PlantUML 區塊，用設定裡的 plantuml.jar 在本機渲染
     src/repos.rs        視窗與 repo 的對應、最近清單、子 repo 掃描、開新視窗（open_new_window）、選單（App、File、View）
     Info.plist          Tauri 合併進 bundle：宣告接受資料夾（`public.folder`，rank None，不會變成開資料夾的預設 App）
     icons/icon.svg      App 圖示的原始檔（自己畫的）；其他尺寸用 `cargo tauri icon <1024px PNG>` 產生（`rsvg-convert` 轉 PNG），只保留 repo 已追蹤的那些檔名
@@ -59,6 +60,9 @@ app/
     theme.css           --vscode-* 變數 → macOS 淺色/深色，各有增強對比版本（由 theme.js 的 class 切換）
     media/、generated/  由 scripts/prepare-ui.mjs 產生（已 gitignore）
   diff/main.js          diff 視窗程式（Monaco ESM），由 esbuild 打包進 ui/diff-dist/
+  diff/mdview.js        Markdown 預覽的純函式：哪些檔案有預覽、相對圖片路徑、捲動同步的內插
+  diff/markdown.js      Markdown → HTML（markdown-it、task list、KaTeX；不碰 DOM）
+  diff/preview.js、mermaid.js  兩個延後載入的 bundle 的進入點（diff-dist/preview.js、mermaid.js）
   tests/gitops.test.mjs  gitops.js 在 Node 對真的 git 跑的測試
   tests/diffspec.test.mjs  diffspec.js 的語意測試
   tests/settings.test.mjs  settings.js 的結果和上游 out/config.js 逐一比對
@@ -66,6 +70,8 @@ app/
   tests/theme.test.mjs  解析 theme.css，檢查四種外觀的 WCAG 對比（含側欄）
   tests/sidebar.test.mjs  sidebar.js 的純函式
   tests/remote.test.mjs  remote.js 的純函式
+  tests/markdown.test.mjs  markdown.js 的渲染（HTML 不會被帶進來）與 mdview.js 的純函式
+  tests/fake-java.sh    假的 java（`GG_PLANTUML_JAVA`）：回一張帶有 argv 與輸入的 SVG，cargo 測試與 self-test 用
   tests/fake-ssh.sh     假的 ssh（`GG_REMOTE_SSH`）：在本機用 `sh -c` 跑 bootstrap，cargo 測試與 self-test 用
   tests/ssh-server.sh、real-ssh.sh  用 Docker 開真的 sshd，讓 self-test 走真的 ssh（可選）
   tests/basic_auth_server.py  self-test 用的 HTTP Basic Auth 伺服器（只用 Python 標準函式庫）
@@ -76,7 +82,7 @@ app/
   scripts/preview.sh    用 GG_PREVIEW 開到指定畫面再截圖（看主題用；需要螢幕錄製權限）
   scripts/build-remote.sh  建置遠端 helper（darwin-arm64、linux-x86_64、linux-aarch64 的 musl 靜態執行檔）到 src-tauri/remote-dist/；`--native` 只建本機的
   scripts/build-app.sh  打包：prepare-ui → build-remote → cargo tauri build → 驗證簽章與架構；可加 --universal、--dmg、--install
-  package.json        建置期依賴：esbuild、monaco-editor、opencc-js（版本鎖定；只在打包時用）
+  package.json        建置期依賴：esbuild、monaco-editor、opencc-js、markdown-it、katex、mermaid 等（版本鎖定；只在打包時用）。`overrides` 讓所有套件用同一個 katex（外掛原本自帶舊版，和 CSS 對不上）並把 dompurify 固定在修好的版本
 vendor/vscode-git-graph-rs  上游 submodule（鎖在 v1.0.28）
 ```
 
@@ -97,7 +103,7 @@ cd app/src-tauri && cargo tauri build --bundles app        # → target/release/
 app/scripts/build-app.sh [--universal] [--dmg] [--install]  # 打包的正式做法（含 prepare-ui 與驗證）
 ```
 
-- **自我測試**：`app/scripts/selftest.sh <App 執行檔> <repo 或含多個 repo 的資料夾> [log 檔]`（內部就是 `GG_SELFTEST=1 <執行檔> <路徑>`，並把 `GG_DATA_DIR` 指到臨時目錄，不會動到你的最近清單）。頁面會先把介面語言切成繁體中文再切回英文（各重新載入一次，確認會開回同一個 repo、工具列與側欄文字跟著變、`settings.json` 存的是 `zh-tw`），接著自動點一個 commit、透過 IPC 驗證 `git_exec` 的 cwd/串流/取消、經由路由跑 8 種讀取、做一次可還原的寫入（建立再刪除 `gg-selftest-*` 分支），確認會拒絕其他 repo 路徑，走一次完整的 data-loss 警告（用 `commit-tree` 做一個只有某分支才有的 commit，強制移動該分支 → 收到 `lossWarning` → webview 顯示警告對話框 → 點繼續後帶 `confirmed` 重送 → 分支真的移動，最後刪掉），再用真的 helper 執行檔驗證 askpass（回答並遮罩、取消、git 逾時後對話框自動關閉、ssh-keygen 的 passphrase），依序打開 5 種 diff 視窗（viewDiff、viewFileAtRevision、openCompareTab、viewDiffWithWorkingFile、viewDiffBinary），每個視窗渲染後回報結果，有 editor 的會先驗證「搜尋框開著時 Esc 只關搜尋框」，再對打開的詳細資料裡的檔案各點一次（應開 diff）與 ⌘-click 一次（應開檔案本身），最後都用 Esc 關閉（主視窗確認 diff 視窗全部關掉了）；若點到的 commit 含有修改過的圖片，會多測一次圖片並排比較（檢查兩張圖都能解碼）。接著檢查子 repo 掃描與最近清單、在多 repo 的視窗裡切換 repo、檔案監看（在工作目錄建立和刪除檔案，各應觸發一次刷新）、設定（存檔後收到 `configChanged`、超出範圍的值被拒絕、還原；`settings.json` 的 `dialog.createBranch.checkOut` 讓 Create Branch 對話框預設勾選 Check out、`commitDetailsView.location` 讓新打開的詳細資料停靠在底部）、state 經 Rust 寫入 state.json 且不留在 `localStorage`、匯出 repo 設定再讀回（repo 已有該檔時略過，不覆寫）、View > Find 打開 find widget、側欄（清單與目前的 repo、收合／展開時 `#view` 的位置、commit 的右鍵選單開在游標旁；File > Open 另一個 repo 會加進側欄並在這個視窗顯示、點側欄切回、Open in New Window 開出新視窗（新視窗的 askpass 對話框只出現在它自己，主視窗不會出現）、拖拉到最上面、建立群組並把它拖進去（群組之間拖拉排序、收合、改名、⌘-click 選兩列後用選單與拖拉整批移動、刪除後回到 default）、Remove 移除、模擬把資料夾拖到視窗上（送 `tauri://drag-drop`）會加進側欄並顯示）、主題（`AccentColor` 能解析、強調色上的文字是白色、用 `set_appearance` 切淺色與深色後 WebKit 跟著變、強制增強對比後的 body class 與顏色、每個 diff 視窗的 Monaco 主題與外觀一致）。最後在 stderr 輸出 `selftest: PASS|FAIL`。沒有螢幕截圖權限時，這是主要的端到端驗證方式。每次改動 host 或 UI 都要跑。**它會寫入目標 repo**（臨時分支、臨時檔與 `.vscode/vscode-git-graph.json`，都會刪掉），建議對 scratch 裡的 clone 跑，不要對 vendor submodule 跑。兩種情況都要跑：單一 repo，以及含多個 repo 的資料夾（例如 scratch 裡放 git/git clone 和圖片測試 repo 的那一層）。
+- **自我測試**：`app/scripts/selftest.sh <App 執行檔> <repo 或含多個 repo 的資料夾> [log 檔]`（內部就是 `GG_SELFTEST=1 <執行檔> <路徑>`，並把 `GG_DATA_DIR` 指到臨時目錄，不會動到你的最近清單）。頁面會先把介面語言切成繁體中文再切回英文（各重新載入一次，確認會開回同一個 repo、工具列與側欄文字跟著變、`settings.json` 存的是 `zh-tw`），接著自動點一個 commit、透過 IPC 驗證 `git_exec` 的 cwd/串流/取消、經由路由跑 8 種讀取、做一次可還原的寫入（建立再刪除 `gg-selftest-*` 分支），確認會拒絕其他 repo 路徑，走一次完整的 data-loss 警告（用 `commit-tree` 做一個只有某分支才有的 commit，強制移動該分支 → 收到 `lossWarning` → webview 顯示警告對話框 → 點繼續後帶 `confirmed` 重送 → 分支真的移動，最後刪掉），再用真的 helper 執行檔驗證 askpass（回答並遮罩、取消、git 逾時後對話框自動關閉、ssh-keygen 的 passphrase），依序打開 5 種 diff 視窗（viewDiff、viewFileAtRevision、openCompareTab、viewDiffWithWorkingFile、viewDiffBinary），每個視窗渲染後回報結果，有 editor 的會先驗證「搜尋框開著時 Esc 只關搜尋框」，再對打開的詳細資料裡的檔案各點一次（應開 diff）與 ⌘-click 一次（應開檔案本身），在工作目錄建立一個臨時的 Markdown 檔並打開（預覽有表格、上色的程式碼、數學式、repo 裡的圖片、Mermaid 圖；`<script>` 仍是文字；兩邊捲動互相跟隨；PlantUML 沒設定 jar 時顯示提示，設定後由假的 java 畫出），最後都用 Esc 關閉（主視窗確認 diff 視窗全部關掉了）；若點到的 commit 含有修改過的圖片，會多測一次圖片並排比較（檢查兩張圖都能解碼）。接著檢查子 repo 掃描與最近清單、在多 repo 的視窗裡切換 repo、檔案監看（在工作目錄建立和刪除檔案，各應觸發一次刷新）、設定（存檔後收到 `configChanged`、超出範圍的值被拒絕、還原；`settings.json` 的 `dialog.createBranch.checkOut` 讓 Create Branch 對話框預設勾選 Check out、`commitDetailsView.location` 讓新打開的詳細資料停靠在底部）、state 經 Rust 寫入 state.json 且不留在 `localStorage`、匯出 repo 設定再讀回（repo 已有該檔時略過，不覆寫）、View > Find 打開 find widget、側欄（清單與目前的 repo、收合／展開時 `#view` 的位置、commit 的右鍵選單開在游標旁；File > Open 另一個 repo 會加進側欄並在這個視窗顯示、點側欄切回、Open in New Window 開出新視窗（新視窗的 askpass 對話框只出現在它自己，主視窗不會出現）、拖拉到最上面、建立群組並把它拖進去（群組之間拖拉排序、收合、改名、⌘-click 選兩列後用選單與拖拉整批移動、刪除後回到 default）、Remove 移除、模擬把資料夾拖到視窗上（送 `tauri://drag-drop`）會加進側欄並顯示）、主題（`AccentColor` 能解析、強調色上的文字是白色、用 `set_appearance` 切淺色與深色後 WebKit 跟著變、強制增強對比後的 body class 與顏色、每個 diff 視窗的 Monaco 主題與外觀一致）。最後在 stderr 輸出 `selftest: PASS|FAIL`。沒有螢幕截圖權限時，這是主要的端到端驗證方式。每次改動 host 或 UI 都要跑。**它會寫入目標 repo**（臨時分支、臨時檔與 `.vscode/vscode-git-graph.json`，都會刪掉），建議對 scratch 裡的 clone 跑，不要對 vendor submodule 跑。兩種情況都要跑：單一 repo，以及含多個 repo 的資料夾（例如 scratch 裡放 git/git clone 和圖片測試 repo 的那一層）。
   - **遠端 repo 的段落**：`selftest.sh` 會設 `GG_REMOTE_SSH=tests/fake-ssh.sh`（假的 ssh，在本機臨時的 HOME 下跑 helper），把同一個 repo 當成 `ssh://selftest@localhost<路徑>`：經 Add SSH Repository 對話框加入（以 `-` 開頭的主機被拒絕）、標題與側欄顯示主機、git 與引擎在那個路徑執行、讀工作目錄檔案、拒絕 archive、遠端 git 的帳密提示出現在這裡並回傳、在背後建立與刪除分支各刷新一次、`remote_disconnect` 後項目變淡且請求失敗、點一下重連、移除。helper 用執行檔旁邊的 `gg-remote`（debug 建置），沒有就用嵌入的（打包好的 `.app`）。
   - **真的 ssh**（可選，需要 Docker；改動 `remote.rs`、bootstrap、`crates/remote` 時要跑）：
     ```sh
@@ -108,7 +114,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]  # 打包的正式做
     ```
     `real-ssh.sh` 強制每次都問 host key 與密碼，不讀也不寫 `~/.ssh`。log 會列出回答過的提示。已用 sh、bash、fish 三種登入 shell 跑過。
   - **SMB**（沒有自動測試）：`mount_smbfs -N //user:pass@host:port/share <目錄>` 可以不經系統對話框掛載，再對上面的 repo 跑 self-test（已對 Docker 的 Samba 跑過）。掛載對話框（`mount volume`）與「點變淡的項目重新掛載」要手動測。
-- **看畫面**（改主題或 CSS 後）：`app/scripts/preview.sh <執行檔> <repo> <場景> <light|dark|system> <輸出前綴>`。場景用逗號分隔、依序執行：`details`（打開一個 commit）、`settings`、`menu`（右鍵選單）、`dialog`（Create Branch）、`find`（搜尋 "fix"）、`diff`（開 diff 視窗）、`resize`（把視窗放大到 2400×1300，模擬手動拉大；`preview_resize` 只在 `GG_PREVIEW` 下有效）、`fold`（收合側欄）、`repomenu`（側欄第二個 repo 的右鍵選單）；路徑給含多個 repo 的資料夾就能看到側欄有好幾項；加上 `contrast` 強制增強對比。每個視窗輸出一張 PNG。App 跑在臨時的 `GG_DATA_DIR`，外觀用預先寫好的 `state.json` 指定，不會動到你的設定。終端機需要「螢幕錄製」權限。
+- **看畫面**（改主題或 CSS 後）：`app/scripts/preview.sh <執行檔> <repo> <場景> <light|dark|system> <輸出前綴>`。場景用逗號分隔、依序執行：`details`（打開一個 commit）、`settings`、`menu`（右鍵選單）、`dialog`（Create Branch）、`find`（搜尋 "fix"）、`diff`（開 diff 視窗）、`markdown`（打開 repo 裡第一個 Markdown 檔與它的預覽）、`resize`（把視窗放大到 2400×1300，模擬手動拉大；`preview_resize` 只在 `GG_PREVIEW` 下有效）、`fold`（收合側欄）、`repomenu`（側欄第二個 repo 的右鍵選單）；路徑給含多個 repo 的資料夾就能看到側欄有好幾項；加上 `contrast` 強制增強對比。每個視窗輸出一張 PNG。App 跑在臨時的 `GG_DATA_DIR`，外觀用預先寫好的 `state.json` 指定，不會動到你的設定。終端機需要「螢幕錄製」權限。
 - **監看的手動檢查**（self-test 涵蓋不到）：一般模式開著 App，閒置幾秒應該 0 次刷新；在終端機 `git commit`、`git checkout -b` 各應剛好刷新一次，之後不能持續刷新（log 裡的 `watcher:` 行數）。
 - **真的 git 走 HTTP 帳密**（可選）：
   ```sh
@@ -118,14 +124,14 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]  # 打包的正式做
   ```
   self-test 會用 `-c credential.helper=` 關掉 Keychain，不讀也不存。改動 askpass 時要跑，打包後也要用 `.app` 內的執行檔再跑一次（路徑含空格）。
 - **測圖片 diff**：做一個「同一個 commit 同時改一個文字檔和一個 PNG」的小 repo 再跑 self-test，例如複製 `src-tauri/icons/32x32.png` 後換成 `64x64.png` 並 commit。
-- **host 的測試**：`cd app && npm test`（目前 66 個；sidebar 10 個；remote 4 個；theme 5 個；gitops 38 個在臨時 repo 上用真的 git 測所有寫入操作、data-loss 警告與全域作者同步，`GIT_CONFIG_GLOBAL` 指向臨時檔，不會動到你的全域設定；settings 的測試需要先 `npm run compile-src` 產生上游 `out/config.js`，沒有就略過）。
-- **Rust 的測試**：`cd app/src-tauri && cargo test --workspace`（目前 52 個）。
+- **host 的測試**：`cd app && npm test`（目前 74 個；markdown 7 個；sidebar 10 個；remote 4 個；theme 5 個；gitops 38 個在臨時 repo 上用真的 git 測所有寫入操作、data-loss 警告與全域作者同步，`GIT_CONFIG_GLOBAL` 指向臨時檔，不會動到你的全域設定；settings 的測試需要先 `npm run compile-src` 產生上游 `out/config.js`，沒有就略過）。
+- **Rust 的測試**：`cd app/src-tauri && cargo test --workspace`（目前 56 個）。
   - backend 23 個：監看的判斷與真正的 FSEvents（被忽略的檔案不刷新、一陣變動只回報一次、linked worktree、缺一個 root 時其他照常監看）、子 repo 掃描、工作目錄讀檔與路徑限制、git 解析與執行、operation state、repo 設定只寫固定路徑且不經過 symlink、協定的 frame。
   - remote 7 個（以 pipe 啟動 helper）：引擎與讀檔、git 的環境／串流／逾時／取消、5 MB 檔案不擋住小請求、監看事件、帳密提示（回答、取消、git 先結束）、連線結束時殺掉執行中的 git。
-  - App 22 個：最近清單、URL 過濾與 shell/AppleScript 跳脫、askpass、state.json 與 settings.json、遠端名稱的解析與拒絕、遠端 shell 的跳脫、bootstrap 的字元限制、經假的 ssh 連線（上傳一次、之後沿用；斷線時等待中的請求失敗；連不上時回報 ssh 的訊息）、share 位址檢查。App 的遠端測試用 `target/debug/gg-remote`，所以要帶 `--workspace`。
+  - App 26 個：PlantUML（jar 來自設定、SANDBOX 參數與 stdin、失敗與逾時）、最近清單、URL 過濾與 shell/AppleScript 跳脫、askpass、state.json 與 settings.json、遠端名稱的解析與拒絕、遠端 shell 的跳脫、bootstrap 的字元限制、經假的 ssh 連線（上傳一次、之後沿用；斷線時等待中的請求失敗；連不上時回報 ssh 的訊息）、share 位址檢查。App 的遠端測試用 `target/debug/gg-remote`，所以要帶 `--workspace`。
 - **模擬從 Finder 啟動**（PATH 只有系統目錄）：`env -i HOME=$HOME PATH=/usr/bin:/bin:/usr/sbin:/sbin GG_SELFTEST=1 target/debug/git-graph-app <repo>`。
 - **引擎測試**：`cd vendor/vscode-git-graph-rs && cargo test -p git-graph-core`（PoC 時 147 個全過）。
-- **效能基準**（git/git，8.6 萬個 commit，release 版，暖機後）：`loadCommits`（300 筆）約 85ms，同樣查詢 `git log` 要 600ms；首屏約 155–190ms；啟動時的 `loadConfig` 會呼叫引擎 `authors`（約 600ms），排在 `loadCommits` 之後，不影響首屏；`.app` 20 MB（只有 arm64；其中三個平台的遠端 helper 約 8 MB，diff 視窗的 4.8 MB bundle 經 Tauri 壓縮後約佔 1 MB）。之後的改動不應讓這些數字明顯變差。
+- **效能基準**（git/git，8.6 萬個 commit，release 版，暖機後）：`loadCommits`（300 筆）約 85ms，同樣查詢 `git log` 要 600ms；首屏約 155–190ms；啟動時的 `loadConfig` 會呼叫引擎 `authors`（約 600ms），排在 `loadCommits` 之後，不影響首屏；`.app` 22 MB（只有 arm64；其中三個平台的遠端 helper 約 8 MB，diff 視窗的 bundle 共 10.5 MB：主程式 4.4 MB、Markdown 預覽 0.4 MB、Mermaid 5.3 MB，經 Tauri 壓縮後約佔 3 MB）。之後的改動不應讓這些數字明顯變差。
 
 ## 已知坑與慣例
 
@@ -154,6 +160,13 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]  # 打包的正式做
   - **webview 的慣例**：`fromHash === toHash` 代表「那一個 commit」（父 commit ↔ 它）；`*` 代表 HEAD ↔ 工作目錄。A/U 狀態的檔案左側為空，D 狀態右側為空。
   - **⌘-click 檔案顯示該版本的檔案內容**（一般點擊是 diff）：上游的點擊處理不看修飾鍵，一律送 `viewDiff`／`viewDiffBinary`，所以 `host/main.js` 在 capture 階段記下「⌘-click 了 `.fileTreeFile`」，`__ggHost.handle` 收到這次點擊送出的請求時用 `diffspec.js` 的 `fileViewOf` 改成 `viewFileAtRevision`（`toHash`、`newFilePath`：比較、stash 的 untracked、`*` 都已由 webview 算好；D 狀態維持 diff）。旗標用 `setTimeout` 清掉（microtask 會在兩個 listener 之間執行，太早）；所以 `shim.js` 的 `postMessage` 必須**同步**呼叫 `__ggHost.handle`，延後的是它裡面的 `respond`。
   - 版面偏好（左右對照或 inline、忽略空白）存在 diff 視窗的 `localStorage`（`gg.diffPrefs`）。
+  - **Markdown 預覽**（`.md`、`.markdown`，只在檔案檢視 `mode: 'file'`；2 MB 以內）：左邊是原始檔的 Monaco，右邊 `#preview` 是渲染結果，工具列的 Preview 核取方塊可關（`gg.diffPrefs.preview`）。
+    - 渲染在 `diff/markdown.js`：markdown-it（`html: false`，repo 的內容帶不進 HTML）、task list、KaTeX。它和 Mermaid 各是一個**延後載入**的 bundle（`diff-dist/preview.js`＋`preview.css`、`mermaid.js`，約 0.4 MB 與 5.3 MB），`main.js` 的 `loadBundle` 在需要時才插入 `<script>`，所以一般 diff 視窗不受影響。不要把 `markdown.js` import 進 `main.js`（會把它打進主 bundle）；`main.js` 只 import `mdview.js`。
+    - 程式碼區塊用 `monaco.editor.colorize()` 上色（不用 highlight.js），樣式寫在 `diff.html`、只用 `theme.css` 的 token，所以四種外觀都跟著變。Mermaid 的主題跟外觀（`dark`／`default`），外觀改變時從原始碼重畫。
+    - 圖片：相對路徑用 `mdview.js` 的 `resolveRelative` 換成 repo 內路徑，從**顯示的那個 revision**（或工作目錄）讀成 data URL；`http(s)` 照常載入；其餘不載入。HTML 先放進 `<template>` 處理完圖片才接上頁面（否則 WebKit 會先去抓相對路徑）。連結一律不導覽，`http(s)`、`mailto` 交給 `open_url`。
+    - **PlantUML**（`plantuml.rs` 的 `render_plantuml`）：只用本機的 jar，路徑是 `settings.json` 的 `markdownPreview.plantumlJar`（`settings.js` 有登記，但不屬於 view config）；**不做 server 渲染**。java 依序找 `JAVA_HOME`、`/usr/libexec/java_home`、Homebrew 的 `openjdk`、`PATH`。內容來自 repo，所以帶 `-DPLANTUML_SECURITY_PROFILE=SANDBOX`（`!include` 讀不到本機檔案與網址；內建 stdlib 如 `<C4/C4_Container>` 仍可用，已用 1.2026.9 驗證）。30 秒逾時；結果快取在記憶體；輸出放進 `<img>` 的 data URL，不 inline SVG。沒設定或失敗時保留原始碼，下方顯示原因與 Open Settings 按鈕，視窗重新取得焦點時重試。`GG_PLANTUML_JAVA`（取代 java 的程式）只給測試用；`GG_SELFTEST_PLANTUML_JAR=<jar>` 讓 self-test 改用真的 java 與那個 jar（可選）。
+    - **捲動同步**：區塊帶 `data-line`（原始檔行號），`mdview.js` 的 `lineToOffset`／`offsetToLine` 在量到的位置之間內插；只有使用者正在操作的那一邊（滑鼠或鍵盤所在）會帶動另一邊，否則兩邊會互相回應。頁面大小變了（圖片、圖表載入）就重新量。
+    - 還沒截圖確認外觀（這個環境沒有螢幕錄製權限）；`preview.sh` 的 `markdown` 場景可以用來看。
   - **Esc 關閉視窗**（`diff/main.js` 的 `keydown`）：Monaco 處理過的按鍵會 `preventDefault`（例如關閉搜尋框、取消多重游標），這時不關；輸入法組字中（`isComposing`）也不關。不要改成 capture 階段，否則會搶在 Monaco 之前。
 - **repo 與視窗**（側欄）：
   - **側欄的清單**存在 `state.json` 的 `sidebar`（`{ repos, collapsed }`），所有視窗共用；某個視窗改了，其他視窗經 `state-changed` 跟著更新（`sidebarChangedElsewhere`）。第一次（沒有這個 key 時）用最近清單的 repo 當初始內容。每個視窗一次顯示其中一個 repo（`repoRoot`），全域記住最後顯示的（`lastActiveRepo`），下次沒帶路徑啟動就開它；打不開的（例如外接磁碟沒接上）跳過並在側欄變淡。

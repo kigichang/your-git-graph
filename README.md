@@ -73,7 +73,10 @@ cd app/src-tauri && cargo test --workspace   # Rust: the app, the shared backend
 
 Every request of the webview protocol has a handler. Diffs open in their own window (Monaco):
 text side by side or inline, a file at a revision, a whole comparison with its file list, images
-side by side; Esc closes a diff window. Credential prompts from git (HTTPS) and
+side by side; Esc closes a diff window. ⌘-click on a file of a commit shows the file itself; a
+Markdown file (`.md`, `.markdown`) is shown with its rendered page beside the source (tables,
+task lists, code, KaTeX math, Mermaid; PlantUML through a local `plantuml.jar` named by
+`"markdownPreview.plantumlJar"` in `settings.json`, never a server). Credential prompts from git (HTTPS) and
 ssh (passphrases, host keys) appear in the app's window; the macOS keychain is used as usual.
 Settings changed in the view's Settings panel apply to every window at once and are kept in
 `~/Library/Application Support/dev.kigi.gitgraph/settings.json`, which can also be edited by

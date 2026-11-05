@@ -8,6 +8,7 @@
 mod askpass;
 mod diff;
 mod git;
+mod plantuml;
 mod remote;
 mod repo;
 mod repos;
@@ -92,12 +93,15 @@ fn host_log(log: tauri::State<'_, state::SessionLog>, line: String, persist: Opt
 /// Whether the page should run its built-in end-to-end check (`GG_SELFTEST=1`), and with what:
 /// `GG_SELFTEST_HTTP` names an HTTP Basic-auth URL for the real-git credential prompt check;
 /// with `GG_REMOTE_SSH` (a stand-in for ssh) the repository is also opened as a remote one, or
-/// with `GG_SELFTEST_SSH` (and `GG_SELFTEST_SSH_PASSWORD`) that repository through the real ssh.
+/// with `GG_SELFTEST_SSH` (and `GG_SELFTEST_SSH_PASSWORD`) that repository through the real ssh;
+/// with `GG_PLANTUML_JAVA` (a stand-in for java) a PlantUML block of the Markdown preview is
+/// drawn, or with `GG_SELFTEST_PLANTUML_JAR` by that plantuml.jar and the real java.
 #[tauri::command]
 fn self_test() -> Option<serde_json::Value> {
     std::env::var("GG_SELFTEST").is_ok_and(|v| v == "1").then(|| {
         serde_json::json!({ "httpUrl": std::env::var("GG_SELFTEST_HTTP").ok(), "remote": std::env::var_os("GG_REMOTE_SSH").is_some(),
-            "sshUrl": std::env::var("GG_SELFTEST_SSH").ok(), "sshPassword": std::env::var("GG_SELFTEST_SSH_PASSWORD").ok() })
+            "sshUrl": std::env::var("GG_SELFTEST_SSH").ok(), "sshPassword": std::env::var("GG_SELFTEST_SSH_PASSWORD").ok(),
+            "plantumlJava": std::env::var_os("GG_PLANTUML_JAVA").is_some(), "plantumlJar": std::env::var("GG_SELFTEST_PLANTUML_JAR").ok() })
     })
 }
 
@@ -130,6 +134,7 @@ fn main() {
         .manage(git::GitJobs::default())
         .manage(repos::Windows::default())
         .manage(Launch::default())
+        .manage(plantuml::Cache::default())
         .menu(repos::menu)
         .on_menu_event(|app, event| repos::on_menu_event(app, event.id().as_ref()))
         .on_window_event(|window, event| {
@@ -184,6 +189,7 @@ fn main() {
             remote::remote_disconnect,
             diff::open_diff_window,
             diff::worktree_file,
+            plantuml::render_plantuml,
             repos::scan_repos,
             repos::recent_repos,
             repos::repo_opened,

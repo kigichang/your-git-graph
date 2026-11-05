@@ -1,6 +1,7 @@
 /* Bundle the diff window (app/diff/main.js + Monaco's ESM build) into app/ui/diff-dist/.
  * Monaco 0.53+ supports only bundled ESM; its language services (TypeScript, CSS, HTML, JSON
- * workers) are left out - the window needs syntax colouring, not IntelliSense. */
+ * workers) are left out - the window needs syntax colouring, not IntelliSense. Two more
+ * bundles hold what only the Markdown preview needs (diff/preview.js, diff/mermaid.js). */
 import * as esbuild from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -15,13 +16,19 @@ export async function buildDiff() {
 		absWorkingDir: appDir,
 		entryPoints: {
 			diff: 'diff/main.js',
-			'editor.worker': 'node_modules/monaco-editor/esm/vs/editor/editor.worker.js'
+			'editor.worker': 'node_modules/monaco-editor/esm/vs/editor/editor.worker.js',
+			// The Markdown preview of the file view, loaded when a file needs it: the renderer
+			// (with KaTeX's styles), and Mermaid for documents with such diagrams.
+			preview: 'diff/preview.js',
+			mermaid: 'diff/mermaid.js'
 		},
 		outdir,
 		bundle: true,
 		format: 'iife',
 		minify: true,
-		loader: { '.ttf': 'file' },
+		// KaTeX lists each font as woff2, woff and ttf: WebKit takes the first, the others stay out.
+		loader: { '.ttf': 'file', '.woff2': 'file' },
+		external: ['*.woff', 'fonts/KaTeX_*.ttf'],
 		legalComments: 'linked',
 		logLevel: 'warning'
 	});

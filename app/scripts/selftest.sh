@@ -22,6 +22,12 @@ if [ -z "${GG_SELFTEST_SSH:-}" ]; then
 	[ -x "$(dirname "$app")/gg-remote" ] && export GG_REMOTE_HELPER="$(dirname "$app")/gg-remote"
 fi
 
+# PlantUML blocks of the Markdown preview are drawn by a stand-in for java (no JDK, no jar
+# needed) - or, with GG_SELFTEST_PLANTUML_JAR=<plantuml.jar>, by that jar and the real java.
+if [ -z "${GG_SELFTEST_PLANTUML_JAR:-}" ]; then
+	export GG_PLANTUML_JAVA="${GG_PLANTUML_JAVA:-$(cd "$(dirname "$0")/../tests" && pwd)/fake-java.sh}"
+fi
+
 pkill -f "$app" 2>/dev/null
 GG_DATA_DIR="$data" GG_SELFTEST=1 "$app" "$repo" > "$log" 2>&1 &
 pid=$!

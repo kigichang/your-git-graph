@@ -97,3 +97,13 @@ test('invalid, unknown and unavailable values are refused and ignored', () => {
 	assert.equal(config.stickyHeader, false);
 	assert.equal(defaults.stickyHeader, true, 'the defaults are not modified');
 });
+
+test('the path of plantuml.jar is a setting of the app, not of the view', () => {
+	const defaults = { interfaceLanguage: 'en', interfaceLanguageSetting: 'auto' };
+	assert.equal(validateSetting('markdownPreview.plantumlJar', '/opt/plantuml.jar'), null);
+	assert.match(validateSetting('markdownPreview.plantumlJar', ' '), /path of plantuml\.jar/);
+	assert.match(validateSetting('markdownPreview.plantumlJar', true), /path of plantuml\.jar/);
+	const { config, ignored } = configFrom(defaults, { 'markdownPreview.plantumlJar': '/opt/plantuml.jar' });
+	assert.deepEqual(ignored, []);
+	assert.deepEqual(config, configFrom(defaults, {}).config);
+});
