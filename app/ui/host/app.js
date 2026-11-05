@@ -6,6 +6,9 @@ import { UNCOMMITTED, syncGlobalAuthor } from './gitops.js';
 import { diffSpec, workingFileSpec, fileSpec, compareSpec } from './diffspec.js';
 import { validateSetting } from './settings.js';
 import { exportRepoConfig } from './repoconfig.js';
+import { isRemote, pathOf } from './remote.js';
+
+const NOT_REMOTE = 'Not available for a repository on another machine.';
 
 /** The handlers below that write into a repository (the file watcher's echo is ignored). */
 export const APP_WRITES = new Set(['exportRepoConfig']);
@@ -61,7 +64,7 @@ export const appHandlers = {
 		return { command: 'copyToClipboard', type: m.type, error: await attempt(() => ctx.system.clipboard(m.data)) };
 	},
 	async copyFilePath(ctx, m) {
-		const text = m.absolute ? ctx.repo + '/' + m.filePath : m.filePath;
+		const text = m.absolute ? pathOf(ctx.repo) + '/' + m.filePath : m.filePath; // on the repository's machine
 		return { command: 'copyFilePath', error: await attempt(() => ctx.system.clipboard(text)) };
 	},
 	async openExternalUrl(ctx, m) {
@@ -78,6 +81,7 @@ export const appHandlers = {
 		return null;
 	},
 	async openExternalDirDiff(ctx, m) {
+		if (isRemote(ctx.repo)) return { command: 'openExternalDirDiff', error: NOT_REMOTE }; // the diff tool would start over there
 		const args = ['difftool', '--dir-diff', '--no-prompt', ...(m.isGui ? ['--gui'] : []), m.fromHash, ...(m.toHash === UNCOMMITTED ? [] : [m.toHash])];
 		const result = await ctx.git(args);
 		return { command: 'openExternalDirDiff', error: result.exitCode === 0 ? null : (result.stderr.trim() || 'git difftool failed.') };
@@ -111,7 +115,8 @@ export const appHandlers = {
 		if (error !== null || m.setting !== 'commitAuthors') return { ...base, error };
 		// The list the widget showed is what the edit is judged against (see syncGlobalAuthor).
 		const previous = Array.isArray(m.previousValue) ? m.previousValue : ctx.config().commitAuthors;
-		const synced = await syncGlobalAuthor(ctx, previous, m.value);
+		// Not with a remote repository shown: its git's global configuration is that account's.
+		const synced = isRemote(ctx.repo) ? { touched: false, error: null } : await syncGlobalAuthor(ctx, previous, m.value);
 		return { ...base, authorConfigTouched: synced.touched, error: synced.error };
 	},
 	async setInterfaceLanguage(ctx, m) {

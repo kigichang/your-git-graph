@@ -12,6 +12,16 @@ set -u
 app="$1"; repo="$2"; log="${3:-$(mktemp -t gg-selftest).log}"
 data="${GG_DATA_DIR:-$(mktemp -d -t gg-selftest-data)}"
 
+# The repository is also opened as one on another machine, through a stand-in for ssh that runs
+# the helper on this Mac under a temporary home: the helper built beside a development binary
+# (cargo build -p gg-remote), else the one embedded in the app (scripts/build-remote.sh).
+# With GG_SELFTEST_SSH set (tests/ssh-server.sh prints how) the caller chose the real ssh.
+if [ -z "${GG_SELFTEST_SSH:-}" ]; then
+	export GG_REMOTE_SSH="$(cd "$(dirname "$0")/../tests" && pwd)/fake-ssh.sh"
+	export GG_FAKE_HOME="$(mktemp -d -t gg-selftest-home)"
+	[ -x "$(dirname "$app")/gg-remote" ] && export GG_REMOTE_HELPER="$(dirname "$app")/gg-remote"
+fi
+
 pkill -f "$app" 2>/dev/null
 GG_DATA_DIR="$data" GG_SELFTEST=1 "$app" "$repo" > "$log" 2>&1 &
 pid=$!

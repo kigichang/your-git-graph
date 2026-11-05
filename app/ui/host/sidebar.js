@@ -6,6 +6,8 @@
 
 /* ---------- Pure helpers ---------- */
 
+import { parseRemote } from './remote.js';
+
 const AVATAR_COLOURS = ['#1a9e8f', '#e0773a', '#7b61ff', '#d64f73', '#3d8bfd', '#b8860b', '#3a9a52', '#a05cd6'];
 
 export const baseName = (path) => path.replace(/\/+$/, '').split('/').pop() || path;
@@ -20,13 +22,15 @@ export function avatarOf(path) {
 	return { letter, colour: AVATAR_COLOURS[hash % AVATAR_COLOURS.length] };
 }
 
-/** What each repository is called in the list: its folder name, and where names collide, the
- * folder it is in as a hint. */
+/** What each repository is called in the list: its folder name, with a hint: the machine of a
+ * repository reached over ssh, else where names collide the folder it is in. */
 export function labelsOf(repos) {
 	const count = new Map();
 	for (const repo of repos) count.set(baseName(repo), (count.get(baseName(repo)) || 0) + 1);
 	return Object.fromEntries(repos.map((repo) => {
 		const name = baseName(repo);
+		const remote = parseRemote(repo);
+		if (remote !== null) return [repo, { name, hint: remote.authority }];
 		return [repo, { name, hint: count.get(name) > 1 ? baseName(repo.slice(0, repo.length - name.length)) : null }];
 	}));
 }
@@ -65,16 +69,16 @@ export function badgeOf(status) {
 
 const STRINGS = {
 	en: {
-		title: 'Repositories', add: 'Add Repository…', collapse: 'Hide Sidebar (⌃⌘S)', expand: 'Show Sidebar (⌃⌘S)', settings: 'Settings',
+		title: 'Repositories', add: 'Add Repository', addLocal: 'Add Local Repository…', addRemote: 'Add SSH Repository…', collapse: 'Hide Sidebar (⌃⌘S)', expand: 'Show Sidebar (⌃⌘S)', settings: 'Settings',
 		reveal: 'Reveal in Finder', terminal: 'Open in Terminal', newWindow: 'Open in New Window', remove: 'Remove from Sidebar',
-		missing: 'Not found', ahead: (n) => n + ' commit' + (n === 1 ? '' : 's') + ' to push', behind: (n) => n + ' commit' + (n === 1 ? '' : 's') + ' to pull'
+		missing: 'Not found — click to try again', offline: 'Not connected — click to connect', ahead: (n) => n + ' commit' + (n === 1 ? '' : 's') + ' to push', behind: (n) => n + ' commit' + (n === 1 ? '' : 's') + ' to pull'
 	},
 	// The view's Chinese ('zh-cn' is the language code its code knows): Traditional Chinese
 	// (Taiwan) in this app - see host/settings.js and scripts/zh-tw.mjs.
 	'zh-cn': {
-		title: '儲存庫', add: '加入儲存庫…', collapse: '隱藏側邊欄 (⌃⌘S)', expand: '顯示側邊欄 (⌃⌘S)', settings: '設定',
+		title: '儲存庫', add: '加入儲存庫', addLocal: '加入本機儲存庫…', addRemote: '加入 SSH 儲存庫…', collapse: '隱藏側邊欄 (⌃⌘S)', expand: '顯示側邊欄 (⌃⌘S)', settings: '設定',
 		reveal: '在 Finder 中顯示', terminal: '在終端機中開啟', newWindow: '在新視窗中開啟', remove: '從側邊欄移除',
-		missing: '找不到', ahead: (n) => n + ' 個提交待推送', behind: (n) => n + ' 個提交待拉取'
+		missing: '找不到 — 點一下重試', offline: '尚未連線 — 點一下連線', ahead: (n) => n + ' 個提交待推送', behind: (n) => n + ' 個提交待拉取'
 	}
 };
 
@@ -101,11 +105,12 @@ const iconButton = (icon, title, onClick) => {
 	return b;
 };
 
-/** The sidebar in `document.body`. actions: { select(repo), add(), remove(repo), reveal(repo),
+/** The sidebar in `document.body`. actions: { select(repo), add(), addRemote(), remove(repo), reveal(repo),
  * terminal(repo), newWindow(repo), move(repo, before), toggle(), settings() }; move: dragged to
  * just before `before` (null: the end). Returns { render(state) } where
  * state is { repos, current, status: { [repo]: { ahead, behind } | { missing: true } },
- * collapsed, language }. */
+ * collapsed, language }. select is also called for the current repository when it is missing
+ * (not found, not connected): a click tries again. */
 export function createSidebar(actions) {
 	let state = { repos: [], current: null, status: {}, collapsed: false, language: 'en' };
 	const t = () => STRINGS[state.language] || STRINGS.en;
@@ -114,7 +119,10 @@ export function createSidebar(actions) {
 	nav.id = 'ggSidebar';
 	const head = el('div', 'ggSidebarHead');
 	const title = el('span', 'ggSidebarTitle');
-	const addBtn = iconButton('plus', '', () => actions.add());
+	const addBtn = iconButton('plus', '', () => {
+		const box = addBtn.getBoundingClientRect();
+		openMenu([[t().addLocal, actions.add], [t().addRemote, actions.addRemote]], box.left, box.bottom + 2);
+	});
 	const hideBtn = iconButton('sidebar', '', () => actions.toggle());
 	head.append(title, addBtn, hideBtn);
 	const list = el('div');
@@ -133,22 +141,24 @@ export function createSidebar(actions) {
 	/* A small context menu of the sidebar's own (the view's belongs to upstream). */
 	let menu = null;
 	const closeMenu = () => { if (menu) { menu.remove(); menu = null; } };
-	document.addEventListener('mousedown', (e) => { if (menu && !menu.contains(e.target)) closeMenu(); }, true);
+	/* A repository's menu; one on another machine has no folder for the Finder to show. */
+	const repoMenu = (repo) => [
+		...(parseRemote(repo) === null ? [[t().reveal, () => actions.reveal(repo)]] : []),
+		[t().terminal, () => actions.terminal(repo)], [t().newWindow, () => actions.newWindow(repo)], null, [t().remove, () => actions.remove(repo)]
+	];
+	document.addEventListener('mousedown', (e) => { if (menu && !menu.contains(e.target) && !addBtn.contains(e.target)) closeMenu(); }, true);
 	document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
 	window.addEventListener('blur', closeMenu);
-	function openMenu(repo, x, y) {
+	/** items: [label, action] each, null for a separator. */
+	function openMenu(items, x, y) {
 		closeMenu();
 		menu = el('ul', 'ggMenu');
-		const item = (label, fn) => {
-			const li = el('li', 'ggMenuItem', label);
-			li.addEventListener('click', () => { closeMenu(); fn(repo); });
+		for (const entry of items) {
+			if (entry === null) { menu.appendChild(el('li', 'ggMenuSeparator')); continue; }
+			const li = el('li', 'ggMenuItem', entry[0]);
+			li.addEventListener('click', () => { closeMenu(); entry[1](); });
 			menu.appendChild(li);
-		};
-		item(t().reveal, actions.reveal);
-		item(t().terminal, actions.terminal);
-		item(t().newWindow, actions.newWindow);
-		menu.appendChild(el('li', 'ggMenuSeparator'));
-		item(t().remove, actions.remove);
+		}
 		document.body.appendChild(menu);
 		const box = menu.getBoundingClientRect();
 		menu.style.left = Math.min(x, window.innerWidth - box.width - 4) + 'px';
@@ -230,7 +240,8 @@ export function createSidebar(actions) {
 			item.setAttribute('role', 'option');
 			item.setAttribute('aria-selected', String(repo === state.current));
 			item.dataset.repo = repo;
-			item.title = repo + (status && status.missing ? ' — ' + t().missing : '');
+			const missing = !!(status && status.missing);
+			item.title = repo + (missing ? ' — ' + (parseRemote(repo) === null ? t().missing : t().offline) : '');
 			const avatar = avatarOf(repo);
 			const badge = el('span', 'ggAvatar', avatar.letter);
 			badge.style.background = avatar.colour;
@@ -243,8 +254,8 @@ export function createSidebar(actions) {
 				b.title = [status.ahead > 0 ? t().ahead(status.ahead) : '', status.behind > 0 ? t().behind(status.behind) : ''].filter((s) => s).join(', ');
 				item.append(b);
 			}
-			item.addEventListener('click', () => { if (repo !== state.current) actions.select(repo); });
-			item.addEventListener('contextmenu', (e) => { e.preventDefault(); openMenu(repo, e.clientX, e.clientY); });
+			item.addEventListener('click', () => { if (repo !== state.current || missing) actions.select(repo); });
+			item.addEventListener('contextmenu', (e) => { e.preventDefault(); openMenu(repoMenu(repo), e.clientX, e.clientY); });
 			return item;
 		}));
 		markDrag();

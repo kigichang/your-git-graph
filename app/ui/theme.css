@@ -239,13 +239,14 @@ html, body {
 }
 #ggOpenRepo .error { color: var(--vscode-errorForeground); max-width: 80vw; white-space: pre-wrap; }
 
-/* Credential prompt (host/askpass.js), above everything the webview draws. */
-#ggAskpass {
+/* Dialogs of the app's own, above everything the webview draws: the credential prompt
+ * (host/askpass.js) and Add SSH Repository (host/addremote.js). */
+.ggDialog {
 	position: fixed; inset: 0; z-index: 100000;
 	display: flex; align-items: center; justify-content: center;
 	background: rgba(0, 0, 0, 0.35);
 }
-#ggAskpass .ggAskpassBox {
+.ggDialog .ggDialogBox {
 	width: min(420px, calc(100vw - 32px)); box-sizing: border-box;
 	padding: 18px 20px 16px; border-radius: 12px;
 	background: var(--vscode-editorWidget-background); color: var(--vscode-editorWidget-foreground);
@@ -253,21 +254,26 @@ html, body {
 	box-shadow: 0 12px 40px var(--vscode-widget-shadow);
 	display: flex; flex-direction: column; gap: 10px;
 }
-#ggAskpass .ggAskpassTitle { font-weight: 600; font-size: 14px; }
-#ggAskpass .ggAskpassPrompt { word-break: break-word; }
-#ggAskpass input {
+.ggDialog .ggDialogTitle { font-weight: 600; font-size: 14px; }
+.ggDialog .ggAskpassPrompt { word-break: break-word; }
+.ggDialog label { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.ggDialog .ggDialogRow { display: flex; gap: 10px; }
+.ggDialog label.ggDialogNarrow { flex: 0 0 84px; }
+.ggDialog .ggDialogError { color: var(--vscode-errorForeground); white-space: pre-wrap; word-break: break-word; }
+.ggDialog input {
 	font: inherit; padding: 6px 8px; border-radius: 6px; outline: none;
 	background: var(--vscode-input-background); color: var(--vscode-input-foreground);
 	border: 1px solid var(--vscode-input-border);
 }
-#ggAskpass input:focus { border-color: var(--vscode-focusBorder); }
-#ggAskpass .ggAskpassButtons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
-#ggAskpass button {
+.ggDialog input::placeholder { color: var(--vscode-input-placeholderForeground, var(--vscode-descriptionForeground)); }
+.ggDialog input:focus { border-color: var(--vscode-focusBorder); }
+.ggDialog .ggDialogButtons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+.ggDialog button {
 	font: inherit; padding: 4px 14px; border-radius: 6px; cursor: pointer;
 	border: 1px solid var(--vscode-input-border);
 	background: var(--vscode-input-background); color: var(--vscode-foreground);
 }
-#ggAskpass button.ggAskpassOk { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent; }
+.ggDialog button.ggDialogOk { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border-color: transparent; }
 
 /* Start page: recent folders (host/main.js showPicker). */
 #ggOpenRepo .recent { width: min(520px, calc(100vw - 32px)); }

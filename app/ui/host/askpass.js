@@ -23,11 +23,12 @@ export function installAskpass({ listen, invoke, log }) {
 		const { id, prompt } = queue.shift();
 		const elem = document.createElement('div');
 		elem.id = 'ggAskpass';
-		elem.innerHTML = '<form class="ggAskpassBox" autocomplete="off">'
-			+ '<div class="ggAskpassTitle">Git</div>'
+		elem.className = 'ggDialog';
+		elem.innerHTML = '<form class="ggDialogBox" autocomplete="off">'
+			+ '<div class="ggDialogTitle">Git</div>'
 			+ '<label class="ggAskpassPrompt" for="ggAskpassInput"></label>'
 			+ '<input id="ggAskpassInput" autocapitalize="off" autocorrect="off" spellcheck="false">'
-			+ '<div class="ggAskpassButtons"><button type="button" class="ggAskpassCancel">Cancel</button><button type="submit" class="ggAskpassOk">OK</button></div>'
+			+ '<div class="ggDialogButtons"><button type="button" class="ggAskpassCancel">Cancel</button><button type="submit" class="ggAskpassOk ggDialogOk">OK</button></div>'
 			+ '</form>';
 		elem.querySelector('.ggAskpassPrompt').textContent = prompt.trim(); // text, never HTML: it comes from the remote
 		const input = elem.querySelector('input');

@@ -9,7 +9,9 @@ import { appHandlers, APP_WRITES } from './app.js';
 import { installAskpass } from './askpass.js';
 import { configFrom } from './settings.js';
 import { importRepoConfig } from './repoconfig.js';
-import { createSidebar, addRepos, removeRepo, moveRepo, parseAheadBehind } from './sidebar.js';
+import { createSidebar, addRepos, removeRepo, moveRepo, parseAheadBehind, baseName } from './sidebar.js';
+import { isRemote, parseRemote, hostOf, withPath, absolutePath, remoteId } from './remote.js';
+import { askRemote } from './addremote.js';
 
 const { invoke, Channel } = window.__TAURI__.core;
 const dialog = window.__TAURI__.dialog;
@@ -142,7 +144,15 @@ async function reloadConfig() {
 	window.__ggDeliver({ command: 'configChanged', config: structuredClone(config) });
 }
 events.listen('settings-changed', () => reloadConfig());
-thisWindow.onFocusChanged(({ payload: focused }) => { if (focused) reloadConfig(); });
+thisWindow.onFocusChanged(({ payload: focused }) => {
+	if (!focused) return;
+	reloadConfig();
+	// A repository on another machine: only its git directory is watched there (remote.rs), so
+	// edits of its work tree show when the window comes back to the front.
+	if (viewLoaded && isRemote(repoRoot) && !(repoStatus[repoRoot] && repoStatus[repoRoot].missing) && operationsRunning === 0) {
+		window.__ggDeliver({ command: 'refresh' });
+	}
+});
 
 function codeReviewsOf(repo) {
 	const key = 'codeReviews:' + repo;
@@ -246,11 +256,13 @@ const MENU_COMMANDS = {
 	sidebar: () => toggleSidebar()
 };
 thisWindow.listen('menu-command', ({ payload }) => {
-	if (viewLoaded && payload in MENU_COMMANDS) MENU_COMMANDS[payload]();
+	if (payload === 'addRemote') addRemote(); // File > Add SSH Repository…: on the start page too
+	else if (viewLoaded && payload in MENU_COMMANDS) MENU_COMMANDS[payload]();
 });
 
 function setTitle() {
-	const title = repoRoot.split('/').pop() + ' — Your Git Graph';
+	const remote = parseRemote(repoRoot);
+	const title = baseName(repoRoot) + (remote === null ? '' : ' (' + remote.authority + ')') + ' — Your Git Graph';
 	document.title = title;
 	thisWindow.setTitle(title).catch(() => {});
 }
@@ -258,7 +270,7 @@ function setTitle() {
 /* ---------- The repository sidebar (sidebar.js; the list is state.json "sidebar") ---------- */
 
 let sidebar = null;
-let repoStatus = {}; // repo -> { ahead, behind } | { missing: true } | null (no upstream)
+let repoStatus = {}; // repo -> { ahead, behind } | { missing: true } (not found, not connected) | null (no upstream)
 const sidebarState = () => store.get('sidebar', { repos: [], collapsed: false });
 const saveSidebar = (changes) => store.set('sidebar', { ...sidebarState(), ...changes });
 const reportShown = () => invoke('repo_opened', { folder: repoRoot, repos: windowRepos }).catch((e) => log('not watching ' + repoRoot + ': ' + e));
@@ -297,7 +309,7 @@ async function updateStatus(repos) {
 			const r = await git(repo, ['rev-list', '--left-right', '--count', '@{upstream}...HEAD']);
 			repoStatus[repo] = r.exitCode === 0 ? parseAheadBehind(r.stdout) : null;
 		} catch (_) {
-			repoStatus[repo] = { missing: true }; // git cannot even start there: the folder is gone
+			repoStatus[repo] = { missing: true }; // git cannot even start there: the folder is gone, its machine not connected
 		}
 	}));
 	renderSidebar();
@@ -312,6 +324,49 @@ async function addAndShow(path) {
 	setRepos(addRepos(windowRepos, found));
 	showInView(found.includes(repoRoot) ? repoRoot : found[0]);
 	updateStatus(added);
+}
+
+/** A click on a faded row: connect to its machine (or look for the folder again), then show it. */
+async function reconnect(repo) {
+	try {
+		if (isRemote(repo)) await invoke('remote_connect', { repo });
+		await engine(repo, 'close').catch(() => {}); // a handle from before the volume went away
+		await engine(repo, 'open');
+	} catch (e) {
+		system.showError(String((e && e.message) || e)).catch(() => {});
+		return;
+	}
+	// Everything on that machine is reachable again.
+	const back = windowRepos.filter((r) => r === repo || (isRemote(repo) && hostOf(r) === hostOf(repo)));
+	for (const r of back) delete repoStatus[r];
+	reportShown();
+	await importRepoConfigs(back);
+	updateStatus(back);
+	if (repo === repoRoot) window.__ggDeliver({ command: 'refresh' }); else showInView(repo);
+}
+
+/* The connection to a machine is gone (Rust: remote.rs): its repositories fade until clicked. */
+events.listen('remote-disconnected', ({ payload }) => {
+	log('remote: ' + payload.error);
+	for (const repo of windowRepos) if (hostOf(repo) === payload.host) repoStatus[repo] = { missing: true };
+	renderSidebar();
+});
+
+/** File > Add SSH Repository…, the sidebar's + menu, the start page: ask where, connect (ssh's
+ * questions appear in the credential prompt), and open what is there. */
+async function addRemote(initial, error) {
+	const language = config !== null ? config.interfaceLanguage : (await readConfig()).config.interfaceLanguage;
+	const answer = await askRemote({ language, initial, error });
+	if (answer === null) return;
+	let repo;
+	try {
+		const hello = await invoke('remote_connect', { repo: remoteId(answer.destination, answer.port, '/') });
+		repo = remoteId(answer.destination, answer.port, absolutePath(answer.path, hello.home));
+	} catch (e) {
+		addRemote(answer, String((e && e.message) || e));
+		return;
+	}
+	openHere(repo);
 }
 
 function removeFromSidebar(repo) {
@@ -348,11 +403,12 @@ function sidebarChangedElsewhere() {
 
 function installSidebar() {
 	sidebar = createSidebar({
-		select: (repo) => showInView(repo),
+		select: (repo) => (repoStatus[repo] && repoStatus[repo].missing ? reconnect(repo) : showInView(repo)),
 		add: async () => {
 			const picked = await dialog.open({ directory: true, multiple: false, title: 'Add Repository' });
 			if (typeof picked === 'string') addAndShow(picked);
 		},
+		addRemote: () => addRemote(),
 		remove: removeFromSidebar,
 		reveal: (repo) => invoke('open_path', { path: repo }).catch((e) => system.showError(String(e))),
 		terminal: (repo) => invoke('open_terminal', { cwd: repo, gitArgs: null }).catch((e) => system.showError(String(e))),
@@ -427,10 +483,13 @@ function loadScript(src) {
 	});
 }
 
-/** The repositories `path` opens: the one containing it, else those found below it. */
+/** The repositories `path` opens: the one containing it, else those found below it. A path on
+ * another machine (ssh://…) connects to it first. */
 async function repositoriesOf(path) {
+	if (isRemote(path)) await invoke('remote_connect', { repo: path });
 	try {
-		return [await engine(path, 'repoRoot')];
+		const root = await engine(path, 'repoRoot'); // a path on the repository's machine
+		return [isRemote(path) ? withPath(path, root) : root];
 	} catch (e) {
 		const found = await invoke('scan_repos', { folder: path });
 		if (found.length === 0) throw new Error(path + ' is not in a Git repository, and none was found inside it.');
@@ -467,10 +526,15 @@ async function boot(path) {
 	} else {
 		candidates = list.includes(last) ? [last, ...list.filter((r) => r !== last)] : list;
 	}
-	// The first that opens (a listed repository may be gone, e.g. on an unmounted volume).
+	// The first that opens (a listed repository may be gone, e.g. on an unmounted volume). Only
+	// the first choice is worth connecting to its machine for; the rest of the sidebar's remote
+	// repositories stay faded until clicked.
 	repoRoot = null;
 	for (const repo of candidates) {
-		try { await engine(repo, 'open'); repoRoot = repo; break; } catch (e) { log('cannot open ' + repo + ': ' + e.message); repoStatus[repo] = { missing: true }; }
+		try {
+			if (isRemote(repo) && repo === candidates[0]) await invoke('remote_connect', { repo });
+			await engine(repo, 'open'); repoRoot = repo; break;
+		} catch (e) { log('cannot open ' + repo + ': ' + e.message); repoStatus[repo] = { missing: true }; }
 	}
 	if (repoRoot === null) throw new Error(candidates.length === 0 ? NO_REPOSITORIES : 'None of the repositories could be opened.');
 	windowRepos = list;
@@ -539,13 +603,14 @@ async function boot(path) {
 }
 
 async function showPicker(error) {
-	document.body.innerHTML = '<div id="ggOpenRepo"><h2>Your Git Graph</h2><button id="ggOpenBtn">Open Repository…</button>'
+	document.body.innerHTML = '<div id="ggOpenRepo"><h2>Your Git Graph</h2><div><button id="ggOpenBtn">Open Repository…</button> <button id="ggOpenRemoteBtn">Add SSH Repository…</button></div>'
 		+ '<div class="error" hidden></div><div class="recent" hidden><h3>Recent</h3><ul></ul></div></div>';
 	if (error) Object.assign(document.querySelector('#ggOpenRepo .error'), { hidden: false, textContent: error });
 	document.getElementById('ggOpenBtn').addEventListener('click', async () => {
 		const picked = await dialog.open({ directory: true, multiple: false, title: 'Open Git Repository' });
 		if (typeof picked === 'string') start(picked);
 	});
+	document.getElementById('ggOpenRemoteBtn').addEventListener('click', () => addRemote());
 	const recent = await invoke('recent_repos').catch(() => []);
 	const list = document.querySelector('#ggOpenRepo .recent ul');
 	for (const path of recent) {
@@ -554,7 +619,7 @@ async function showPicker(error) {
 		button.className = 'recentRepo';
 		button.title = path;
 		const name = document.createElement('span');
-		name.textContent = path.split('/').pop();
+		name.textContent = baseName(path);
 		const where = document.createElement('span');
 		where.className = 'where';
 		where.textContent = path.replace(/^\/Users\/[^/]+/, '~');
@@ -613,6 +678,10 @@ async function runPreview(scenes) {
 				const item = document.querySelectorAll('#ggRepoList .ggRepo')[1] || document.querySelector('#ggRepoList .ggRepo');
 				const box = item.getBoundingClientRect();
 				item.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: box.left + 60, clientY: box.top + 14 }));
+			} else if (scene === 'addmenu') {
+				document.querySelector('.ggSidebarHead .ggIconBtn').click();
+			} else if (scene === 'addremote') {
+				addRemote({ destination: 'me@build.example.com', port: '', path: '' }, 'Cannot connect to me@build.example.com: Permission denied (publickey,password).');
 			} else if (scene === 'resize') {
 				await invoke('preview_resize', { width: 2400, height: 1300 });
 			} else if (scene === 'diff') {
@@ -1030,6 +1099,81 @@ async function selfTest(t0, gitInfo, options) {
 			removeFromSidebar(otherFolder);
 			await until('back on ' + originally, () => repoRoot === originally);
 			log(`selftest: ${otherFolder.split('/').pop()} added and shown here, switched back through the sidebar, opened in window ${report.label} (its askpass prompt only there), dragged to the top, removed, dropped on the window OK`);
+		}
+
+		if (options.remote) {
+			/* The repository as one on another machine. By default it is this one, through a
+			 * stand-in for ssh (GG_REMOTE_SSH=tests/fake-ssh.sh) that runs the helper on this Mac;
+			 * with GG_SELFTEST_SSH=ssh://user@host[:port]/path it is that repository through the real
+			 * ssh, whose questions (host key, password) are answered in the credential prompt.
+			 * Added through the dialog, read, written to and watched through the connection; a lost
+			 * connection fades its row until clicked. */
+			const local = repoRoot, real = options.sshUrl ? parseRemote(options.sshUrl) : null;
+			const authority = real ? real.authority : 'selftest@localhost', there = real ? real.path : local;
+			const [destination, port = ''] = authority.split(':');
+			const remote = 'ssh://' + authority + there;
+			const row = (repo) => document.querySelector('.ggRepo[data-repo="' + CSS.escape(repo) + '"]');
+			const failure = (promise) => promise.then(() => null, (e) => String((e && e.message) || e));
+			const asked = [];
+			/** Wait for `cond`, answering ssh's questions meanwhile. */
+			const connecting = async (what, cond) => {
+				const deadline = performance.now() + 60000;
+				while (!cond()) {
+					check(performance.now() < deadline, 'timed out waiting for ' + what);
+					const input = document.querySelector('#ggAskpass input');
+					if (input !== null) {
+						const prompt = document.querySelector('#ggAskpass .ggAskpassPrompt').textContent;
+						asked.push(prompt.slice(0, 60) + ' (' + input.type + ')');
+						input.value = /yes\/no/.test(prompt) ? 'yes' : options.sshPassword;
+						document.querySelector('#ggAskpass .ggAskpassOk').click();
+					}
+					await new Promise((r) => setTimeout(r, 100));
+				}
+			};
+			check((await failure(engine(remote, 'open'))).includes('Not connected'), 'nothing connects by itself');
+			addRemote();
+			const form = await until('the Add SSH Repository dialog', () => document.querySelector('#ggAddRemote form'));
+			form.elements.destination.value = '-oProxyCommand=x';
+			form.requestSubmit();
+			check(document.querySelector('#ggAddRemote') !== null && !form.querySelector('.ggDialogError').hidden, 'a destination that reads as an ssh option was accepted');
+			form.elements.destination.value = destination;
+			form.elements.port.value = port;
+			form.elements.path.value = there + '/';
+			form.requestSubmit();
+			await connecting('the remote repository shown here', () => repoRoot === remote && row(remote) !== null && row(remote).classList.contains('current'));
+			await until('the remote repository\'s commits', () => document.querySelectorAll('#commitTable tr.commit').length > 1);
+			check(document.title.includes('(' + authority + ')') && row(remote).querySelector('.ggRepoHint').textContent.trim() === authority, 'title ' + document.title + ', row ' + row(remote).textContent);
+			check((await git(remote, ['rev-parse', '--show-toplevel'])).stdout.trim() === there && await engine(remote, 'repoRoot') === there, 'git and the engine run in ' + there);
+			const tracked = (await git(remote, ['ls-files'])).stdout.split('\n')[0];
+			const file = await invoke('worktree_file', { repo: remote, path: tracked });
+			check(file.exists && (await invoke('repo_operation_state', { repo: remote })).type === null, 'reading ' + tracked + ' of the work tree: ' + JSON.stringify(file).slice(0, 200));
+			check((await respond({ command: 'createArchive', repo: remote, ref: 'HEAD' })).error !== null, 'an archive of a remote repository was not refused');
+			// A question of the git over there (a fetch asking for a password) is asked here.
+			const asking = git(remote, ['-c', 'alias.ap=!"$GIT_ASKPASS" "Password for the other machine: "', 'ap']);
+			const question = await answerPrompt('over-there');
+			const told = await asking;
+			check(question.type === 'password' && question.prompt === 'Password for the other machine:' && told.stdout === 'over-there\n', 'the remote git\'s prompt: ' + JSON.stringify(question) + ' → ' + JSON.stringify(told));
+			await until('the prompt to close', () => document.querySelector('#ggAskpass') === null);
+			// A branch made behind the view's back (as from a shell on that machine) refreshes it.
+			await new Promise((r) => setTimeout(r, 800)); // the watcher there needs a moment to start
+			const side = 'gg-selftest-remote-' + Date.now();
+			let seen = watcherRefreshes;
+			check((await git(remote, ['branch', side])).exitCode === 0, 'creating ' + side);
+			await until('a refresh after a branch was made on the other machine', () => watcherRefreshes > seen, 8000);
+			seen = watcherRefreshes;
+			check((await git(remote, ['branch', '-D', side])).exitCode === 0, 'deleting ' + side);
+			await until('a refresh after the branch was deleted', () => watcherRefreshes > seen, 8000);
+			// The connection goes away: the row fades, requests fail; a click connects again.
+			await invoke('remote_disconnect', { repo: remote });
+			await until('the row of the disconnected repository to fade', () => row(remote).classList.contains('missing'));
+			check((await failure(engine(remote, 'open'))).includes('Not connected'), 'a request after the connection was lost');
+			row(remote).click();
+			await connecting('the row to come back after a click', () => !row(remote).classList.contains('missing'));
+			check((await git(remote, ['rev-parse', '--show-toplevel'])).stdout.trim() === there, 'git after reconnecting');
+			removeFromSidebar(remote);
+			if (repoRoot !== local) showInView(local);
+			await until('back on ' + local, () => repoRoot === local && row(remote) === null);
+			log('selftest: ' + remote + (real ? ' (asked: ' + asked.join('; ') + ')' : ' (stand-in for ssh)') + ' added through the dialog, read, a prompt of its git answered here, branched, watched, disconnected, reconnected by a click, removed OK');
 		}
 
 		if (options.httpUrl) {

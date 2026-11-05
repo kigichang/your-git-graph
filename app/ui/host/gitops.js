@@ -555,6 +555,8 @@ export const gitHandlers = {
 	},
 	async createArchive(ctx, m) {
 		if (unsafe(m.ref) !== null) return { command: 'createArchive', error: unsafe(m.ref) };
+		// git would write the archive on the repository's machine, not where the dialog points.
+		if (ctx.repo.startsWith('ssh://')) return { command: 'createArchive', error: 'Not available for a repository on another machine.' };
 		const name = ctx.repo.split('/').pop() + '-' + m.ref.replace(/[^\w.-]+/g, '-') + '.zip';
 		const path = await ctx.saveDialog(name);
 		if (path === null) return { command: 'createArchive', error: null }; // cancelled

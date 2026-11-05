@@ -6,7 +6,8 @@
 #   app/scripts/preview.sh <app binary> <repo> <scenes> <light|dark|system> <out prefix>
 #
 #   scenes: comma-separated, in order: details (open a commit), settings, menu (context menu),
-#           dialog (Create Branch), find, diff (opens a diff window); add "contrast" to force
+#           dialog (Create Branch), find, diff (opens a diff window), addmenu (the sidebar's +
+#           menu), addremote (Add SSH Repository); add "contrast" to force
 #           Increase Contrast. One PNG per window: <out prefix>-0.png, -1.png, ...
 set -euo pipefail
 app="$1"; repo="$2"; scenes="$3"; appearance="$4"; out="$5"
