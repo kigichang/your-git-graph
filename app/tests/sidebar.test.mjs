@@ -1,7 +1,7 @@
 /* The repository sidebar's pure helpers (app/ui/host/sidebar.js). */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { avatarOf, labelsOf, addRepos, removeRepo, moveRepo, parseAheadBehind, badgeOf, baseName, groupsOf, moveToGroup, invalidGroupName, renameGroup, removeGroup } from '../ui/host/sidebar.js';
+import { avatarOf, labelsOf, addRepos, removeRepo, moveRepo, parseAheadBehind, badgeOf, baseName, groupsOf, moveToGroup, moveManyToGroup, invalidGroupName, renameGroup, removeGroup } from '../ui/host/sidebar.js';
 
 test('avatars: the first letter or digit, a colour that stays with the name', () => {
 	assert.equal(avatarOf('/r/git-graph').letter, 'G');
@@ -83,4 +83,13 @@ test('groups are named, renamed and removed', () => {
 	assert.equal(invalidGroupName('home', ['work'], undefined), null);
 	assert.deepEqual(renameGroup(['work', 'home'], { '/a': 'work', '/b': 'home' }, 'work', 'job'), { groups: ['job', 'home'], groupOf: { '/a': 'job', '/b': 'home' } });
 	assert.deepEqual(removeGroup(['work', 'home'], { '/a': 'work', '/b': 'home' }, 'work'), { groups: ['home'], groupOf: { '/b': 'home' } });
+});
+
+test('several repositories are dropped into a group together, keeping their order', () => {
+	const repos = ['/a', '/b', '/c', '/d', '/e'], groupOf = { '/d': 'work' };
+	const shown = (moved) => groupsOf(moved.list, ['work'], moved.groupOf).map((g) => g.repos);
+	assert.deepEqual(shown(moveManyToGroup(repos, groupOf, ['/a', '/c'], 'work', '/d')), [['/b', '/e'], ['/a', '/c', '/d']]);
+	assert.deepEqual(shown(moveManyToGroup(repos, groupOf, ['/a', '/c'], 'work', null)), [['/b', '/e'], ['/d', '/a', '/c']]);
+	assert.deepEqual(shown(moveManyToGroup(repos, groupOf, ['/b', '/d'], null, null)), [['/a', '/c', '/e', '/b', '/d'], []]);
+	assert.deepEqual(shown(moveManyToGroup(repos, groupOf, ['/c'], 'work', null)), shown(moveToGroup(repos, groupOf, '/c', 'work', null)));
 });

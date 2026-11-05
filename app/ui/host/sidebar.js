@@ -75,6 +75,12 @@ export function moveToGroup(list, groupOf, repo, group, before) {
 	return { list: moveRepo(list, repo, before), groupOf: next };
 }
 
+/** `repos` (in the order they are to keep) dropped into `group` just before `before` (not one
+ * of them; null: at the group's end). */
+export function moveManyToGroup(list, groupOf, repos, group, before) {
+	return repos.reduce((moved, repo) => moveToGroup(moved.list, moved.groupOf, repo, group, before), { list, groupOf });
+}
+
 /** What is wrong with `name` for a group (`current`: the one being renamed), or null. */
 export function invalidGroupName(name, groups, current) {
 	if (name === '') return 'Enter a name for the group.';
@@ -108,14 +114,14 @@ export function badgeOf(status) {
 
 const STRINGS = {
 	en: {
-		title: 'Repositories', add: 'Add Repository', addLocal: 'Add Local Repository…', addRemote: 'Add SSH Repository…', addServer: 'Connect to Server (SMB)…', newGroup: 'New Group…', renameGroup: 'Rename Group…', deleteGroup: 'Delete Group', collapse: 'Hide Sidebar (⌃⌘S)', expand: 'Show Sidebar (⌃⌘S)', settings: 'Settings',
+		title: 'Repositories', add: 'Add Repository', addLocal: 'Add Local Repository…', addRemote: 'Add SSH Repository…', addServer: 'Connect to Server (SMB)…', newGroup: 'New Group…', renameGroup: 'Rename Group…', deleteGroup: 'Delete Group', moveTo: (group) => 'Move to “' + group + '”', collapse: 'Hide Sidebar (⌃⌘S)', expand: 'Show Sidebar (⌃⌘S)', settings: 'Settings',
 		reveal: 'Reveal in Finder', terminal: 'Open in Terminal', newWindow: 'Open in New Window', remove: 'Remove from Sidebar',
 		missing: 'Not found — click to try again', offline: 'Not connected — click to connect', ahead: (n) => n + ' commit' + (n === 1 ? '' : 's') + ' to push', behind: (n) => n + ' commit' + (n === 1 ? '' : 's') + ' to pull'
 	},
 	// The view's Chinese ('zh-cn' is the language code its code knows): Traditional Chinese
 	// (Taiwan) in this app - see host/settings.js and scripts/zh-tw.mjs.
 	'zh-cn': {
-		title: '儲存庫', add: '加入儲存庫', addLocal: '加入本機儲存庫…', addRemote: '加入 SSH 儲存庫…', addServer: '連線到伺服器 (SMB)…', newGroup: '新增群組…', renameGroup: '重新命名群組…', deleteGroup: '刪除群組', collapse: '隱藏側邊欄 (⌃⌘S)', expand: '顯示側邊欄 (⌃⌘S)', settings: '設定',
+		title: '儲存庫', add: '加入儲存庫', addLocal: '加入本機儲存庫…', addRemote: '加入 SSH 儲存庫…', addServer: '連線到伺服器 (SMB)…', newGroup: '新增群組…', renameGroup: '重新命名群組…', deleteGroup: '刪除群組', moveTo: (group) => '移到「' + group + '」', collapse: '隱藏側邊欄 (⌃⌘S)', expand: '顯示側邊欄 (⌃⌘S)', settings: '設定',
 		reveal: '在 Finder 中顯示', terminal: '在終端機中開啟', newWindow: '在新視窗中開啟', remove: '從側邊欄移除',
 		missing: '找不到 — 點一下重試', offline: '尚未連線 — 點一下連線', ahead: (n) => n + ' 個提交待推送', behind: (n) => n + ' 個提交待拉取'
 	}
@@ -145,9 +151,10 @@ const iconButton = (icon, title, onClick) => {
 };
 
 /** The sidebar in `document.body`. actions: { select(repo), add(), addRemote(), addServer(), remove(repo), reveal(repo),
- * terminal(repo), newWindow(repo), move(repo, group, before), newGroup(), renameGroup(name),
- * deleteGroup(name), moveGroup(name, before), foldGroup(name), toggle(), settings() }; move: dragged into `group`
- * (null: default), to just before `before` (null: its end); moveGroup: to just before the
+ * terminal(repo), newWindow(repo), move(repos, group, before), newGroup(), renameGroup(name),
+ * deleteGroup(name), moveGroup(name, before), foldGroup(name), toggle(), settings() }; move: the repositories
+ * `repos` dragged (or sent by the menu) into `group` (null: default), to just before `before`
+ * (null: its end); moveGroup: to just before the
  * group `before` (null: last). Returns { render(state) } where
  * state is { repos, groups, groupOf, folded (the names of the groups whose repositories are
  * hidden, DEFAULT_GROUP for the default one), current, status: { [repo]: { ahead, behind } | { missing: true } },
@@ -183,13 +190,26 @@ export function createSidebar(actions) {
 	/* A small context menu of the sidebar's own (the view's belongs to upstream). */
 	let menu = null;
 	const closeMenu = () => { if (menu) { menu.remove(); menu = null; } };
-	/* A repository's menu; one on another machine has no folder for the Finder to show. */
-	const repoMenu = (repo) => [
+	/* Several rows can be selected (⌘-click adds or removes one, ⇧-click takes the rows from the
+	 * last one clicked) to move them into a group together: by dragging any of them, or from
+	 * their menu. Nothing is kept: a plain click, Escape or the move itself ends the selection. */
+	const selected = new Set();
+	let anchor = null; // where a ⇧-click starts from
+	const paintSelection = () => rows().forEach((r) => r.classList.toggle('selected', selected.has(r.dataset.repo)));
+	const clearSelection = () => { selected.clear(); paintSelection(); };
+	/** The repositories an action on `repo` is about: the selection when it is part of one. */
+	const withSelection = (repo) => (selected.size > 1 && selected.has(repo) ? rows().map((r) => r.dataset.repo).filter((r) => selected.has(r)) : [repo]);
+	const moveMenu = (repos) => [null, ...state.groups].map((group) => [t().moveTo(group === null ? DEFAULT_GROUP : group), () => { clearSelection(); actions.move(repos, group, null); }]);
+	/* A repository's menu; one on another machine has no folder for the Finder to show. For a
+	 * selection: only where to move it. */
+	const repoMenu = (repo) => (withSelection(repo).length > 1 ? moveMenu(withSelection(repo)) : [
 		...(parseRemote(repo) === null ? [[t().reveal, () => actions.reveal(repo)]] : []),
-		[t().terminal, () => actions.terminal(repo)], [t().newWindow, () => actions.newWindow(repo)], null, [t().remove, () => actions.remove(repo)]
-	];
+		[t().terminal, () => actions.terminal(repo)], [t().newWindow, () => actions.newWindow(repo)],
+		...(state.groups.length > 0 ? [null, ...moveMenu([repo])] : []),
+		null, [t().remove, () => actions.remove(repo)]
+	]);
 	document.addEventListener('mousedown', (e) => { if (menu && !menu.contains(e.target) && !addBtn.contains(e.target)) closeMenu(); }, true);
-	document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
+	document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeMenu(); clearSelection(); } });
 	window.addEventListener('blur', closeMenu);
 	/** items: [label, action] each, null for a separator. */
 	function openMenu(items, x, y) {
@@ -212,7 +232,7 @@ export function createSidebar(actions) {
 	 * it moves a few pixels; until then it is a click. Rows are keyed by data-repo so a render
 	 * during the drag keeps it. A group is moved among the groups the same way, by its name
 	 * ("default" stays first). */
-	let drag = null; // a row: { repo, y, active, group, before }; a group: { moving, y, active, before }
+	let drag = null; // rows: { repos, y, active, group, before }; a group: { moving, y, active, before }
 	const rows = () => [...list.querySelectorAll('.ggRepo')];
 	const headers = () => [...list.querySelectorAll('.ggGroup')];
 	const groupKey = (group) => (group === null ? '' : group); // data-group
@@ -221,12 +241,12 @@ export function createSidebar(actions) {
 	/** Whether dropping now would change what the sidebar shows. */
 	const dropMoves = () => {
 		if (drag.moving) return JSON.stringify(moveRepo(state.groups, drag.moving, drag.before)) !== JSON.stringify(state.groups);
-		const next = moveToGroup(state.repos, state.groupOf, drag.repo, drag.group, drag.before);
+		const next = moveManyToGroup(state.repos, state.groupOf, drag.repos, drag.group, drag.before);
 		return shownAs(next.list, next.groupOf) !== shownAs(state.repos, state.groupOf);
 	};
 	function markDrag() {
 		clearMarks();
-		for (const r of rows()) r.classList.toggle('dragging', drag !== null && drag.active && r.dataset.repo === drag.repo);
+		for (const r of rows()) r.classList.toggle('dragging', drag !== null && drag.active && !drag.moving && drag.repos.includes(r.dataset.repo));
 		for (const h of headers()) h.classList.toggle('dragging', drag !== null && drag.active && h.dataset.group === drag.moving);
 		// The line shows where the row (or group) would land, unless that is where it already is.
 		if (drag === null || !drag.active || !dropMoves()) return;
@@ -236,13 +256,13 @@ export function createSidebar(actions) {
 			return;
 		}
 		if (drag.before !== null) { rows().find((r) => r.dataset.repo === drag.before)?.classList.add('ggDropBefore'); return; }
-		const last = rows().filter((r) => r.dataset.group === groupKey(drag.group) && r.dataset.repo !== drag.repo).at(-1);
+		const last = rows().filter((r) => r.dataset.group === groupKey(drag.group) && !drag.repos.includes(r.dataset.repo)).at(-1);
 		if (last) last.classList.add('ggDropAfter');
 		else headers().find((h) => h.dataset.group === groupKey(drag.group))?.classList.add('ggDropInto'); // an empty group
 	}
 	function endDrag(commit) {
 		if (drag === null) return;
-		const { repo, moving, active, group, before } = drag;
+		const { repos, moving, active, group, before } = drag;
 		const moves = active && dropMoves();
 		drag = null;
 		list.classList.remove('ggReordering');
@@ -252,7 +272,7 @@ export function createSidebar(actions) {
 		const swallow = (e) => { e.stopPropagation(); e.preventDefault(); };
 		list.addEventListener('click', swallow, true);
 		setTimeout(() => list.removeEventListener('click', swallow, true), 0);
-		if (commit && moves) { if (moving) actions.moveGroup(moving, before); else actions.move(repo, group, before); }
+		if (commit && moves) { if (moving) actions.moveGroup(moving, before); else { clearSelection(); actions.move(repos, group, before); } }
 	}
 	list.addEventListener('pointerdown', (e) => {
 		const header = e.target.closest('.ggGroup');
@@ -262,7 +282,7 @@ export function createSidebar(actions) {
 		}
 		const row = e.target.closest('.ggRepo');
 		if (e.button !== 0 || row === null || (state.repos.length < 2 && state.groups.length === 0)) return;
-		drag = { repo: row.dataset.repo, y: e.clientY, active: false, group: row.dataset.group === '' ? null : row.dataset.group, before: null };
+		drag = { repos: withSelection(row.dataset.repo), y: e.clientY, active: false, group: row.dataset.group === '' ? null : row.dataset.group, before: null };
 	});
 	document.addEventListener('pointermove', (e) => {
 		if (drag === null) return;
@@ -284,9 +304,9 @@ export function createSidebar(actions) {
 			return;
 		}
 		// Into the group whose header is the last one above the pointer; there before the first
-		// row whose middle is below the pointer; past them all: its end.
+		// row (of those staying where they are) whose middle is below the pointer; past them all: its end.
 		const header = headers().filter((h) => h.getBoundingClientRect().top <= e.clientY).at(-1) || headers()[0];
-		const below = rows().filter((r) => r.dataset.group === header.dataset.group).find((r) => { const box = r.getBoundingClientRect(); return e.clientY < box.top + box.height / 2; });
+		const below = rows().filter((r) => r.dataset.group === header.dataset.group && !drag.repos.includes(r.dataset.repo)).find((r) => { const box = r.getBoundingClientRect(); return e.clientY < box.top + box.height / 2; });
 		drag.group = header.dataset.group === '' ? null : header.dataset.group;
 		drag.before = below ? below.dataset.repo : null;
 		markDrag();
@@ -312,9 +332,10 @@ export function createSidebar(actions) {
 		if (!nav.isConnected) document.body.append(nav, showBtn);
 
 		const labels = labelsOf(state.repos);
+		for (const repo of [...selected]) if (!state.repos.includes(repo)) selected.delete(repo);
 		const row = (repo, group) => {
 			const status = state.status[repo];
-			const item = el('button', 'ggRepo' + (repo === state.current ? ' current' : '') + (status && status.missing ? ' missing' : ''));
+			const item = el('button', 'ggRepo' + (repo === state.current ? ' current' : '') + (status && status.missing ? ' missing' : '') + (selected.has(repo) ? ' selected' : ''));
 			item.setAttribute('role', 'option');
 			item.setAttribute('aria-selected', String(repo === state.current));
 			item.dataset.repo = repo;
@@ -333,7 +354,22 @@ export function createSidebar(actions) {
 				b.title = [status.ahead > 0 ? t().ahead(status.ahead) : '', status.behind > 0 ? t().behind(status.behind) : ''].filter((s) => s).join(', ');
 				item.append(b);
 			}
-			item.addEventListener('click', () => { if (repo !== state.current || missing) actions.select(repo); });
+			item.addEventListener('click', (e) => {
+				if (e.metaKey || (e.shiftKey && anchor !== null)) {
+					if (e.metaKey) {
+						if (!selected.delete(repo)) selected.add(repo);
+						anchor = repo;
+					} else {
+						const order = rows().map((r) => r.dataset.repo), from = order.indexOf(anchor), to = order.indexOf(repo);
+						if (from !== -1) for (const r of order.slice(Math.min(from, to), Math.max(from, to) + 1)) selected.add(r);
+					}
+					paintSelection();
+					return;
+				}
+				clearSelection();
+				anchor = repo;
+				if (repo !== state.current || missing) actions.select(repo);
+			});
 			item.addEventListener('contextmenu', (e) => { e.preventDefault(); openMenu(repoMenu(repo), e.clientX, e.clientY); });
 			return item;
 		};

@@ -9,7 +9,7 @@ import { appHandlers, APP_WRITES } from './app.js';
 import { installAskpass } from './askpass.js';
 import { configFrom } from './settings.js';
 import { importRepoConfig } from './repoconfig.js';
-import { createSidebar, addRepos, removeRepo, moveRepo, moveToGroup, renameGroup, removeGroup, parseAheadBehind, baseName } from './sidebar.js';
+import { createSidebar, addRepos, removeRepo, moveRepo, moveManyToGroup, renameGroup, removeGroup, parseAheadBehind, baseName } from './sidebar.js';
 import { isRemote, parseRemote, hostOf, withPath, absolutePath, remoteId } from './remote.js';
 import { askRemote, askServer, askGroup } from './addremote.js';
 
@@ -459,8 +459,8 @@ function installSidebar() {
 		reveal: (repo) => invoke('open_path', { path: repo }).catch((e) => system.showError(String(e))),
 		terminal: (repo) => invoke('open_terminal', { cwd: repo, gitArgs: null }).catch((e) => system.showError(String(e))),
 		newWindow: (repo) => invoke('open_new_window', { repo }).catch((e) => system.showError(String(e))),
-		move: (repo, group, before) => {
-			const moved = moveToGroup(windowRepos, groupsState().groupOf, repo, group, before);
+		move: (repos, group, before) => {
+			const moved = moveManyToGroup(windowRepos, groupsState().groupOf, repos, group, before);
 			saveSidebar({ groupOf: moved.groupOf });
 			setRepos(moved.list);
 			showInView(repoRoot);
@@ -1212,6 +1212,27 @@ async function selfTest(t0, gitInfo, options) {
 			check(header('gg selftest') === undefined && header('gg renamed').classList.contains('folded') && row(otherFolder) === null, 'the renamed group is no longer folded: ' + JSON.stringify(store.get('sidebar')));
 			header('gg renamed').click();
 			check(store.get('sidebar').foldedGroups.length === 0 && store.get('sidebar').groupOf[otherFolder] === 'gg renamed' && row(otherFolder).dataset.group === 'gg renamed', 'renaming and unfolding the group: ' + JSON.stringify(store.get('sidebar')));
+			// Two rows selected with ⌘-click move together: by the menu of one, by dragging one.
+			const command = (repo) => row(repo).dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true }));
+			const groupsOfRows = () => JSON.stringify([row(originally).dataset.group, row(otherFolder).dataset.group]);
+			command(originally);
+			command(otherFolder);
+			check(document.querySelectorAll('.ggRepo.selected').length === 2 && repoRoot === originally, 'selecting two rows with ⌘-click');
+			row(otherFolder).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
+			check(menuItem('Remove from Sidebar') === undefined, 'the menu of a selection offers more than moving it');
+			menuItem('Move to “default”').click();
+			check(groupsOfRows() === '["",""]' && Object.keys(store.get('sidebar').groupOf).length === 0 && document.querySelectorAll('.ggRepo.selected').length === 0, 'moving the selection to default: ' + JSON.stringify(store.get('sidebar')));
+			const orderBefore = JSON.stringify(rowsInSidebar());
+			command(originally);
+			command(otherFolder);
+			const dragBox = row(originally).getBoundingClientRect(), targetBox = header('gg renamed').getBoundingClientRect();
+			pointer('pointerdown', row(originally), dragBox.top + 5);
+			pointer('pointermove', document, dragBox.top + 15);
+			pointer('pointermove', document, targetBox.top + 4);
+			check(document.querySelectorAll('.ggRepo.dragging').length === 2, 'both selected rows are dragged');
+			pointer('pointerup', document, targetBox.top + 4);
+			check(groupsOfRows() === '["gg renamed","gg renamed"]' && JSON.stringify(rowsInSidebar()) === orderBefore && repoRoot === originally, 'dragging the selection into the group: ' + JSON.stringify(store.get('sidebar')));
+			await new Promise((r) => setTimeout(r, 0));
 			groupMenu('gg renamed', 'Delete Group');
 			check(header('gg renamed') === undefined && row(otherFolder).dataset.group === '' && store.get('sidebar').groups.length === 0 && !(otherFolder in store.get('sidebar').groupOf),
 				'deleting the group: ' + JSON.stringify(store.get('sidebar')));
@@ -1222,7 +1243,7 @@ async function selfTest(t0, gitInfo, options) {
 			await until('the dropped folder shown here', () => repoRoot === otherFolder && rowsInSidebar().includes(otherFolder));
 			removeFromSidebar(otherFolder);
 			await until('back on ' + originally, () => repoRoot === originally);
-			log(`selftest: ${otherFolder.split('/').pop()} added and shown here, switched back through the sidebar, opened in window ${report.label} (its askpass prompt only there), dragged to the top, into a new group (reordered, folded, renamed, deleted), removed, dropped on the window OK`);
+			log(`selftest: ${otherFolder.split('/').pop()} added and shown here, switched back through the sidebar, opened in window ${report.label} (its askpass prompt only there), dragged to the top, into a new group (reordered, folded, renamed, a selection of two moved by menu and by dragging, deleted), removed, dropped on the window OK`);
 		}
 
 		if (options.remote) {

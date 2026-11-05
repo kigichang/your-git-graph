@@ -128,6 +128,10 @@ body.ggSidebarCollapsed #ggSidebar {
 	background: var(--gg-sidebar-selected);
 	font-weight: 600;
 }
+/* Selected to be moved together (⌘-click, ⇧-click). */
+.ggRepo.selected {
+	box-shadow: inset 0 0 0 1.5px var(--vscode-focusBorder);
+}
 .ggRepo.missing {
 	opacity: 0.5;
 }
