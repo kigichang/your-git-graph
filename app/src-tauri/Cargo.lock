@@ -1142,7 +1142,7 @@ dependencies = [
 
 [[package]]
 name = "gg-backend"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "base64 0.22.1",
  "git-graph-core",
@@ -1156,7 +1156,7 @@ dependencies = [
 
 [[package]]
 name = "gg-remote"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "base64 0.22.1",
  "gg-backend",
@@ -1200,7 +1200,7 @@ dependencies = [
 
 [[package]]
 name = "git-graph-app"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "gg-backend",
  "libc",

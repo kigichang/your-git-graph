@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 把 VS Code 擴充套件 [vscode-git-graph-rs](https://github.com/neophack/vscode-git-graph-rs) 移植成 macOS App，使用 **Tauri 2**。
-目前狀態：**Stage 1 完成**（自用版），另加第 9 項遠端 repo（SSH 與 Samba，分支 `feature/remote-repos`）。PoC、第 1 項 `git_exec`、第 2 項（host 涵蓋完整協定，走路線 (b)）、第 4 項 repo 管理、第 5 項 diff 檢視（Monaco）、第 6 項 askpass、第 7 項設定與狀態存檔、第 8 項打包（個人使用、ad-hoc 簽章）、第 3 項主題都已完成；各項留下的缺口見「尚未實作的行為」與路線圖的要點欄。
+目前狀態：**Stage 1 完成**（自用版），另加第 9 項遠端 repo（SSH 與 Samba）。PoC、第 1 項 `git_exec`、第 2 項（host 涵蓋完整協定，走路線 (b)）、第 4 項 repo 管理、第 5 項 diff 檢視（Monaco）、第 6 項 askpass、第 7 項設定與狀態存檔、第 8 項打包（個人使用、ad-hoc 簽章）、第 3 項主題都已完成；各項留下的缺口見「尚未實作的行為」與路線圖的要點欄。
 
 ## 授權限制（每次動手前都要記得）
 
@@ -269,7 +269,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]  # 打包的正式做
 | 6 | 認證：GIT_ASKPASS helper、osxkeychain、ssh-agent | ✅ 完成 | `askpass.rs` + `host/askpass.js`；HTTPS 帳密、ssh passphrase 與 host key 確認都走 App 內的對話框；Keychain 與 ssh-agent 照常運作（git/ssh 只在它們沒有答案時才問）。細節見「已知坑與慣例」 |
 | 7 | 設定與狀態存檔、選單列、快捷鍵、命令 | ✅ 完成 | `state.rs` + `settings.js` + `repoconfig.js`：view state 存在 `state.json`（從 `localStorage` 自動搬移）、設定存在可手動編輯的 `settings.json` 並即時套用到所有視窗（語言改變時重新載入）、`commitAuthors` 同步全域作者、匯出／匯入 repo 設定、session log、App 與 View 選單的指令。對話框預設值與 Commit Details View 的設定也能寫在 `settings.json`。尚未支援：自訂 keybindings、其餘上游設定（要手動加進 `settings.js`） |
 | 8 | 打包：universal（arm64+x64）、簽章、dmg | ✅ 完成（個人使用） | `scripts/build-app.sh`：ad-hoc 簽章並驗證、dmg（5.6 MB）、安裝到 /Applications（只會取代識別碼相同、而且沒在執行的舊版）。不做 notarization（沒有開發者帳號）。`--universal` 需要 `rustup target add x86_64-apple-darwin`，**還沒實際建置過**。細節見「已知坑與慣例」的簽章 |
-| 9 | 遠端 repo：SSH 與 Samba | ✅ 完成（分支 `feature/remote-repos`） | SSH 走遠端 helper（VS Code Remote-SSH 的做法）：`crates/backend`、`crates/remote`、`remote.rs`；Samba 由 App 掛載並記住 share。變淡的項目點了才重連。已用 Docker 的真 sshd（sh、bash、fish）與 Samba 驗證。沒驗證的見「已知坑與慣例」的遠端 repo |
+| 9 | 遠端 repo：SSH 與 Samba | ✅ 完成 | SSH 走遠端 helper（VS Code Remote-SSH 的做法）：`crates/backend`、`crates/remote`、`remote.rs`；Samba 由 App 掛載並記住 share。變淡的項目點了才重連。已用 Docker 的真 sshd（sh、bash、fish）與 Samba 驗證。沒驗證的見「已知坑與慣例」的遠端 repo |
 
 協定以外的請求會在 log 印出 `unhandled webview request: <command>`；升級上游 submodule 後，若出現這行，代表有新的請求種類要補。
 
