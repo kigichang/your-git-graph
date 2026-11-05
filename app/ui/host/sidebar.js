@@ -55,6 +55,45 @@ export function removeRepo(list, repo, current) {
 	return { list: next, show: next.length === 0 ? null : next[Math.min(at, next.length - 1)] };
 }
 
+/* Groups: the sidebar's repositories in named groups, those in none under "default". Kept as
+ * the names in order (`groups`) and each repository's group (`groupOf`, absent: default); the
+ * order within a group is the order of the list. */
+
+/** The name the group of ungrouped repositories shows (not a name a group can take). */
+export const DEFAULT_GROUP = 'default';
+
+/** The sections of the sidebar: { group: null (default) | name, repos }, default first. */
+export function groupsOf(repos, groups, groupOf) {
+	const of = (repo) => (groups.includes(groupOf[repo]) ? groupOf[repo] : null);
+	return [null, ...groups].map((group) => ({ group, repos: repos.filter((repo) => of(repo) === group) }));
+}
+
+/** `repo` dropped into `group` (null: default) just before `before` (null: at its end). */
+export function moveToGroup(list, groupOf, repo, group, before) {
+	const next = { ...groupOf };
+	if (group === null) delete next[repo]; else next[repo] = group;
+	return { list: moveRepo(list, repo, before), groupOf: next };
+}
+
+/** What is wrong with `name` for a group (`current`: the one being renamed), or null. */
+export function invalidGroupName(name, groups, current) {
+	if (name === '') return 'Enter a name for the group.';
+	if (name.toLowerCase() === DEFAULT_GROUP) return '"' + DEFAULT_GROUP + '" is the group of the repositories in no group.';
+	return name !== current && groups.includes(name) ? 'There is a group with this name already.' : null;
+}
+
+export function renameGroup(groups, groupOf, from, to) {
+	return {
+		groups: groups.map((g) => (g === from ? to : g)),
+		groupOf: Object.fromEntries(Object.entries(groupOf).map(([repo, g]) => [repo, g === from ? to : g]))
+	};
+}
+
+/** Without the group `name`: its repositories are in no group again. */
+export function removeGroup(groups, groupOf, name) {
+	return { groups: groups.filter((g) => g !== name), groupOf: Object.fromEntries(Object.entries(groupOf).filter(([, g]) => g !== name)) };
+}
+
 /** Ahead/behind from `git rev-list --left-right --count @{upstream}...HEAD` ("behind\tahead"). */
 export function parseAheadBehind(stdout) {
 	const m = /^(\d+)\s+(\d+)\s*$/.exec(stdout.trim());
@@ -69,14 +108,14 @@ export function badgeOf(status) {
 
 const STRINGS = {
 	en: {
-		title: 'Repositories', add: 'Add Repository', addLocal: 'Add Local Repository…', addRemote: 'Add SSH Repository…', addServer: 'Connect to Server (SMB)…', collapse: 'Hide Sidebar (⌃⌘S)', expand: 'Show Sidebar (⌃⌘S)', settings: 'Settings',
+		title: 'Repositories', add: 'Add Repository', addLocal: 'Add Local Repository…', addRemote: 'Add SSH Repository…', addServer: 'Connect to Server (SMB)…', newGroup: 'New Group…', renameGroup: 'Rename Group…', deleteGroup: 'Delete Group', collapse: 'Hide Sidebar (⌃⌘S)', expand: 'Show Sidebar (⌃⌘S)', settings: 'Settings',
 		reveal: 'Reveal in Finder', terminal: 'Open in Terminal', newWindow: 'Open in New Window', remove: 'Remove from Sidebar',
 		missing: 'Not found — click to try again', offline: 'Not connected — click to connect', ahead: (n) => n + ' commit' + (n === 1 ? '' : 's') + ' to push', behind: (n) => n + ' commit' + (n === 1 ? '' : 's') + ' to pull'
 	},
 	// The view's Chinese ('zh-cn' is the language code its code knows): Traditional Chinese
 	// (Taiwan) in this app - see host/settings.js and scripts/zh-tw.mjs.
 	'zh-cn': {
-		title: '儲存庫', add: '加入儲存庫', addLocal: '加入本機儲存庫…', addRemote: '加入 SSH 儲存庫…', addServer: '連線到伺服器 (SMB)…', collapse: '隱藏側邊欄 (⌃⌘S)', expand: '顯示側邊欄 (⌃⌘S)', settings: '設定',
+		title: '儲存庫', add: '加入儲存庫', addLocal: '加入本機儲存庫…', addRemote: '加入 SSH 儲存庫…', addServer: '連線到伺服器 (SMB)…', newGroup: '新增群組…', renameGroup: '重新命名群組…', deleteGroup: '刪除群組', collapse: '隱藏側邊欄 (⌃⌘S)', expand: '顯示側邊欄 (⌃⌘S)', settings: '設定',
 		reveal: '在 Finder 中顯示', terminal: '在終端機中開啟', newWindow: '在新視窗中開啟', remove: '從側邊欄移除',
 		missing: '找不到 — 點一下重試', offline: '尚未連線 — 點一下連線', ahead: (n) => n + ' 個提交待推送', behind: (n) => n + ' 個提交待拉取'
 	}
@@ -106,13 +145,15 @@ const iconButton = (icon, title, onClick) => {
 };
 
 /** The sidebar in `document.body`. actions: { select(repo), add(), addRemote(), addServer(), remove(repo), reveal(repo),
- * terminal(repo), newWindow(repo), move(repo, before), toggle(), settings() }; move: dragged to
- * just before `before` (null: the end). Returns { render(state) } where
- * state is { repos, current, status: { [repo]: { ahead, behind } | { missing: true } },
+ * terminal(repo), newWindow(repo), move(repo, group, before), newGroup(), renameGroup(name),
+ * deleteGroup(name), moveGroup(name, before), toggle(), settings() }; move: dragged into `group`
+ * (null: default), to just before `before` (null: its end); moveGroup: to just before the
+ * group `before` (null: last). Returns { render(state) } where
+ * state is { repos, groups, groupOf, current, status: { [repo]: { ahead, behind } | { missing: true } },
  * collapsed, language }. select is also called for the current repository when it is missing
  * (not found, not connected): a click tries again. */
 export function createSidebar(actions) {
-	let state = { repos: [], current: null, status: {}, collapsed: false, language: 'en' };
+	let state = { repos: [], groups: [], groupOf: {}, current: null, status: {}, collapsed: false, language: 'en' };
 	const t = () => STRINGS[state.language] || STRINGS.en;
 
 	const nav = el('nav');
@@ -121,7 +162,7 @@ export function createSidebar(actions) {
 	const title = el('span', 'ggSidebarTitle');
 	const addBtn = iconButton('plus', '', () => {
 		const box = addBtn.getBoundingClientRect();
-		openMenu([[t().addLocal, actions.add], [t().addRemote, actions.addRemote], [t().addServer, actions.addServer]], box.left, box.bottom + 2);
+		openMenu([[t().addLocal, actions.add], [t().addRemote, actions.addRemote], [t().addServer, actions.addServer], null, [t().newGroup, actions.newGroup]], box.left, box.bottom + 2);
 	});
 	const hideBtn = iconButton('sidebar', '', () => actions.toggle());
 	head.append(title, addBtn, hideBtn);
@@ -165,23 +206,43 @@ export function createSidebar(actions) {
 		menu.style.top = Math.min(y, window.innerHeight - box.height - 4) + 'px';
 	}
 
-	/* Reordering by dragging a row. Pointer events, not HTML5 drag and drop (Tauri's own file
-	 * drop handling takes those over). A press becomes a drag once it moves a few pixels; until
-	 * then it is a click. Rows are keyed by data-repo so a render during the drag keeps it. */
-	let drag = null; // { repo, y, active, before }
+	/* Reordering by dragging a row, within its group or into another. Pointer events, not HTML5
+	 * drag and drop (Tauri's own file drop handling takes those over). A press becomes a drag once
+	 * it moves a few pixels; until then it is a click. Rows are keyed by data-repo so a render
+	 * during the drag keeps it. A group is moved among the groups the same way, by its name
+	 * ("default" stays first). */
+	let drag = null; // a row: { repo, y, active, group, before }; a group: { moving, y, active, before }
 	const rows = () => [...list.querySelectorAll('.ggRepo')];
-	const clearMarks = () => rows().forEach((r) => r.classList.remove('ggDropBefore', 'ggDropAfter'));
+	const headers = () => [...list.querySelectorAll('.ggGroup')];
+	const groupKey = (group) => (group === null ? '' : group); // data-group
+	const clearMarks = () => [...rows(), ...headers()].forEach((r) => r.classList.remove('ggDropBefore', 'ggDropAfter', 'ggDropInto'));
+	const shownAs = (repos, groupOf) => JSON.stringify(groupsOf(repos, state.groups, groupOf));
+	/** Whether dropping now would change what the sidebar shows. */
+	const dropMoves = () => {
+		if (drag.moving) return JSON.stringify(moveRepo(state.groups, drag.moving, drag.before)) !== JSON.stringify(state.groups);
+		const next = moveToGroup(state.repos, state.groupOf, drag.repo, drag.group, drag.before);
+		return shownAs(next.list, next.groupOf) !== shownAs(state.repos, state.groupOf);
+	};
 	function markDrag() {
 		clearMarks();
 		for (const r of rows()) r.classList.toggle('dragging', drag !== null && drag.active && r.dataset.repo === drag.repo);
-		// The line shows where the row would land, unless that is where it already is.
-		if (drag === null || !drag.active || JSON.stringify(moveRepo(state.repos, drag.repo, drag.before)) === JSON.stringify(state.repos)) return;
-		const target = drag.before === null ? rows().at(-1) : rows().find((r) => r.dataset.repo === drag.before);
-		if (target) target.classList.add(drag.before === null ? 'ggDropAfter' : 'ggDropBefore');
+		for (const h of headers()) h.classList.toggle('dragging', drag !== null && drag.active && h.dataset.group === drag.moving);
+		// The line shows where the row (or group) would land, unless that is where it already is.
+		if (drag === null || !drag.active || !dropMoves()) return;
+		if (drag.moving) {
+			if (drag.before !== null) headers().find((h) => h.dataset.group === drag.before)?.classList.add('ggDropBefore');
+			else list.lastElementChild.classList.add('ggDropAfter'); // after the last group
+			return;
+		}
+		if (drag.before !== null) { rows().find((r) => r.dataset.repo === drag.before)?.classList.add('ggDropBefore'); return; }
+		const last = rows().filter((r) => r.dataset.group === groupKey(drag.group) && r.dataset.repo !== drag.repo).at(-1);
+		if (last) last.classList.add('ggDropAfter');
+		else headers().find((h) => h.dataset.group === groupKey(drag.group))?.classList.add('ggDropInto'); // an empty group
 	}
 	function endDrag(commit) {
 		if (drag === null) return;
-		const { repo, active, before } = drag;
+		const { repo, moving, active, group, before } = drag;
+		const moves = active && dropMoves();
 		drag = null;
 		list.classList.remove('ggReordering');
 		markDrag();
@@ -190,15 +251,17 @@ export function createSidebar(actions) {
 		const swallow = (e) => { e.stopPropagation(); e.preventDefault(); };
 		list.addEventListener('click', swallow, true);
 		setTimeout(() => list.removeEventListener('click', swallow, true), 0);
-		if (commit) {
-			const order = moveRepo(state.repos, repo, before);
-			if (JSON.stringify(order) !== JSON.stringify(state.repos)) actions.move(repo, before);
-		}
+		if (commit && moves) { if (moving) actions.moveGroup(moving, before); else actions.move(repo, group, before); }
 	}
 	list.addEventListener('pointerdown', (e) => {
+		const header = e.target.closest('.ggGroup');
+		if (e.button === 0 && header !== null && header.dataset.group !== '' && state.groups.length > 1) {
+			drag = { moving: header.dataset.group, y: e.clientY, active: false, before: null };
+			return;
+		}
 		const row = e.target.closest('.ggRepo');
-		if (e.button !== 0 || row === null || state.repos.length < 2) return;
-		drag = { repo: row.dataset.repo, y: e.clientY, active: false, before: null };
+		if (e.button !== 0 || row === null || (state.repos.length < 2 && state.groups.length === 0)) return;
+		drag = { repo: row.dataset.repo, y: e.clientY, active: false, group: row.dataset.group === '' ? null : row.dataset.group, before: null };
 	});
 	document.addEventListener('pointermove', (e) => {
 		if (drag === null) return;
@@ -208,8 +271,22 @@ export function createSidebar(actions) {
 			list.classList.add('ggReordering');
 			closeMenu();
 		}
-		// Before the first row whose middle is below the pointer; past them all: the end.
-		const below = rows().find((r) => { const box = r.getBoundingClientRect(); return e.clientY < box.top + box.height / 2; });
+		if (drag.moving) {
+			// Before the first group whose middle (its name and rows) is below the pointer; past them all: last.
+			const named = headers().filter((h) => h.dataset.group !== '');
+			const below = named.find((h, i) => {
+				const bottom = i + 1 < named.length ? named[i + 1].getBoundingClientRect().top : list.lastElementChild.getBoundingClientRect().bottom;
+				return e.clientY < (h.getBoundingClientRect().top + bottom) / 2;
+			});
+			drag.before = below ? below.dataset.group : null;
+			markDrag();
+			return;
+		}
+		// Into the group whose header is the last one above the pointer; there before the first
+		// row whose middle is below the pointer; past them all: its end.
+		const header = headers().filter((h) => h.getBoundingClientRect().top <= e.clientY).at(-1) || headers()[0];
+		const below = rows().filter((r) => r.dataset.group === header.dataset.group).find((r) => { const box = r.getBoundingClientRect(); return e.clientY < box.top + box.height / 2; });
+		drag.group = header.dataset.group === '' ? null : header.dataset.group;
 		drag.before = below ? below.dataset.repo : null;
 		markDrag();
 	});
@@ -234,12 +311,13 @@ export function createSidebar(actions) {
 		if (!nav.isConnected) document.body.append(nav, showBtn);
 
 		const labels = labelsOf(state.repos);
-		list.replaceChildren(...state.repos.map((repo) => {
+		const row = (repo, group) => {
 			const status = state.status[repo];
 			const item = el('button', 'ggRepo' + (repo === state.current ? ' current' : '') + (status && status.missing ? ' missing' : ''));
 			item.setAttribute('role', 'option');
 			item.setAttribute('aria-selected', String(repo === state.current));
 			item.dataset.repo = repo;
+			item.dataset.group = groupKey(group);
 			const missing = !!(status && status.missing);
 			item.title = repo + (missing ? ' — ' + (parseRemote(repo) === null ? t().missing : t().offline) : '');
 			const avatar = avatarOf(repo);
@@ -257,6 +335,17 @@ export function createSidebar(actions) {
 			item.addEventListener('click', () => { if (repo !== state.current || missing) actions.select(repo); });
 			item.addEventListener('contextmenu', (e) => { e.preventDefault(); openMenu(repoMenu(repo), e.clientX, e.clientY); });
 			return item;
+		};
+		list.replaceChildren(...groupsOf(state.repos, state.groups, state.groupOf).flatMap(({ group, repos }) => {
+			const header = el('div', 'ggGroup', group === null ? DEFAULT_GROUP : group);
+			header.dataset.group = groupKey(group);
+			if (group !== null) {
+				header.addEventListener('contextmenu', (e) => {
+					e.preventDefault();
+					openMenu([[t().renameGroup, () => actions.renameGroup(group)], [t().deleteGroup, () => actions.deleteGroup(group)]], e.clientX, e.clientY);
+				});
+			}
+			return [header, ...repos.map((repo) => row(repo, group))];
 		}));
 		markDrag();
 	}

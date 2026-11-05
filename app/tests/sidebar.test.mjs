@@ -1,7 +1,7 @@
 /* The repository sidebar's pure helpers (app/ui/host/sidebar.js). */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { avatarOf, labelsOf, addRepos, removeRepo, moveRepo, parseAheadBehind, badgeOf, baseName } from '../ui/host/sidebar.js';
+import { avatarOf, labelsOf, addRepos, removeRepo, moveRepo, parseAheadBehind, badgeOf, baseName, groupsOf, moveToGroup, invalidGroupName, renameGroup, removeGroup } from '../ui/host/sidebar.js';
 
 test('avatars: the first letter or digit, a colour that stays with the name', () => {
 	assert.equal(avatarOf('/r/git-graph').letter, 'G');
@@ -53,4 +53,34 @@ test('ahead/behind from rev-list --left-right --count, and its badge', () => {
 	assert.equal(badgeOf({ ahead: 2, behind: 4 }), '↑2 ↓4');
 	assert.equal(badgeOf({ ahead: 0, behind: 0 }), '');
 	assert.equal(badgeOf(null), '');
+});
+
+test('repositories are shown by group, those in none under default', () => {
+	const repos = ['/a', '/b', '/c', '/d'];
+	assert.deepEqual(groupsOf(repos, [], {}), [{ group: null, repos }]);
+	const groupOf = { '/b': 'work', '/d': 'work', '/c': 'gone' };
+	assert.deepEqual(groupsOf(repos, ['work', 'empty'], groupOf),
+		[{ group: null, repos: ['/a', '/c'] }, { group: 'work', repos: ['/b', '/d'] }, { group: 'empty', repos: [] }], 'a group that no longer exists counts as none');
+});
+
+test('a repository is dropped into a group at a place, or back into default', () => {
+	const repos = ['/a', '/b', '/c', '/d'], groupOf = { '/b': 'work', '/d': 'work' };
+	const shown = (moved) => groupsOf(moved.list, ['work'], moved.groupOf).map((g) => g.repos);
+	assert.deepEqual(shown(moveToGroup(repos, groupOf, '/a', 'work', '/d')), [['/c'], ['/b', '/a', '/d']]);
+	assert.deepEqual(shown(moveToGroup(repos, groupOf, '/a', 'work', null)), [['/c'], ['/b', '/d', '/a']], 'at its end');
+	assert.deepEqual(shown(moveToGroup(repos, groupOf, '/d', null, '/a')), [['/d', '/a', '/c'], ['/b']]);
+	assert.deepEqual(shown(moveToGroup(repos, groupOf, '/c', null, '/a')), [['/c', '/a'], ['/b', '/d']], 'within its group');
+	assert.deepEqual(moveToGroup(repos, groupOf, '/b', null, null).groupOf, { '/d': 'work' });
+	assert.deepEqual(groupOf, { '/b': 'work', '/d': 'work' }, 'the argument is left alone');
+});
+
+test('groups are named, renamed and removed', () => {
+	assert.notEqual(invalidGroupName('', [], undefined), null);
+	assert.notEqual(invalidGroupName('Default', [], undefined), null, 'the name of the group of the ungrouped');
+	assert.notEqual(invalidGroupName('work', ['work'], undefined), null);
+	assert.notEqual(invalidGroupName('work', ['work', 'home'], 'home'), null);
+	assert.equal(invalidGroupName('work', ['work'], 'work'), null, 'renamed to itself');
+	assert.equal(invalidGroupName('home', ['work'], undefined), null);
+	assert.deepEqual(renameGroup(['work', 'home'], { '/a': 'work', '/b': 'home' }, 'work', 'job'), { groups: ['job', 'home'], groupOf: { '/a': 'job', '/b': 'home' } });
+	assert.deepEqual(removeGroup(['work', 'home'], { '/a': 'work', '/b': 'home' }, 'work'), { groups: ['home'], groupOf: { '/b': 'home' } });
 });

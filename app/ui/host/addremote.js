@@ -1,26 +1,30 @@
-/* The dialogs that ask where a repository on another machine is: Add SSH Repository and
- * Connect to Server (a network share). They only ask; host/main.js connects and adds. Styled
+/* The dialogs of the sidebar: where a repository on another machine is (Add SSH Repository,
+ * Connect to Server for a network share) and the name of a group. They only ask; host/main.js
+ * connects, adds and saves. Styled
  * like the credential prompt (theme.css, .ggDialog). */
 
 import { invalidRemote, invalidShare } from './remote.js';
+import { invalidGroupName } from './sidebar.js';
 
 const STRINGS = {
 	en: {
 		ssh: 'Add SSH Repository', destination: 'Host', destinationHint: 'user@host, or a Host of ~/.ssh/config', port: 'Port', portHint: 'default',
 		path: 'Folder', pathHint: 'a repository, or a folder of them (~/… or /…)', connect: 'Connect', cancel: 'Cancel',
-		server: 'Connect to Server', url: 'Address of the share', urlHint: 'smb://server/share'
+		server: 'Connect to Server', url: 'Address of the share', urlHint: 'smb://server/share',
+		newGroup: 'New Group', renameGroup: 'Rename Group', name: 'Name', ok: 'OK'
 	},
 	'zh-cn': {
 		ssh: '加入 SSH 儲存庫', destination: '主機', destinationHint: 'user@host，或 ~/.ssh/config 裡的 Host', port: '連接埠', portHint: '預設',
 		path: '資料夾', pathHint: '儲存庫，或含多個儲存庫的資料夾（~/… 或 /…）', connect: '連線', cancel: '取消',
-		server: '連線到伺服器', url: '共享資料夾的位址', urlHint: 'smb://server/share'
+		server: '連線到伺服器', url: '共享資料夾的位址', urlHint: 'smb://server/share',
+		newGroup: '新增群組', renameGroup: '重新命名群組', name: '名稱', ok: '確定'
 	}
 };
 
 /** A dialog `id` with `rows` of fields ({ name, label, hint, narrow }); resolves to the trimmed
  * values once `invalid(values)` is null, or to null when cancelled. `initial` refills the
  * fields and `error` says why the last attempt failed. */
-function ask(id, title, rows, t, invalid, initial, error) {
+function ask(id, title, rows, t, invalid, initial, error, ok = t.connect) {
 	return new Promise((resolve) => {
 		const elem = document.createElement('div');
 		elem.id = id;
@@ -36,11 +40,11 @@ function ask(id, title, rows, t, invalid, initial, error) {
 		for (const f of fields) {
 			const input = form.elements[f.name];
 			input.previousElementSibling.textContent = f.label;
-			input.placeholder = f.hint;
+			input.placeholder = f.hint || '';
 			input.value = (initial && initial[f.name]) || '';
 		}
 		elem.querySelector('.ggDialogCancel').textContent = t.cancel;
-		elem.querySelector('.ggDialogOk').textContent = t.connect;
+		elem.querySelector('.ggDialogOk').textContent = ok;
 		const problem = elem.querySelector('.ggDialogError');
 		const say = (text) => { problem.textContent = text; problem.hidden = text === ''; }; // text, never HTML
 		say(error || '');
@@ -59,7 +63,9 @@ function ask(id, title, rows, t, invalid, initial, error) {
 			if (e.key === 'Escape') { e.preventDefault(); close(null); }
 		});
 		document.body.appendChild(elem);
-		(fields.map((f) => form.elements[f.name]).find((input) => input.value === '') || form.elements[fields[0].name]).focus();
+		const first = fields.map((f) => form.elements[f.name]).find((input) => input.value === '') || form.elements[fields[0].name];
+		first.focus();
+		first.select();
 	});
 }
 
@@ -76,4 +82,11 @@ export function askRemote({ language, initial, error }) {
 export function askServer({ language, initial, error }) {
 	const t = STRINGS[language] || STRINGS.en;
 	return ask('ggConnectServer', t.server, [[{ name: 'url', label: t.url, hint: t.urlHint }]], t, ({ url }) => invalidShare(url), initial, error);
+}
+
+/** Ask for { name } of a group: a new one, or the new name of `current`; null when cancelled. */
+export function askGroup({ language, groups, current }) {
+	const t = STRINGS[language] || STRINGS.en;
+	return ask('ggGroupName', current === undefined ? t.newGroup : t.renameGroup, [[{ name: 'name', label: t.name }]], t,
+		({ name }) => invalidGroupName(name, groups, current), { name: current }, null, t.ok);
 }

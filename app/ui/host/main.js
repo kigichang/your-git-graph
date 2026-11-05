@@ -9,9 +9,9 @@ import { appHandlers, APP_WRITES } from './app.js';
 import { installAskpass } from './askpass.js';
 import { configFrom } from './settings.js';
 import { importRepoConfig } from './repoconfig.js';
-import { createSidebar, addRepos, removeRepo, moveRepo, parseAheadBehind, baseName } from './sidebar.js';
+import { createSidebar, addRepos, removeRepo, moveRepo, moveToGroup, renameGroup, removeGroup, parseAheadBehind, baseName } from './sidebar.js';
 import { isRemote, parseRemote, hostOf, withPath, absolutePath, remoteId } from './remote.js';
-import { askRemote, askServer } from './addremote.js';
+import { askRemote, askServer, askGroup } from './addremote.js';
 
 const { invoke, Channel } = window.__TAURI__.core;
 const dialog = window.__TAURI__.dialog;
@@ -280,8 +280,20 @@ const sidebarState = () => store.get('sidebar', { repos: [], collapsed: false })
 const saveSidebar = (changes) => store.set('sidebar', { ...sidebarState(), ...changes });
 const reportShown = () => invoke('repo_opened', { folder: repoRoot, repos: windowRepos }).catch((e) => log('not watching ' + repoRoot + ': ' + e));
 
+/* The groups of the sidebar (sidebar.js): their names in order, and each repository's group. */
+const groupsState = () => ({ groups: sidebarState().groups ?? [], groupOf: sidebarState().groupOf ?? {} });
+
+/** The + menu's New Group…, a group's Rename Group…: ask for the name and keep it. */
+async function nameGroup(current) {
+	const { groups, groupOf } = groupsState();
+	const answer = await askGroup({ language: config.interfaceLanguage, groups, current });
+	if (answer === null || answer.name === current) return;
+	saveSidebar(current === undefined ? { groups: [...groups, answer.name] } : renameGroup(groups, groupOf, current, answer.name));
+	renderSidebar();
+}
+
 function renderSidebar() {
-	if (sidebar !== null) sidebar.render({ repos: windowRepos, current: repoRoot, status: repoStatus, collapsed: sidebarState().collapsed, language: config.interfaceLanguage });
+	if (sidebar !== null) sidebar.render({ repos: windowRepos, ...groupsState(), current: repoRoot, status: repoStatus, collapsed: sidebarState().collapsed, language: config.interfaceLanguage });
 }
 
 /** The view now shows `repo`: title, sidebar, watcher and the next launch follow. */
@@ -402,6 +414,7 @@ function removeFromSidebar(repo) {
 	const { list, show } = removeRepo(windowRepos, repo, repoRoot);
 	delete repoStatus[repo];
 	if (repo in shares()) { const rest = shares(); delete rest[repo]; store.set('mounts', rest); }
+	if (repo in groupsState().groupOf) { const rest = groupsState().groupOf; delete rest[repo]; saveSidebar({ groupOf: rest }); }
 	if (show === null) { // nothing left: the start page
 		saveSidebar({ repos: [] });
 		sessionStorage.setItem('gg.reopen', '');
@@ -443,7 +456,16 @@ function installSidebar() {
 		reveal: (repo) => invoke('open_path', { path: repo }).catch((e) => system.showError(String(e))),
 		terminal: (repo) => invoke('open_terminal', { cwd: repo, gitArgs: null }).catch((e) => system.showError(String(e))),
 		newWindow: (repo) => invoke('open_new_window', { repo }).catch((e) => system.showError(String(e))),
-		move: (repo, before) => { setRepos(moveRepo(windowRepos, repo, before)); showInView(repoRoot); },
+		move: (repo, group, before) => {
+			const moved = moveToGroup(windowRepos, groupsState().groupOf, repo, group, before);
+			saveSidebar({ groupOf: moved.groupOf });
+			setRepos(moved.list);
+			showInView(repoRoot);
+		},
+		moveGroup: (name, before) => { saveSidebar({ groups: moveRepo(groupsState().groups, name, before) }); renderSidebar(); },
+		newGroup: () => nameGroup(),
+		renameGroup: (name) => nameGroup(name),
+		deleteGroup: (name) => { saveSidebar(removeGroup(groupsState().groups, groupsState().groupOf, name)); renderSidebar(); },
 		toggle: toggleSidebar,
 		settings: () => click('settingsBtn')
 	});
@@ -1127,6 +1149,55 @@ async function selfTest(t0, gitInfo, options) {
 			check(windowRepos[0] === otherFolder && windowRepos[1] === firstBefore && rowsInSidebar()[0] === otherFolder && store.get('sidebar').repos[0] === otherFolder && repoRoot === originally,
 				'dragging ' + otherFolder + ' to the top: ' + JSON.stringify(windowRepos));
 			check(document.querySelectorAll('.ggRepo.dragging, .ggRepo.ggDropBefore, .ggRepo.ggDropAfter').length === 0, 'drag marks left behind');
+			// Groups: one made through the + menu's dialog; the row dragged onto it lands in it; renamed
+			// and deleted through its own menu, which puts the repository back under "default".
+			const header = (name) => [...document.querySelectorAll('#ggRepoList .ggGroup')].find((h) => h.textContent === name);
+			const menuItem = (text) => [...document.querySelectorAll('.ggMenu .ggMenuItem')].find((i) => i.textContent === text);
+			const groupMenu = (name, item) => {
+				header(name).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
+				menuItem(item).click();
+			};
+			check(header('default') !== undefined && rowsInSidebar().every((r) => row(r).dataset.group === ''), 'everything starts under "default"');
+			document.querySelector('.ggSidebarHead .ggIconBtn').click();
+			menuItem('New Group…').click();
+			let nameForm = await until('the New Group dialog', () => document.querySelector('#ggGroupName form'));
+			nameForm.elements.name.value = 'Default';
+			nameForm.requestSubmit();
+			check(document.querySelector('#ggGroupName') !== null && !nameForm.querySelector('.ggDialogError').hidden, 'a group named like the default one was accepted');
+			nameForm.elements.name.value = 'gg selftest';
+			nameForm.requestSubmit();
+			await until('the new group in the sidebar', () => header('gg selftest'));
+			const rowBox = row(otherFolder).getBoundingClientRect(), groupBox = header('gg selftest').getBoundingClientRect();
+			pointer('pointerdown', row(otherFolder), rowBox.top + 5);
+			pointer('pointermove', document, rowBox.top + 15);
+			pointer('pointermove', document, groupBox.top + 4);
+			check(header('gg selftest').classList.contains('ggDropInto'), 'the empty group is not marked while a row is dragged onto it');
+			pointer('pointerup', document, groupBox.top + 4);
+			check(store.get('sidebar').groupOf[otherFolder] === 'gg selftest' && row(otherFolder).dataset.group === 'gg selftest' && rowsInSidebar().at(-1) === otherFolder && repoRoot === originally,
+				'dragging ' + otherFolder + ' into the group: ' + JSON.stringify(store.get('sidebar')));
+			// A second group, dragged by its name above the first.
+			saveSidebar({ groups: [...store.get('sidebar').groups, 'gg second'] });
+			renderSidebar();
+			const secondBox = header('gg second').getBoundingClientRect(), firstBox = header('gg selftest').getBoundingClientRect();
+			pointer('pointerdown', header('gg second'), secondBox.top + 3);
+			pointer('pointermove', document, secondBox.top - 8);
+			pointer('pointermove', document, firstBox.top + 2);
+			check(header('gg selftest').classList.contains('ggDropBefore') && header('gg second').classList.contains('dragging'), 'no drop line above the first group while dragging the second');
+			pointer('pointerup', document, firstBox.top + 2);
+			const groupNames = () => [...document.querySelectorAll('#ggRepoList .ggGroup')].map((h) => h.textContent);
+			check(JSON.stringify(store.get('sidebar').groups) === '["gg second","gg selftest"]' && JSON.stringify(groupNames()) === '["default","gg second","gg selftest"]'
+				&& row(otherFolder).dataset.group === 'gg selftest', 'dragging a group above another: ' + JSON.stringify(groupNames()));
+			groupMenu('gg second', 'Delete Group');
+			groupMenu('gg selftest', 'Rename Group…');
+			nameForm = await until('the Rename Group dialog', () => document.querySelector('#ggGroupName form'));
+			check(nameForm.elements.name.value === 'gg selftest', 'the dialog starts with the group\'s name');
+			nameForm.elements.name.value = 'gg renamed';
+			nameForm.requestSubmit();
+			await until('the renamed group', () => header('gg renamed'));
+			check(header('gg selftest') === undefined && store.get('sidebar').groupOf[otherFolder] === 'gg renamed' && row(otherFolder).dataset.group === 'gg renamed', 'renaming the group: ' + JSON.stringify(store.get('sidebar')));
+			groupMenu('gg renamed', 'Delete Group');
+			check(header('gg renamed') === undefined && row(otherFolder).dataset.group === '' && store.get('sidebar').groups.length === 0 && !(otherFolder in store.get('sidebar').groupOf),
+				'deleting the group: ' + JSON.stringify(store.get('sidebar')));
 			removeFromSidebar(otherFolder);
 			check(!windowRepos.includes(otherFolder) && !rowsInSidebar().includes(otherFolder) && repoRoot === originally, 'removing ' + otherFolder + ' from the sidebar');
 			// A folder dropped on the window (Tauri's drag-drop event, as the webview gets it from Finder).
@@ -1134,7 +1205,7 @@ async function selfTest(t0, gitInfo, options) {
 			await until('the dropped folder shown here', () => repoRoot === otherFolder && rowsInSidebar().includes(otherFolder));
 			removeFromSidebar(otherFolder);
 			await until('back on ' + originally, () => repoRoot === originally);
-			log(`selftest: ${otherFolder.split('/').pop()} added and shown here, switched back through the sidebar, opened in window ${report.label} (its askpass prompt only there), dragged to the top, removed, dropped on the window OK`);
+			log(`selftest: ${otherFolder.split('/').pop()} added and shown here, switched back through the sidebar, opened in window ${report.label} (its askpass prompt only there), dragged to the top, into a new group (reordered, renamed, deleted), removed, dropped on the window OK`);
 		}
 
 		if (options.remote) {
