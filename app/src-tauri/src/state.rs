@@ -17,6 +17,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use gg_backend::files::write_atomic;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
@@ -26,20 +27,6 @@ const COALESCE: Duration = Duration::from_millis(300);
 
 pub fn data_dir<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
     std::env::var_os("GG_DATA_DIR").map(PathBuf::from).or_else(|| app.path().app_data_dir().ok())
-}
-
-/// Write `contents` to `file` atomically (a temporary file renamed over it), creating the
-/// directory: a crash mid-write never leaves a truncated file behind.
-pub fn write_atomic(file: &Path, contents: &[u8]) -> std::io::Result<()> {
-    let dir = file.parent().ok_or_else(|| std::io::Error::other("no parent directory"))?;
-    std::fs::create_dir_all(dir)?;
-    let tmp = dir.join(format!(".{}.{}.tmp", file.file_name().unwrap_or_default().to_string_lossy(), std::process::id()));
-    {
-        let mut f = std::fs::File::create(&tmp)?;
-        f.write_all(contents)?;
-        f.sync_all()?;
-    }
-    std::fs::rename(&tmp, file)
 }
 
 /* ---------- state.json ---------- */

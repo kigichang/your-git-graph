@@ -1,0 +1,23 @@
+[package]
+name = "gg-backend"
+version = "0.4.0"
+description = "Your Git Graph: repository access shared by the app and its remote helper"
+edition = "2021"
+license = "MIT"
+rust-version = "1.82"
+publish = false
+
+[dependencies]
+# The MIT-licensed engine, linked in-process (no Node-API layer).
+git-graph-core = { path = "../../../../vendor/vscode-git-graph-rs/native/core" }
+tokio = { version = "1", features = ["process", "io-util", "time", "sync", "macros", "rt"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
+base64 = "0.22"
+# File watching (FSEvents, inotify); 8.2.1 was too recent when pinned.
+notify = "=8.2.0"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread"] }
+tempfile = "3"

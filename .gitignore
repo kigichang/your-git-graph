@@ -8,3 +8,5 @@ app/ui/media/
 app/ui/generated/
 app/ui/diff-dist/
 .DS_Store
+# Built by app/scripts/build-remote.sh (the remote helpers, embedded in the app)
+app/src-tauri/remote-dist/

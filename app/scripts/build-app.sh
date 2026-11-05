@@ -11,6 +11,9 @@
 #
 # Prerequisites (once): git submodule update --init; in vendor/vscode-git-graph-rs
 # `npm ci && npm run compile-src && npm run compile-web`; in app/ `npm ci`.
+# For the helpers of repositories over ssh (scripts/build-remote.sh):
+# rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl, and
+# brew install filosottile/musl-cross/musl-cross.
 #
 # APPLE_SIGNING_IDENTITY=<name of a code signing certificate in your keychain> signs with that
 # certificate instead of ad hoc (see CLAUDE.md, Stage 1 item 8).
@@ -44,6 +47,9 @@ bundles=app; [ "$dmg" = 1 ] && bundles=app,dmg
 
 echo "==> assets"
 node "$app_dir/scripts/prepare-ui.mjs"
+
+echo "==> remote helpers (repositories over ssh)"
+"$app_dir/scripts/build-remote.sh"
 
 echo "==> build ($bundles${target_args:+, universal})"
 (cd "$tauri_dir" && cargo tauri build --bundles "$bundles" ${target_args[@]+"${target_args[@]}"})

@@ -9,6 +9,7 @@ publish = false
 
 # Standalone: not part of the upstream workspace in vendor/.
 [workspace]
+members = [".", "crates/backend", "crates/remote"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -16,15 +17,13 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
-# The MIT-licensed engine, linked in-process (no Node-API layer).
-git-graph-core = { path = "../../vendor/vscode-git-graph-rs/native/core" }
+# The engine, the git CLI, files and watching: shared with the remote helper.
+gg-backend = { path = "crates/backend" }
 # git_exec: the same tokio tauri runs on, plus the process/timer features.
 tokio = { version = "1", features = ["process", "io-util", "time", "sync", "macros"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 libc = "0.2"
-base64 = "0.22"
-# File watching (FSEvents); 8.2.1 was too recent when pinned.
 notify = "=8.2.0"
 
 [dev-dependencies]

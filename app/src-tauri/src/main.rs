@@ -8,11 +8,11 @@
 mod askpass;
 mod diff;
 mod git;
+mod remote;
 mod repo;
 mod repos;
 mod state;
 mod system;
-mod watch;
 
 use tauri::{Emitter, Manager};
 
@@ -64,15 +64,19 @@ fn opened(app: &tauri::AppHandle, urls: Vec<tauri::Url>) {
 }
 
 /// One engine call: `{"method", "params"}` in, the method's JSON answer out. Failures ride
-/// in-band as `{"error": "Kind: message"}`. Runs off the main thread - a large repository's
+/// in-band as `{"error": "Kind: message"}`. A remote repository's go to its machine. Runs off the main thread - a large repository's
 /// first graph page takes long enough to stall the UI otherwise.
 #[tauri::command]
-async fn engine_request(repo: String, request: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        git_graph_core::dispatch::request(&repo, &request)
-    })
-    .await
-    .map_err(|e| e.to_string())
+async fn engine_request(remotes: tauri::State<'_, std::sync::Arc<remote::Remotes>>, repo: String, request: String) -> Result<String, String> {
+    if let Some(remote) = remote::parse(&repo)? {
+        let session = remotes.session(&remote)?;
+        let body = serde_json::json!({ "op": "engine", "repo": remote.path, "request": request });
+        let answer = session.call(session.next_id(), &body, |_| {}).await?;
+        return String::from_utf8(answer).map_err(|e| e.to_string());
+    }
+    tauri::async_runtime::spawn_blocking(move || gg_backend::engine(&repo, &request))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// The host's log line, mirrored to stderr so it shows in the terminal; with `persist` (the
@@ -86,11 +90,14 @@ fn host_log(log: tauri::State<'_, state::SessionLog>, line: String, persist: Opt
 }
 
 /// Whether the page should run its built-in end-to-end check (`GG_SELFTEST=1`), and with what:
-/// `GG_SELFTEST_HTTP` names an HTTP Basic-auth URL for the real-git credential prompt check.
+/// `GG_SELFTEST_HTTP` names an HTTP Basic-auth URL for the real-git credential prompt check;
+/// with `GG_REMOTE_SSH` (a stand-in for ssh) the repository is also opened as a remote one, or
+/// with `GG_SELFTEST_SSH` (and `GG_SELFTEST_SSH_PASSWORD`) that repository through the real ssh.
 #[tauri::command]
 fn self_test() -> Option<serde_json::Value> {
     std::env::var("GG_SELFTEST").is_ok_and(|v| v == "1").then(|| {
-        serde_json::json!({ "httpUrl": std::env::var("GG_SELFTEST_HTTP").ok() })
+        serde_json::json!({ "httpUrl": std::env::var("GG_SELFTEST_HTTP").ok(), "remote": std::env::var_os("GG_REMOTE_SSH").is_some(),
+            "sshUrl": std::env::var("GG_SELFTEST_SSH").ok(), "sshPassword": std::env::var("GG_SELFTEST_SSH_PASSWORD").ok() })
     })
 }
 
@@ -151,6 +158,7 @@ fn main() {
                 handle.get_webview_window(window).is_some() && handle.emit_to(window, "askpass", event).is_ok()
             }))?;
             app.manage(askpass);
+            app.manage(remote::start(app.handle()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -170,6 +178,8 @@ fn main() {
             system::open_path,
             system::open_terminal,
             askpass::askpass_reply,
+            remote::remote_connect,
+            remote::remote_disconnect,
             diff::open_diff_window,
             diff::worktree_file,
             repos::scan_repos,

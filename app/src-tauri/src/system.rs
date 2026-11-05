@@ -40,6 +40,9 @@ pub fn open_url(url: String) -> Result<(), String> {
 /// (the settings file and the session log: `.json`/`.log` may belong to anything).
 #[tauri::command]
 pub fn open_path(path: String, text: Option<bool>) -> Result<(), String> {
+    if crate::remote::parse(&path)?.is_some() {
+        return Err("Files of a repository on another machine cannot be opened on this Mac.".into());
+    }
     if !Path::new(&path).exists() {
         return Err(format!("{path} does not exist."));
     }
@@ -60,10 +63,41 @@ fn applescript_quote(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
+/// What Terminal runs for a repository on another machine: ssh with a terminal, there `cd` to
+/// it and run `git <args>`, or (no args) its login shell.
+fn remote_line(remote: &crate::remote::Remote, git_args: Option<&[String]>) -> String {
+    use crate::remote::remote_quote;
+    let mut there = format!("cd {} && ", remote_quote(&remote.path));
+    match git_args {
+        // `exec $SHELL -l` reads the same in sh, bash, zsh and fish.
+        None => there.push_str("exec $SHELL -l"),
+        Some(args) => {
+            there.push_str("git");
+            for arg in args {
+                there.push(' ');
+                there.push_str(&remote_quote(arg));
+            }
+        }
+    }
+    let port = remote.port.map(|p| format!(" -p {p}")).unwrap_or_default();
+    format!("ssh -t{port} -- {} {}", shell_quote(&remote.dest), shell_quote(&there))
+}
+
+fn terminal_do(line: &str) -> Result<(), String> {
+    let script = format!(
+        "tell application \"Terminal\"\nactivate\ndo script {}\nend tell",
+        applescript_quote(line)
+    );
+    run(Command::new("/usr/bin/osascript").args(["-e", &script]))
+}
+
 /// Open Terminal in `cwd`; with `args`, also run `git <args>` there (interactive rebase needs a
-/// real terminal for its editor).
+/// real terminal for its editor). For a repository on another machine: over ssh.
 #[tauri::command]
 pub fn open_terminal(cwd: String, git_args: Option<Vec<String>>) -> Result<(), String> {
+    if let Some(remote) = crate::remote::parse(&cwd)? {
+        return terminal_do(&remote_line(&remote, git_args.as_deref()));
+    }
     if !Path::new(&cwd).is_dir() {
         return Err(format!("{cwd} is not a directory."));
     }
@@ -75,16 +109,28 @@ pub fn open_terminal(cwd: String, git_args: Option<Vec<String>>) -> Result<(), S
         line.push(' ');
         line.push_str(&shell_quote(arg));
     }
-    let script = format!(
-        "tell application \"Terminal\"\nactivate\ndo script {}\nend tell",
-        applescript_quote(&line)
-    );
-    run(Command::new("/usr/bin/osascript").args(["-e", &script]))
+    terminal_do(&line)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The line Terminal gets, with ssh replaced by a program printing its arguments: what the
+    /// other machine's shell is handed is exactly `cd <path> && git <args>`.
+    #[test]
+    fn the_terminal_line_for_a_remote_repository() {
+        let remote = crate::remote::parse("ssh://me@host:2200/srv/it's here").unwrap().unwrap();
+        let args = ["rebase".to_string(), "-i".to_string(), "a b".to_string()];
+        let line = remote_line(&remote, Some(&args));
+        assert!(line.starts_with("ssh -t -p 2200 -- 'me@host' "), "{line}");
+        let printed = Command::new("sh").args(["-c", &line.replacen("ssh", "printf '%s\\n'", 1)]).output().unwrap();
+        let words: Vec<String> = String::from_utf8(printed.stdout).unwrap().lines().map(String::from).collect();
+        assert_eq!(words[..5], ["-t", "-p", "2200", "--", "me@host"]);
+        let there = Command::new("sh").args(["-c", &format!("cd() {{ printf '%s|' \"$1\"; }}; git() {{ printf '%s|' \"$@\"; }}; {}", words[5])]).output().unwrap();
+        assert_eq!(String::from_utf8(there.stdout).unwrap(), "/srv/it's here|rebase|-i|a b|");
+        assert!(remote_line(&remote, None).ends_with("exec $SHELL -l'"));
+    }
 
     #[test]
     fn quoting() {

@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 const SOCKET_ENV: &str = "GG_ASKPASS_SOCKET";
 const TOKEN_ENV: &str = "GG_ASKPASS_TOKEN";
 /// An unanswered prompt is given up (answered "no answer") after this long.
-const ANSWER_TIMEOUT: Duration = Duration::from_secs(300);
+pub const ANSWER_TIMEOUT: Duration = Duration::from_secs(300);
 /// How often a waiting request checks whether its helper is still alive.
 const POLL: Duration = Duration::from_millis(250);
 
@@ -140,9 +140,9 @@ impl Askpass {
         let _ = (&stream).write_all(reply.as_bytes());
     }
 
-    /// Show the prompt in `window` and wait for the answer, the helper's death, or the timeout.
-    /// With the window gone there is nobody to ask: no answer, at once.
-    fn ask(&self, stream: &UnixStream, window: &str, prompt: String) -> Option<String> {
+    /// Show `prompt` in `window`: its id and where the answer arrives (`reply`; nothing arrives
+    /// once it is closed). `None` with the window gone: there is nobody to ask.
+    pub fn prompt(&self, window: &str, prompt: String) -> Option<(u64, mpsc::Receiver<Option<String>>)> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = mpsc::channel();
         self.pending.lock().unwrap().insert(id, tx);
@@ -150,14 +150,26 @@ impl Askpass {
             self.pending.lock().unwrap().remove(&id);
             return None;
         }
+        Some((id, rx))
+    }
+
+    /// The question `id` is no longer wanted: take it down.
+    pub fn close(&self, window: &str, id: u64) {
+        if self.pending.lock().unwrap().remove(&id).is_some() {
+            (self.notify)(window, AskpassEvent::Close { id });
+        }
+    }
+
+    /// Show the prompt in `window` and wait for the answer, the helper's death, or the timeout.
+    fn ask(&self, stream: &UnixStream, window: &str, prompt: String) -> Option<String> {
+        let (id, rx) = self.prompt(window, prompt)?;
         let started = Instant::now();
         loop {
             match rx.recv_timeout(POLL) {
                 Ok(answer) => return answer,
                 Err(mpsc::RecvTimeoutError::Timeout) => {
                     if peer_closed(stream) || started.elapsed() > ANSWER_TIMEOUT {
-                        self.pending.lock().unwrap().remove(&id);
-                        (self.notify)(window, AskpassEvent::Close { id });
+                        self.close(window, id);
                         return None;
                     }
                 }

@@ -1141,6 +1141,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "gg-backend"
+version = "0.4.0"
+dependencies = [
+ "base64 0.22.1",
+ "git-graph-core",
+ "libc",
+ "notify",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "gg-remote"
+version = "0.4.0"
+dependencies = [
+ "base64 0.22.1",
+ "gg-backend",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "gio"
 version = "0.18.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1176,8 +1202,7 @@ dependencies = [
 name = "git-graph-app"
 version = "0.4.0"
 dependencies = [
- "base64 0.22.1",
- "git-graph-core",
+ "gg-backend",
  "libc",
  "notify",
  "serde",

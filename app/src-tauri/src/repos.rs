@@ -10,54 +10,26 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu};
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_dialog::DialogExt;
 
-const MAX_RECENT: usize = 10;
-/// How deep a folder that is not itself a repository is searched for repositories.
-const SCAN_DEPTH: usize = 3;
-/// Directories never searched: dependencies and build output hold no repositories worth listing.
-const SKIP_DIRS: [&str; 4] = ["node_modules", "target", "build", "dist"];
+use crate::remote::{self, Remotes, Session};
 
+const MAX_RECENT: usize = 10;
 /* ---------- Scanning ---------- */
 
-/// The repositories in `folder` (not itself a repository), at most `depth` levels down,
-/// sorted. A repository found is not searched further (its submodules and vendored checkouts
-/// belong to it); hidden directories and [`SKIP_DIRS`] are skipped.
-pub fn scan(folder: &Path, depth: usize) -> Vec<PathBuf> {
-    let mut found = Vec::new();
-    let mut level = vec![folder.to_path_buf()];
-    for _ in 0..depth {
-        let mut next = Vec::new();
-        for dir in level {
-            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
-            for entry in entries.flatten() {
-                let path = entry.path();
-                let name = entry.file_name();
-                let name = name.to_string_lossy();
-                if !entry.file_type().is_ok_and(|t| t.is_dir()) || name.starts_with('.') || SKIP_DIRS.contains(&name.as_ref()) {
-                    continue;
-                }
-                if path.join(".git").exists() {
-                    found.push(path);
-                } else {
-                    next.push(path);
-                }
-            }
-        }
-        level = next;
-    }
-    found.sort();
-    found
-}
-
 #[tauri::command]
-pub fn scan_repos(folder: String) -> Vec<String> {
-    scan(Path::new(&folder), SCAN_DEPTH).into_iter().map(|p| p.display().to_string()).collect()
+pub async fn scan_repos(remotes: tauri::State<'_, Arc<Remotes>>, folder: String) -> Result<Vec<String>, String> {
+    if let Some(remote) = remote::parse(&folder)? {
+        let found = remote::ask(&remotes, &remote, serde_json::json!({ "op": "scan" }), "folder").await?;
+        let found: Vec<String> = serde_json::from_value(found).map_err(|e| e.to_string())?;
+        return Ok(found.iter().map(|path| remote.id(path)).collect());
+    }
+    Ok(gg_backend::files::scan(Path::new(&folder), gg_backend::files::SCAN_DEPTH).into_iter().map(|p| p.display().to_string()).collect())
 }
 
 /* ---------- Recent folders ---------- */
@@ -68,13 +40,14 @@ fn recent_file<R: Runtime>(app: &AppHandle<R>) -> Option<PathBuf> {
     crate::state::data_dir(app).map(|d| d.join("recent.json"))
 }
 
-/// The recent folders, most recent first, those that still exist.
+/// The recent folders, most recent first, those that still exist (a repository on another
+/// machine is taken to: only connecting tells).
 pub fn recent<R: Runtime>(app: &AppHandle<R>) -> Vec<String> {
     let list: Vec<String> = recent_file(app)
         .and_then(|f| std::fs::read_to_string(f).ok())
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
-    list.into_iter().filter(|p| Path::new(p).is_dir()).collect()
+    list.into_iter().filter(|p| matches!(remote::parse(p), Ok(Some(_))) || Path::new(p).is_dir()).collect()
 }
 
 /// `list` with `folder` moved to the front, at most [`MAX_RECENT`] long.
@@ -88,7 +61,7 @@ fn push_recent(mut list: Vec<String>, folder: &str) -> Vec<String> {
 fn remember<R: Runtime>(app: &AppHandle<R>, folder: &str) {
     let Some(file) = recent_file(app) else { return };
     let list = push_recent(recent(app), folder);
-    let _ = crate::state::write_atomic(&file, serde_json::to_string_pretty(&list).unwrap_or_default().as_bytes());
+    let _ = gg_backend::files::write_atomic(&file, serde_json::to_string_pretty(&list).unwrap_or_default().as_bytes());
     rebuild_recent_menu(app);
 }
 
@@ -99,7 +72,7 @@ pub fn recent_repos(app: AppHandle) -> Vec<String> {
 
 /* ---------- Windows ---------- */
 
-/// What each window shows (`None`: the start page), the repositories it watches, its watcher.
+/// What each window shows (`None`: the start page), the repositories it watches, its watchers.
 #[derive(Default)]
 pub struct Windows(pub Mutex<HashMap<String, WindowState>>);
 
@@ -107,7 +80,23 @@ pub struct Windows(pub Mutex<HashMap<String, WindowState>>);
 pub struct WindowState {
     folder: Option<String>,
     watched: Vec<String>,
+    /// The machines whose repositories are watched (those connected at the time).
+    hosts: Vec<String>,
     _watcher: Option<notify::RecommendedWatcher>,
+    _remote: Vec<RemoteWatch>,
+}
+
+/// A watch held open on another machine; dropping it ends it.
+struct RemoteWatch {
+    session: Arc<Session>,
+    call: u64,
+}
+
+impl Drop for RemoteWatch {
+    fn drop(&mut self) {
+        let (session, call) = (self.session.clone(), self.call);
+        tauri::async_runtime::spawn(async move { session.cancel(call).await });
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -116,13 +105,34 @@ struct RepoChanged {
 }
 
 /// The page of `window` shows `folder` (a repository of the sidebar's `repos`): record it,
-/// remember it, and watch `repos` (anew only when they changed).
+/// remember it, and watch `repos` (anew only when they, or the machines connected, changed).
+/// The repositories of a machine that is not connected are not watched: the page reports
+/// again once it has connected.
 #[tauri::command]
-pub fn repo_opened(app: AppHandle, window: tauri::Window, windows: tauri::State<'_, Windows>, folder: String, repos: Vec<String>) -> Result<(), String> {
+pub fn repo_opened(app: AppHandle, window: tauri::Window, windows: tauri::State<'_, Windows>, remotes: tauri::State<'_, Arc<Remotes>>, folder: String, repos: Vec<String>) -> Result<(), String> {
     let label = window.label().to_string();
+    // The local roots, and per connected machine its session and the paths there.
+    let mut local = Vec::new();
+    let mut there: Vec<(remote::Remote, Arc<Session>, Vec<String>)> = Vec::new();
+    for repo in &repos {
+        match remote::parse(repo) {
+            Ok(None) => local.push(PathBuf::from(repo)),
+            Ok(Some(r)) => {
+                if let Some(at) = there.iter_mut().find(|(known, _, _)| known.authority == r.authority) {
+                    at.2.push(r.path);
+                } else if let Some(session) = remotes.connected(&r.authority) {
+                    let path = r.path.clone();
+                    there.push((r, session, vec![path]));
+                }
+            }
+            Err(_) => {}
+        }
+    }
+    let mut hosts: Vec<String> = there.iter().map(|(r, _, _)| r.authority.clone()).collect();
+    hosts.sort();
     {
         let mut all = windows.0.lock().unwrap();
-        if let Some(state) = all.get_mut(&label).filter(|w| w._watcher.is_some() && same_repos(&w.watched, &repos)) {
+        if let Some(state) = all.get_mut(&label).filter(|w| w._watcher.is_some() && same_repos(&w.watched, &repos) && w.hosts == hosts) {
             state.folder = Some(folder.clone());
             drop(all);
             remember(&app, &folder);
@@ -130,15 +140,33 @@ pub fn repo_opened(app: AppHandle, window: tauri::Window, windows: tauri::State<
         }
     }
     // Without git the watcher still works; it just cannot tell ignored files apart.
-    let git = crate::git::locate_git().ok().map(|g| PathBuf::from(&g.path));
+    let git = gg_backend::git::locate_git().ok().map(|g| PathBuf::from(&g.path));
     let target = label.clone();
     let emitter = app.clone();
-    let watcher = crate::watch::watch(git, repos.iter().map(PathBuf::from).collect(), move |changed| {
+    let watcher = gg_backend::watch::watch(git, local, true, move |changed| {
         let repos = changed.into_iter().map(|p| p.display().to_string()).collect();
         let _ = emitter.emit_to(target.as_str(), "repo-changed", RepoChanged { repos });
     })
     .map_err(|e| format!("cannot watch {folder}: {e}"))?;
-    windows.0.lock().unwrap().insert(label, WindowState { folder: Some(folder.clone()), watched: repos, _watcher: Some(watcher) });
+    let remote_watches = there
+        .into_iter()
+        .map(|(machine, session, roots)| {
+            let call = session.next_id();
+            let (watching, target, emitter) = (session.clone(), label.clone(), app.clone());
+            tauri::async_runtime::spawn(async move {
+                let body = serde_json::json!({ "op": "watch", "roots": roots });
+                let _ = watching
+                    .call(call, &body, |frame| {
+                        let Ok(event) = serde_json::from_slice::<serde_json::Value>(&frame.body) else { return };
+                        let repos = event["repos"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).map(|p| machine.id(p)).collect();
+                        let _ = emitter.emit_to(target.as_str(), "repo-changed", RepoChanged { repos });
+                    })
+                    .await;
+            });
+            RemoteWatch { session, call }
+        })
+        .collect();
+    windows.0.lock().unwrap().insert(label, WindowState { folder: Some(folder.clone()), watched: repos, hosts, _watcher: Some(watcher), _remote: remote_watches });
     remember(&app, &folder);
     Ok(())
 }
@@ -377,19 +405,6 @@ pub fn on_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn scanning_finds_repositories_without_descending_into_them() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = dir.path();
-        for repo in ["a", "group/b", "group/deep/c", "a/vendor/inner", "node_modules/pkg", ".hidden/x", "one/two/three/four"] {
-            std::fs::create_dir_all(p.join(repo).join(".git")).unwrap();
-        }
-        std::fs::create_dir_all(p.join("worktree")).unwrap();
-        std::fs::write(p.join("worktree/.git"), "gitdir: /somewhere\n").unwrap();
-        let found: Vec<String> = scan(p, SCAN_DEPTH).iter().map(|f| f.strip_prefix(p).unwrap().display().to_string()).collect();
-        assert_eq!(found, ["a", "group/b", "group/deep/c", "worktree"]);
-    }
 
     #[test]
     fn recent_list_is_most_recent_first_unique_and_bounded() {

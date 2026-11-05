@@ -145,16 +145,20 @@ pub fn classify(git: Option<&Path>, repos: &[Repo], paths: &[PathBuf]) -> BTreeS
 }
 
 /// Watch `roots` and call `on_change` with the repositories a burst of changes matters to.
+/// Without `worktrees` only their git directories are watched (commits, checkouts, staging,
+/// fetches): inotify, unlike FSEvents, takes one watch per directory, and a work tree with
+/// `node_modules` runs into the system's limit.
 /// Dropping the returned watcher stops it (and its thread).
 pub fn watch(
     git: Option<PathBuf>,
     roots: Vec<PathBuf>,
+    worktrees: bool,
     on_change: impl Fn(BTreeSet<PathBuf>) + Send + 'static,
 ) -> notify::Result<notify::RecommendedWatcher> {
     let repos: Vec<Repo> = roots.into_iter().map(Repo::of).collect();
     // The roots, and the git directories outside them (linked worktrees, submodules); nothing
     // twice (FSEvents watches recursively).
-    let mut dirs: Vec<PathBuf> = repos.iter().map(|r| r.root.clone()).collect();
+    let mut dirs: Vec<PathBuf> = if worktrees { repos.iter().map(|r| r.root.clone()).collect() } else { Vec::new() };
     dirs.extend(repos.iter().flat_map(|r| [r.git_dir.clone(), r.common_dir.clone()]).filter(|d| d.is_dir()));
     dirs.sort();
     let mut watched: Vec<PathBuf> = Vec::new();
@@ -173,8 +177,11 @@ pub fn watch(
             }
         }
     })?;
+    // A root that cannot be watched (an unmounted volume) must not cost the others theirs.
     for dir in &watched {
-        watcher.watch(dir, RecursiveMode::Recursive)?;
+        if let Err(e) = watcher.watch(dir, RecursiveMode::Recursive) {
+            eprintln!("[watch] not watching {}: {e}", dir.display());
+        }
     }
     std::thread::spawn(move || {
         // Ends when the watcher (and with it the sender) is dropped.
@@ -293,7 +300,7 @@ mod tests {
         let (_d, main, wt) = with_worktree();
         let seen = Arc::new(Mutex::new(Vec::new()));
         let sink = seen.clone();
-        let _watcher = watch(Some(git_path()), vec![wt.clone()], move |changed| sink.lock().unwrap().push(changed)).unwrap();
+        let _watcher = watch(Some(git_path()), vec![wt.clone()], true, move |changed| sink.lock().unwrap().push(changed)).unwrap();
         std::thread::sleep(Duration::from_millis(500));
         let wait = |n: usize| {
             let deadline = Instant::now() + Duration::from_secs(5);
@@ -313,11 +320,27 @@ mod tests {
     }
 
     #[test]
+    fn a_missing_root_does_not_stop_the_others_from_being_watched() {
+        let (_d, root) = repo();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = seen.clone();
+        let roots = vec![PathBuf::from("/nonexistent/gg-unmounted/repo"), root.clone()];
+        let _watcher = watch(Some(git_path()), roots, true, move |changed| sink.lock().unwrap().push(changed)).unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+        std::fs::write(root.join("file.txt"), "x").unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while seen.lock().unwrap().is_empty() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert_eq!(*seen.lock().unwrap(), vec![BTreeSet::from([root.clone()])]);
+    }
+
+    #[test]
     fn a_real_change_is_reported_once_per_burst_and_ignored_ones_never() {
         let (_d, root) = repo();
         let seen = Arc::new(Mutex::new(Vec::new()));
         let sink = seen.clone();
-        let _watcher = watch(Some(git_path()), vec![root.clone()], move |changed| sink.lock().unwrap().push(changed)).unwrap();
+        let _watcher = watch(Some(git_path()), vec![root.clone()], true, move |changed| sink.lock().unwrap().push(changed)).unwrap();
         std::thread::sleep(Duration::from_millis(500)); // FSEvents needs a moment to start
         std::fs::create_dir_all(root.join("target")).unwrap();
         std::fs::write(root.join("target/out.bin"), "x").unwrap();
