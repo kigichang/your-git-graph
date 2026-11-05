@@ -8,6 +8,7 @@ import { gitHandlers, READ_COMMANDS } from './gitops.js';
 import { appHandlers, APP_WRITES } from './app.js';
 import { installAskpass } from './askpass.js';
 import { configFrom } from './settings.js';
+import { fileViewOf } from './diffspec.js';
 import { importRepoConfig } from './repoconfig.js';
 import { createSidebar, addRepos, removeRepo, moveRepo, moveManyToGroup, renameGroup, removeGroup, parseAheadBehind, baseName } from './sidebar.js';
 import { isRemote, parseRemote, hostOf, withPath, absolutePath, remoteId } from './remote.js';
@@ -493,11 +494,28 @@ async function initialRepos() {
 	return list;
 }
 
+/* ⌘-click on a file of the commit details shows the file at that revision instead of its diff.
+ * The webview's click handler (bubble phase) ignores modifiers and sends viewDiff/viewDiffBinary,
+ * so the click is noted here in the capture phase and the request it sends is rewritten
+ * (diffspec.js fileViewOf). Cleared by a task, not a microtask: microtasks run between listeners. */
+let fileClickWithCmd = false;
+document.addEventListener('click', (e) => {
+	if (!e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || !(e.target instanceof Element) || !e.target.closest('.fileTreeFile')) return;
+	fileClickWithCmd = true;
+	setTimeout(() => { fileClickWithCmd = false; }, 0);
+}, true);
+
 window.__ggHost = {
+	/** A request of the webview, called synchronously from its postMessage (shim.js). */
 	handle(msg) {
-		respond(msg).then((response) => {
+		if (fileClickWithCmd) {
+			fileClickWithCmd = false;
+			msg = fileViewOf(msg) ?? msg;
+		}
+		// Decoupled from the caller like the real IPC (the webview never expects a synchronous answer).
+		setTimeout(() => respond(msg).then((response) => {
 			if (response !== null) window.__ggDeliver(response);
-		}, (e) => log('handler ' + msg.command + ' failed: ' + ((e && e.stack) || e)));
+		}, (e) => log('handler ' + msg.command + ' failed: ' + ((e && e.stack) || e))), 0);
 	}
 };
 
@@ -928,18 +946,22 @@ async function selfTest(t0, gitInfo, options) {
 		const isImage = (f) => /\.(png|jpe?g|gif|webp)$/i.test(f.newFilePath);
 		const file = details.commitDetails.fileChanges.find((f) => f.type === 'M' && !isImage(f)) ?? details.commitDetails.fileChanges[0];
 		let escapeFindChecks = 0;
-		const openAndReport = async (request) => {
+		/** The result a diff window reports after `open` (what: for the messages) opens it. */
+		const reportOf = async (what, open) => {
 			const report = new Promise((resolve) => window.__TAURI__.event.once('diff-selftest', (e) => resolve(e.payload)));
-			const response = await respond({ repo: repoRoot, ...request });
-			check(response === null || response.error === null, request.command + ': ' + JSON.stringify(response));
-			const r = await Promise.race([report, new Promise((_, reject) => setTimeout(() => reject(new Error(request.command + ': no report from the diff window')), 20000))]);
+			await open();
+			const r = await Promise.race([report, new Promise((_, reject) => setTimeout(() => reject(new Error(what + ': no report from the diff window')), 20000))]);
 			check(r.workerProblems.length === 0, 'Monaco worker problems: ' + r.workerProblems.join(' | '));
 			const t = window.__ggTheme.current(), expected = t.contrast ? (t.dark ? 'hc-black' : 'hc-light') : t.dark ? 'vs-dark' : 'vs';
 			check(r.theme === expected, 'the diff window is drawn in ' + r.theme + ', not ' + expected);
-			check(r.escape.closes && r.escape.findFirst !== false, request.command + ': Esc ' + JSON.stringify(r.escape) + ' (findFirst: Esc closed the window instead of the find widget)');
+			check(r.escape.closes && r.escape.findFirst !== false, what + ': Esc ' + JSON.stringify(r.escape) + ' (findFirst: Esc closed the window instead of the find widget)');
 			escapeFindChecks += r.escape.findFirst === true ? 1 : 0;
 			return r.result;
 		};
+		const openAndReport = (request) => reportOf(request.command, async () => {
+			const response = await respond({ repo: repoRoot, ...request });
+			check(response === null || response.error === null, request.command + ': ' + JSON.stringify(response));
+		});
 		const fileRequest = { fromHash: head, toHash: head, oldFilePath: file.oldFilePath, newFilePath: file.newFilePath, type: file.type };
 		const diffs = [
 			['viewDiff', fileRequest, (r) => r.kind === 'text' && r.changes > 0],
@@ -959,6 +981,21 @@ async function selfTest(t0, gitInfo, options) {
 			check(ok(r), command + ' rendered ' + JSON.stringify(r));
 			summary.push(command + ' ' + JSON.stringify(r));
 		}
+		// A click on a file of the open details shows its diff; ⌘-click shows the file itself.
+		if (!document.querySelector('#cdvFiles .fileTreeFile.gitDiffPossible')) {
+			target.querySelector('td:nth-child(2)').click();
+			await until('commit details file list', () => document.querySelector('#cdvFiles .fileTreeFile.gitDiffPossible'));
+		}
+		const fileRows = Array.from(document.querySelectorAll('#cdvFiles .fileTreeFile.gitDiffPossible'));
+		const textRow = fileRows.find((el) => el.querySelector('.gitFileName.M, .gitFileName.A') && !isImage({ newFilePath: el.textContent.trim() }));
+		const fileRow = textRow ?? fileRows.find((el) => !el.querySelector('.gitFileName.D'));
+		check(fileRow !== undefined, 'no file in the open details to ⌘-click (all deleted?)');
+		const clickFile = (metaKey) => async () => fileRow.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, metaKey }));
+		const plain = await reportOf('click on a file', clickFile(false));
+		check(textRow ? plain.kind === 'text' : ['text', 'binary', 'image'].includes(plain.kind), 'a click on a file opened ' + JSON.stringify(plain));
+		const withCmd = await reportOf('⌘-click on a file', clickFile(true));
+		check(textRow ? withCmd.kind === 'file' && withCmd.lines > 0 : ['file', 'binary', 'image'].includes(withCmd.kind), '⌘-click on a file opened ' + JSON.stringify(withCmd));
+		summary.push('click ' + JSON.stringify(plain), '⌘-click ' + JSON.stringify(withCmd));
 		// Each closed itself on the Esc the test sent.
 		for (let tries = 0; tries < 50 && (await window.__TAURI__.window.getAllWindows()).some((w) => w.label.startsWith('diff-')); tries++) await new Promise((r) => setTimeout(r, 100));
 		check(!(await window.__TAURI__.window.getAllWindows()).some((w) => w.label.startsWith('diff-')), 'a diff window did not close on Esc');

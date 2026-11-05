@@ -57,6 +57,15 @@ export function fileSpec(repo, m) {
 	return { mode: 'file', repo, title: basename(m.filePath) + ' (' + short(m.hash) + ')', side: { rev: m.hash, path: m.filePath } };
 }
 
+/** ⌘-click on a file of the commit details (host/main.js): the file as the change leaves it
+ * (viewFileAtRevision at the request's toHash, which the webview already resolved for a
+ * comparison, a stash's untracked files and '*'), instead of the change. null when there is
+ * nothing to show: a deleted file keeps its diff. */
+export function fileViewOf(m) {
+	if ((m.command !== 'viewDiff' && m.command !== 'viewDiffBinary') || m.type === 'D') return null;
+	return { command: 'viewFileAtRevision', repo: m.repo, hash: m.toHash, filePath: m.newFilePath };
+}
+
 /** openCompareTab: every changed file between two revisions (or of one commit). */
 export function compareSpec(repo, m) {
 	const single = m.singleCommit || m.fromHash === m.toHash;

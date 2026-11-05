@@ -1,7 +1,7 @@
 /* What each diff request shows (app/ui/host/diffspec.js). */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { revisions, fileSides, diffSpec, workingFileSpec, fileSpec, compareSpec, WORKTREE } from '../ui/host/diffspec.js';
+import { revisions, fileSides, diffSpec, workingFileSpec, fileSpec, fileViewOf, compareSpec, WORKTREE } from '../ui/host/diffspec.js';
 
 const C = 'c'.repeat(40), P = 'a'.repeat(40);
 
@@ -33,4 +33,16 @@ test('specs and their titles', () => {
 test('a comparison tab of one commit or of two', () => {
 	assert.deepEqual(compareSpec('/r', { fromHash: C, toHash: C, singleCommit: true }), { mode: 'compare', repo: '/r', title: 'Compare cccccccc^ ↔ cccccccc', from: C, to: C });
 	assert.deepEqual(compareSpec('/r', { fromHash: P, toHash: '*', singleCommit: false }), { mode: 'compare', repo: '/r', title: 'Compare aaaaaaaa ↔ Working Tree', from: P, to: '*' });
+});
+
+test('⌘-click on a file shows the file as the change leaves it', () => {
+	const req = (command, fromHash, toHash, oldFilePath, newFilePath, type) => ({ command, repo: '/r', fromHash, toHash, oldFilePath, newFilePath, type });
+	assert.deepEqual(fileViewOf(req('viewDiff', C, C, 'f', 'f', 'M')), { command: 'viewFileAtRevision', repo: '/r', hash: C, filePath: 'f' });
+	assert.deepEqual(fileViewOf(req('viewDiff', P, C, 'f', 'f', 'M')).hash, C, 'a comparison: the later commit');
+	assert.deepEqual(fileViewOf(req('viewDiff', P, C, 'old/a.js', 'new/a.js', 'R')).filePath, 'new/a.js');
+	assert.deepEqual(fileViewOf(req('viewDiffBinary', C, C, 'i.png', 'i.png', 'A')).hash, C);
+	const uncommitted = fileViewOf(req('viewDiff', '*', '*', 'u', 'u', 'U'));
+	assert.deepEqual(fileSpec('/r', uncommitted).side, { rev: WORKTREE, path: 'u' });
+	assert.equal(fileViewOf(req('viewDiff', C, C, 'gone', 'gone', 'D')), null);
+	assert.equal(fileViewOf({ command: 'openFile', repo: '/r', hash: C, filePath: 'f' }), null);
 });

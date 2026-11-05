@@ -32,8 +32,8 @@
 			return next;
 		},
 		postMessage: (message) => {
-			// Decouple from the caller like the real IPC does (the webview never expects a synchronous answer).
-			setTimeout(() => window.__ggHost.handle(message), 0);
+			// Synchronous, so the host still sees the click that sent it; it answers later (host/main.js).
+			window.__ggHost.handle(message);
 		}
 	};
 	let acquired = false;
