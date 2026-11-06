@@ -447,6 +447,10 @@ describe('reads', () => {
 	test('edit and delete user details (global goes to the temp global config)', async () => {
 		const { ctx, git } = fixture();
 		git('config', 'user.name', 'Old Local');
+		const o = await h.editUserDetails(ctx, { name: '--unset-all', email: '-l', location: 'global', deleteLocalName: false, deleteLocalEmail: false });
+		assert.deepEqual(o.errors, [null, null]);
+		assert.equal(sh(tmpRoot, 'config', '--global', 'user.name'), '--unset-all', 'a value after the key is not read as an option');
+		assert.equal(sh(tmpRoot, 'config', '--global', 'user.email'), '-l');
 		const e = await h.editUserDetails(ctx, { name: 'G', email: 'g@example.com', location: 'global', deleteLocalName: true, deleteLocalEmail: true });
 		assert.deepEqual(e.errors, [null, null, null, null], 'unsetting an absent key is not an error');
 		assert.equal(sh(tmpRoot, 'config', '--global', 'user.name'), 'G');

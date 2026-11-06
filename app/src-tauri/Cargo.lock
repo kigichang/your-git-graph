@@ -1149,7 +1149,6 @@ dependencies = [
  "libc",
  "notify",
  "serde",
- "serde_json",
  "tempfile",
  "tokio",
 ]

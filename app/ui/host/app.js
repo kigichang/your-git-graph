@@ -2,8 +2,8 @@
  * the view's persisted state, settings, code reviews - and polite refusals for what this app
  * does not offer yet. Handler shape as in gitops.js; ctx.system, ctx.store, ctx.settings and
  * ctx.config come from main.js. */
-import { UNCOMMITTED, syncGlobalAuthor } from './gitops.js';
-import { diffSpec, workingFileSpec, fileSpec, compareSpec } from './diffspec.js';
+import { syncGlobalAuthor } from './gitops.js';
+import { UNCOMMITTED, diffSpec, workingFileSpec, fileSpec, compareSpec } from './diffspec.js';
 import { validateSetting } from './settings.js';
 import { exportRepoConfig } from './repoconfig.js';
 import { isRemote, pathOf } from './remote.js';
@@ -74,7 +74,7 @@ export const appHandlers = {
 		return { command: 'openFile', error: await attempt(() => ctx.system.openPath(ctx.repo + '/' + m.filePath)) };
 	},
 	async openTerminal(ctx) {
-		return { command: 'openTerminal', error: await attempt(() => ctx.system.terminal(ctx.repo, null)) };
+		return { command: 'openTerminal', error: await attempt(() => ctx.terminal(null)) };
 	},
 	async showErrorMessage(ctx, m) {
 		await attempt(() => ctx.system.showError(m.message));

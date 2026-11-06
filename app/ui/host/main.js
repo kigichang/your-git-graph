@@ -169,7 +169,6 @@ const system = {
 	clipboard: (text) => invoke('clipboard_write', { text }),
 	openUrl: (url) => invoke('open_url', { url }),
 	openPath: (path) => invoke('open_path', { path }),
-	terminal: (cwd, gitArgs) => invoke('open_terminal', { cwd, gitArgs }),
 	showError: (message) => dialog.message(message, { title: 'Your Git Graph', kind: 'error' }),
 	openDiff: (spec) => invoke('open_diff_window', { spec: JSON.stringify(spec), title: spec.title }),
 	openSettings: async () => invoke('open_path', { path: await invoke('settings_path'), text: true }),
@@ -625,14 +624,13 @@ async function boot(path) {
 	windowRepos = list;
 	saveSidebar({ repos: list });
 	store.set('lastActiveRepo', repoRoot);
-	const repos = list;
 	const engineVersion = await engine(repoRoot, 'engineVersion');
 	const gitInfo = await invoke('git_info').catch((e) => { log('git unavailable: ' + e); return null; });
 	const read = await readConfig();
 	config = read.config;
 	configJson = JSON.stringify(config);
 	if (read.error !== null) system.showError(read.error + '\n\nThe default settings are used until it is fixed.').catch(() => {});
-	await importRepoConfigs(repos);
+	await importRepoConfigs(list);
 
 	window.initialState = {
 		config: structuredClone(config), lastActiveRepo: repoRoot, loadViewTo: { repo: repoRoot },
@@ -667,13 +665,12 @@ async function boot(path) {
 	viewLoaded = true;
 	updateStatus(list);
 	rememberShares(list.filter((repo) => !isRemote(repo)));
-	log(`booted ${path || '(last shown)'} (${repos.length} repositor${repos.length === 1 ? 'y' : 'ies'} in the sidebar, showing ${repoRoot}; engine ${engineVersion}, git ${gitInfo ? gitInfo.version : 'none'}, language ${config.interfaceLanguage}) in ${Math.round(performance.now() - t0)}ms`);
+	log(`booted ${path || '(last shown)'} (${list.length} repositor${list.length === 1 ? 'y' : 'ies'} in the sidebar, showing ${repoRoot}; engine ${engineVersion}, git ${gitInfo ? gitInfo.version : 'none'}, language ${config.interfaceLanguage}) in ${Math.round(performance.now() - t0)}ms`);
 	const previewScenes = await invoke('preview');
 	if (previewScenes !== null) runPreview(previewScenes.split(','));
 	const selfTestOptions = await invoke('self_test');
 	if (selfTestOptions !== null) {
-		const current = window.__TAURI__.window.getCurrentWindow();
-		if (current.label === 'main') {
+		if (thisWindow.label === 'main') {
 			selfTest(t0, gitInfo, selfTestOptions);
 		} else {
 			// A window the self-test opened: its git's credential prompt shows here (the main window
@@ -682,8 +679,8 @@ async function boot(path) {
 			const asking = git(repoRoot, ['-c', 'alias.ap=!"$GIT_ASKPASS" "Password: "', 'ap'], { timeoutMs: 3000 });
 			const askpassShown = await until('the askpass dialog of the new window', () => document.querySelector('#ggAskpass'), 2500).then(() => true, () => false);
 			await asking;
-			await events.emit('selftest-window', { label: current.label, repo: repoRoot, repos: windowRepos, askpassShown });
-			setTimeout(() => current.close(), 200);
+			await events.emit('selftest-window', { label: thisWindow.label, repo: repoRoot, repos: windowRepos, askpassShown });
+			setTimeout(() => thisWindow.close(), 200);
 		}
 	}
 }

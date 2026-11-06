@@ -5,7 +5,7 @@
 import * as monaco from 'monaco-editor/editor';
 import 'monaco-editor/features/register.all';
 import 'monaco-editor/languages/definitions/register.all'; // syntax colouring only, no language services
-import { fileSides, WORKTREE } from '../ui/host/diffspec.js';
+import { fileSides, UNCOMMITTED, WORKTREE } from '../ui/host/diffspec.js';
 import { isMarkdown, resolveRelative, monotonic, lineToOffset, offsetToLine } from './mdview.js';
 
 const { invoke } = window.__TAURI__.core;
@@ -388,8 +388,8 @@ async function showCompare() {
 	const { from, to } = spec;
 	const single = from === to;
 	const fileChanges = single
-		? (to === '*' ? await engine('loadUncommittedDetails') : await engine('loadCommitDetails', { hash: to })).fileChanges
-		: await engine('compareCommits', { from, to: to === '*' ? '' : to });
+		? (to === UNCOMMITTED ? await engine('loadUncommittedDetails') : await engine('loadCommitDetails', { hash: to })).fileChanges
+		: await engine('compareCommits', { from, to: to === UNCOMMITTED ? '' : to });
 	const list = $('files');
 	list.hidden = false;
 	if (fileChanges.length === 0) { message('No files changed.'); return { kind: 'compare', files: 0 }; }

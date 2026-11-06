@@ -47,5 +47,4 @@
 	window.__ggDeliver = function (message) {
 		window.dispatchEvent(new MessageEvent('message', { data: message }));
 	};
-	// The theme kind VS Code marks on <body>: theme.js.
 })();

@@ -1,7 +1,8 @@
 /* The webview requests served by the Rust engine (git-graph-core, in-process).
  * Same handler shape as gitops.js: `(ctx, msg) => response`; ctx.engine(method, params) throws
  * the engine's in-band error. Engine methods: upstream native/core/src/dispatch.rs. */
-import { UNCOMMITTED, readOperationState } from './gitops.js';
+import { readOperationState } from './gitops.js';
+import { UNCOMMITTED } from './diffspec.js';
 
 const message = (e) => String((e && e.message) || e);
 

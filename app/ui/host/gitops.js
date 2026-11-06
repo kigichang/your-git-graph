@@ -13,7 +13,6 @@
  *   ctx.operationMarker()          → { type, progress } from the git directory (Rust: repo.rs)
  */
 
-export const UNCOMMITTED = '*';
 export const TagType = Object.freeze({ Annotated: 0, Lightweight: 1 });
 export const PUSH_TAG_COMMIT_NOT_ON_REMOTE = 'VSCODE_GIT_GRAPH:PUSH_TAG:COMMIT_NOT_ON_REMOTE:';
 
@@ -605,6 +604,8 @@ export const gitHandlers = {
 			return { command: 'loadConfig', repo: m.repo, refreshId: m.refreshId, config: null, error: String(e.message || e) };
 		}
 	},
+	/* No unsafe() here (nor in syncGlobalAuthor): `git config` stops reading options at the key,
+	 * so what follows it is the value, whatever it starts with. */
 	async editUserDetails(ctx, m) {
 		const loc = m.location === 'global' ? 'global' : 'local';
 		const errors = [

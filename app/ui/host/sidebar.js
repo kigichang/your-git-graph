@@ -396,5 +396,5 @@ export function createSidebar(actions) {
 		markDrag();
 	}
 
-	return { render, element: nav };
+	return { render };
 }

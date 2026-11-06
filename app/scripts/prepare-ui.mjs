@@ -26,7 +26,7 @@ for (const f of ['media/out.min.js', 'media/out.min.css', 'out/config.js']) {
 const mediaOut = path.join(uiDir, 'media');
 fs.rmSync(mediaOut, { recursive: true, force: true });
 fs.mkdirSync(path.join(mediaOut, 'vendor'), { recursive: true });
-for (const f of ['out.min.js', 'out.min.css', 'vendor/markdown-it.min.js', 'vendor/highlight.min.js']) {
+for (const f of ['out.min.js', 'out.min.css', 'vendor/markdown-it.min.js']) {
 	fs.copyFileSync(path.join(upstream, 'media', f), path.join(mediaOut, f));
 }
 
