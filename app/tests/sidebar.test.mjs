@@ -1,7 +1,7 @@
 /* The repository sidebar's pure helpers (app/ui/host/sidebar.js). */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { avatarOf, labelsOf, addRepos, removeRepo, moveRepo, parseAheadBehind, badgeOf, baseName, groupsOf, moveToGroup, moveManyToGroup, invalidGroupName, renameGroup, removeGroup } from '../ui/host/sidebar.js';
+import { avatarOf, labelsOf, addRepos, removeRepos, moveRepo, parseAheadBehind, badgeOf, baseName, groupsOf, moveToGroup, moveManyToGroup, invalidGroupName, renameGroup, removeGroup } from '../ui/host/sidebar.js';
 
 test('avatars: the first letter or digit, a colour that stays with the name', () => {
 	assert.equal(avatarOf('/r/git-graph').letter, 'G');
@@ -27,11 +27,18 @@ test('adding keeps the order and never doubles', () => {
 });
 
 test('removing the shown repository shows the one that took its place, else the one before', () => {
-	assert.deepEqual(removeRepo(['/a', '/b', '/c'], '/b', '/b'), { list: ['/a', '/c'], show: '/c' });
-	assert.deepEqual(removeRepo(['/a', '/b', '/c'], '/c', '/c'), { list: ['/a', '/b'], show: '/b' });
-	assert.deepEqual(removeRepo(['/a'], '/a', '/a'), { list: [], show: null });
-	assert.deepEqual(removeRepo(['/a', '/b'], '/a', '/b'), { list: ['/b'], show: '/b' }, 'another one: the shown stays');
-	assert.deepEqual(removeRepo(['/a'], '/x', '/a'), { list: ['/a'], show: '/a' });
+	assert.deepEqual(removeRepos(['/a', '/b', '/c'], ['/b'], '/b'), { list: ['/a', '/c'], show: '/c' });
+	assert.deepEqual(removeRepos(['/a', '/b', '/c'], ['/c'], '/c'), { list: ['/a', '/b'], show: '/b' });
+	assert.deepEqual(removeRepos(['/a'], ['/a'], '/a'), { list: [], show: null });
+	assert.deepEqual(removeRepos(['/a', '/b'], ['/a'], '/b'), { list: ['/b'], show: '/b' }, 'another one: the shown stays');
+	assert.deepEqual(removeRepos(['/a'], ['/x'], '/a'), { list: ['/a'], show: '/a' });
+});
+
+test('removing several at once', () => {
+	assert.deepEqual(removeRepos(['/a', '/b', '/c', '/d'], ['/b', '/c'], '/b'), { list: ['/a', '/d'], show: '/d' });
+	assert.deepEqual(removeRepos(['/a', '/b', '/c', '/d'], ['/c', '/d'], '/c'), { list: ['/a', '/b'], show: '/b' });
+	assert.deepEqual(removeRepos(['/a', '/b', '/c'], ['/c', '/a'], '/b'), { list: ['/b'], show: '/b' }, 'the shown not among them: it stays');
+	assert.deepEqual(removeRepos(['/a', '/b'], ['/a', '/b'], '/a'), { list: [], show: null });
 });
 
 test('moving puts the repository just before another, or at the end', () => {

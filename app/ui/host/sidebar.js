@@ -46,13 +46,14 @@ export function moveRepo(list, repo, before) {
 	return at === -1 ? rest.concat(repo) : [...rest.slice(0, at), repo, ...rest.slice(at)];
 }
 
-/** `list` without `repo`, and what to show next when `current` was the one removed: the one
- * that took its place, else the one before; null when nothing is left. */
-export function removeRepo(list, repo, current) {
-	const at = list.indexOf(repo);
-	const next = list.filter((r) => r !== repo);
-	if (repo !== current) return { list: next, show: current };
-	return { list: next, show: next.length === 0 ? null : next[Math.min(at, next.length - 1)] };
+/** `list` without `repos`, and what to show next when `current` was one of those removed: the
+ * one that took its place (the first left after it), else the last one before; null when nothing
+ * is left. */
+export function removeRepos(list, repos, current) {
+	const next = list.filter((r) => !repos.includes(r));
+	if (!repos.includes(current)) return { list: next, show: current };
+	const after = list.slice(list.indexOf(current) + 1).find((r) => !repos.includes(r));
+	return { list: next, show: after ?? next.at(-1) ?? null };
 }
 
 /* Groups: the sidebar's repositories in named groups, those in none under "default". Kept as
@@ -150,7 +151,7 @@ const iconButton = (icon, title, onClick) => {
 	return b;
 };
 
-/** The sidebar in `document.body`. actions: { select(repo), add(), addRemote(), addServer(), remove(repo), reveal(repo),
+/** The sidebar in `document.body`. actions: { select(repo), add(), addRemote(), addServer(), remove(repos), reveal(repo),
  * terminal(repo), newWindow(repo), move(repos, group, before), newGroup(), renameGroup(name),
  * deleteGroup(name), moveGroup(name, before), foldGroup(name), toggle(), settings() }; move: the repositories
  * `repos` dragged (or sent by the menu) into `group` (null: default), to just before `before`
@@ -191,8 +192,8 @@ export function createSidebar(actions) {
 	let menu = null;
 	const closeMenu = () => { if (menu) { menu.remove(); menu = null; } };
 	/* Several rows can be selected (⌘-click adds or removes one, ⇧-click takes the rows from the
-	 * last one clicked) to move them into a group together: by dragging any of them, or from
-	 * their menu. Nothing is kept: a plain click, Escape or the move itself ends the selection. */
+	 * last one clicked) to move them into a group together (by dragging any of them, or from
+	 * their menu) or take them out of the sidebar. Nothing is kept: a plain click, Escape or the move itself ends the selection. */
 	const selected = new Set();
 	let anchor = null; // where a ⇧-click starts from
 	const paintSelection = () => rows().forEach((r) => r.classList.toggle('selected', selected.has(r.dataset.repo)));
@@ -201,13 +202,17 @@ export function createSidebar(actions) {
 	const withSelection = (repo) => (selected.size > 1 && selected.has(repo) ? rows().map((r) => r.dataset.repo).filter((r) => selected.has(r)) : [repo]);
 	const moveMenu = (repos) => [null, ...state.groups].map((group) => [t().moveTo(group === null ? DEFAULT_GROUP : group), () => { clearSelection(); actions.move(repos, group, null); }]);
 	/* A repository's menu; one on another machine has no folder for the Finder to show. For a
-	 * selection: only where to move it. */
-	const repoMenu = (repo) => (withSelection(repo).length > 1 ? moveMenu(withSelection(repo)) : [
-		...(parseRemote(repo) === null ? [[t().reveal, () => actions.reveal(repo)]] : []),
-		[t().terminal, () => actions.terminal(repo)], [t().newWindow, () => actions.newWindow(repo)],
-		...(state.groups.length > 0 ? [null, ...moveMenu([repo])] : []),
-		null, [t().remove, () => actions.remove(repo)]
-	]);
+	 * selection: where to move it, and taking it all out. */
+	const repoMenu = (repo) => {
+		const repos = withSelection(repo);
+		const remove = [t().remove, () => { clearSelection(); actions.remove(repos); }];
+		return repos.length > 1 ? [...moveMenu(repos), null, remove] : [
+			...(parseRemote(repo) === null ? [[t().reveal, () => actions.reveal(repo)]] : []),
+			[t().terminal, () => actions.terminal(repo)], [t().newWindow, () => actions.newWindow(repo)],
+			...(state.groups.length > 0 ? [null, ...moveMenu([repo])] : []),
+			null, remove
+		];
+	};
 	document.addEventListener('mousedown', (e) => { if (menu && !menu.contains(e.target) && !addBtn.contains(e.target)) closeMenu(); }, true);
 	document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeMenu(); clearSelection(); } });
 	window.addEventListener('blur', closeMenu);

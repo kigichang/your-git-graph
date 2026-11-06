@@ -10,7 +10,7 @@ import { installAskpass } from './askpass.js';
 import { configFrom } from './settings.js';
 import { fileViewOf } from './diffspec.js';
 import { importRepoConfig } from './repoconfig.js';
-import { createSidebar, addRepos, removeRepo, moveRepo, moveManyToGroup, renameGroup, removeGroup, parseAheadBehind, baseName } from './sidebar.js';
+import { createSidebar, addRepos, removeRepos, moveRepo, moveManyToGroup, renameGroup, removeGroup, parseAheadBehind, baseName } from './sidebar.js';
 import { isRemote, parseRemote, hostOf, withPath, absolutePath, remoteId } from './remote.js';
 import { askRemote, askServer, askGroup } from './addremote.js';
 
@@ -414,11 +414,13 @@ async function connectServer(initial, error) {
 	(await pickFolders('Add Repository', mounted)).forEach(openHere);
 }
 
-function removeFromSidebar(repo) {
-	const { list, show } = removeRepo(windowRepos, repo, repoRoot);
-	delete repoStatus[repo];
-	if (repo in shares()) { const rest = shares(); delete rest[repo]; store.set('mounts', rest); }
-	if (repo in groupsState().groupOf) { const rest = groupsState().groupOf; delete rest[repo]; saveSidebar({ groupOf: rest }); }
+/** Takes `repos` (one, or the sidebar's selection) out of the sidebar. */
+function removeFromSidebar(repos) {
+	const { list, show } = removeRepos(windowRepos, repos, repoRoot);
+	for (const repo of repos) delete repoStatus[repo];
+	if (repos.some((repo) => repo in shares())) store.set('mounts', Object.fromEntries(Object.entries(shares()).filter(([repo]) => !repos.includes(repo))));
+	const groupOf = groupsState().groupOf;
+	if (repos.some((repo) => repo in groupOf)) saveSidebar({ groupOf: Object.fromEntries(Object.entries(groupOf).filter(([repo]) => !repos.includes(repo))) });
 	if (show === null) { // nothing left: the start page
 		saveSidebar({ repos: [] });
 		sessionStorage.setItem('gg.reopen', '');
@@ -1303,7 +1305,7 @@ async function selfTest(t0, gitInfo, options) {
 			command(otherFolder);
 			check(document.querySelectorAll('.ggRepo.selected').length === 2 && repoRoot === originally, 'selecting two rows with ⌘-click');
 			row(otherFolder).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
-			check(menuItem('Remove from Sidebar') === undefined, 'the menu of a selection offers more than moving it');
+			check(menuItem('Remove from Sidebar') !== undefined && menuItem('Open in New Window') === undefined, 'the menu of a selection offers moving it and removing it, nothing else');
 			menuItem('Move to “default”').click();
 			check(groupsOfRows() === '["",""]' && Object.keys(store.get('sidebar').groupOf).length === 0 && document.querySelectorAll('.ggRepo.selected').length === 0, 'moving the selection to default: ' + JSON.stringify(store.get('sidebar')));
 			const orderBefore = JSON.stringify(rowsInSidebar());
@@ -1320,12 +1322,13 @@ async function selfTest(t0, gitInfo, options) {
 			groupMenu('gg renamed', 'Delete Group');
 			check(header('gg renamed') === undefined && row(otherFolder).dataset.group === '' && store.get('sidebar').groups.length === 0 && !(otherFolder in store.get('sidebar').groupOf),
 				'deleting the group: ' + JSON.stringify(store.get('sidebar')));
-			removeFromSidebar(otherFolder);
+			row(otherFolder).dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
+			menuItem('Remove from Sidebar').click();
 			check(!windowRepos.includes(otherFolder) && !rowsInSidebar().includes(otherFolder) && repoRoot === originally, 'removing ' + otherFolder + ' from the sidebar');
 			// A folder dropped on the window (Tauri's drag-drop event, as the webview gets it from Finder).
 			await events.emitTo({ kind: 'Webview', label: thisWindow.label }, 'tauri://drag-drop', { paths: [otherFolder], position: { x: 400, y: 300 } });
 			await until('the dropped folder shown here', () => repoRoot === otherFolder && rowsInSidebar().includes(otherFolder));
-			removeFromSidebar(otherFolder);
+			removeFromSidebar([otherFolder]);
 			await until('back on ' + originally, () => repoRoot === originally);
 			log(`selftest: ${otherFolder.split('/').pop()} added and shown here, switched back through the sidebar, opened in window ${report.label} (its askpass prompt only there), dragged to the top, into a new group (reordered, folded, renamed, a selection of two moved by menu and by dragging, deleted), removed, dropped on the window OK`);
 		}
@@ -1399,7 +1402,7 @@ async function selfTest(t0, gitInfo, options) {
 			row(remote).click();
 			await connecting('the row to come back after a click', () => !row(remote).classList.contains('missing'));
 			check((await git(remote, ['rev-parse', '--show-toplevel'])).stdout.trim() === there, 'git after reconnecting');
-			removeFromSidebar(remote);
+			removeFromSidebar([remote]);
 			if (repoRoot !== local) showInView(local);
 			await until('back on ' + local, () => repoRoot === local && row(remote) === null);
 			log('selftest: ' + remote + (real ? ' (asked: ' + asked.join('; ') + ')' : ' (stand-in for ssh)') + ' added through the dialog, read, a prompt of its git answered here, branched, watched, disconnected, reconnected by a click, removed OK');
