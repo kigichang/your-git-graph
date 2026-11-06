@@ -6,6 +6,7 @@ import * as monaco from 'monaco-editor/editor';
 import 'monaco-editor/features/register.all';
 import 'monaco-editor/languages/definitions/register.all'; // syntax colouring only, no language services
 import { fileSides, UNCOMMITTED, WORKTREE } from '../ui/host/diffspec.js';
+import { errorText, engineAnswer } from '../ui/host/errors.js';
 import { isMarkdown, resolveRelative, monotonic, lineToOffset, offsetToLine } from './mdview.js';
 
 const { invoke } = window.__TAURI__.core;
@@ -26,11 +27,7 @@ const basename = (path) => path.split('/').pop();
 /* ---------- Reading the two sides ---------- */
 
 async function engine(method, params) {
-	const answer = JSON.parse(await invoke('engine_request', { repo: spec.repo, request: JSON.stringify({ method, params }) }));
-	if (answer !== null && typeof answer === 'object' && !Array.isArray(answer) && Object.keys(answer).length === 1 && typeof answer.error === 'string') {
-		throw new Error(answer.error);
-	}
-	return answer;
+	return engineAnswer(await invoke('engine_request', { repo: spec.repo, request: JSON.stringify({ method, params }) }));
 }
 
 const base64Size = (b64) => Math.floor(b64.length * 3 / 4) - (b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0);
@@ -48,7 +45,7 @@ async function readSide(side, wantBytes) {
 		const b = await engine('fileBytes', { revision: side.rev, path: side.path });
 		return { exists: b.bytes !== null, binary: f.binary, text: f.contents ?? '', base64: b.bytes, size: b.bytes ? base64Size(b.bytes) : 0, note: null };
 	} catch (e) {
-		return { exists: false, binary: false, text: '', base64: null, size: 0, note: String((e && e.message) || e) };
+		return { exists: false, binary: false, text: '', base64: null, size: 0, note: errorText(e) };
 	}
 }
 
@@ -255,7 +252,7 @@ async function drawMermaid(page, appearance) {
 		}
 		await window.__ggMermaid.run({ nodes, suppressErrors: true });
 	} catch (e) {
-		log('mermaid: ' + ((e && e.message) || e)); // the diagrams stay as their source
+		log('mermaid: ' + errorText(e)); // the diagrams stay as their source
 	}
 }
 
@@ -295,8 +292,8 @@ async function setupPreview(side, text) {
 	let rendered = null;
 	// Rendered once, when first shown; a failure is told in the pane.
 	const render = () => (rendered ??= renderPreview(pane, side, text).catch((e) => {
-		pane.textContent = 'The preview cannot be shown: ' + ((e && e.message) || e);
-		return { shown: true, error: String((e && e.message) || e) };
+		pane.textContent = 'The preview cannot be shown: ' + errorText(e);
+		return { shown: true, error: errorText(e) };
 	}));
 	toggle.addEventListener('change', () => {
 		prefs.preview = toggle.checked; savePrefs();
@@ -507,8 +504,8 @@ async function main() {
 			: spec.mode === 'compare' ? await showCompare()
 				: await showChange(spec.left, spec.right, spec.binary === true);
 	} catch (e) {
-		message(String((e && e.message) || e));
-		result = { kind: 'error', error: String((e && e.message) || e) };
+		message(errorText(e));
+		result = { kind: 'error', error: errorText(e) };
 	}
 	log(spec.mode + ' ' + JSON.stringify(result));
 	if (await invoke('self_test') !== null) {

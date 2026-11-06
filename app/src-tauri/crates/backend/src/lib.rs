@@ -1,7 +1,8 @@
 //! What the app does to a repository, without Tauri: the engine call, the git CLI, the files
-//! read and written outside git, and the file watcher. The app calls these for local
+//! read and written outside git, the file watcher, and the askpass program's side. The app calls these for local
 //! repositories; the remote helper (crates/remote) serves the same over ssh.
 
+pub mod askpass;
 pub mod files;
 pub mod git;
 pub mod repo;

@@ -13,6 +13,8 @@
  *   ctx.operationMarker()          → { type, progress } from the git directory (Rust: repo.rs)
  */
 
+import { errorText } from './errors.js';
+
 export const TagType = Object.freeze({ Annotated: 0, Lightweight: 1 });
 export const PUSH_TAG_COMMIT_NOT_ON_REMOTE = 'VSCODE_GIT_GRAPH:PUSH_TAG:COMMIT_NOT_ON_REMOTE:';
 
@@ -601,7 +603,7 @@ export const gitHandlers = {
 		try {
 			return { command: 'loadConfig', repo: m.repo, refreshId: m.refreshId, config: await readRepoConfig(ctx), error: null };
 		} catch (e) {
-			return { command: 'loadConfig', repo: m.repo, refreshId: m.refreshId, config: null, error: String(e.message || e) };
+			return { command: 'loadConfig', repo: m.repo, refreshId: m.refreshId, config: null, error: errorText(e) };
 		}
 	},
 	/* No unsafe() here (nor in syncGlobalAuthor): `git config` stops reading options at the key,

@@ -7,14 +7,14 @@ import { UNCOMMITTED, diffSpec, workingFileSpec, fileSpec, compareSpec } from '.
 import { validateSetting } from './settings.js';
 import { exportRepoConfig } from './repoconfig.js';
 import { isRemote, pathOf } from './remote.js';
+import { errorText } from './errors.js';
 
 const NOT_REMOTE = 'Not available for a repository on another machine.';
 
 /** The handlers below that write into a repository (the file watcher's echo is ignored). */
 export const APP_WRITES = new Set(['exportRepoConfig']);
 
-const message = (e) => String((e && e.message) || e);
-const attempt = async (fn) => { try { await fn(); return null; } catch (e) { return message(e); } };
+const attempt = async (fn) => { try { await fn(); return null; } catch (e) { return errorText(e); } };
 const notYet = (what) => what + ' is not available in the macOS app yet.';
 
 export const appHandlers = {

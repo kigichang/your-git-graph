@@ -3,8 +3,8 @@
  * the engine's in-band error. Engine methods: upstream native/core/src/dispatch.rs. */
 import { readOperationState } from './gitops.js';
 import { UNCOMMITTED } from './diffspec.js';
+import { errorText } from './errors.js';
 
-const message = (e) => String((e && e.message) || e);
 
 export const readHandlers = {
 	async loadRepoInfo(ctx, m) {
@@ -13,7 +13,7 @@ export const readHandlers = {
 			const info = await ctx.engine('loadRepoInfo', { showRemoteBranches: m.showRemoteBranches, showRemoteHeads: ctx.config().showRemoteHeads, showStashes: m.showStashes, hideRemotes: m.hideRemotes });
 			return { command: 'loadRepoInfo', refreshId: m.refreshId, branches: info.branches, head: info.head, remotes: info.remotes, stashes: info.stashes, isRepo: true, error: info.error, operationState };
 		} catch (e) {
-			return { command: 'loadRepoInfo', refreshId: m.refreshId, branches: [], head: null, remotes: [], stashes: [], isRepo: true, error: message(e), operationState };
+			return { command: 'loadRepoInfo', refreshId: m.refreshId, branches: [], head: null, remotes: [], stashes: [], isRepo: true, error: errorText(e), operationState };
 		}
 	},
 
@@ -34,7 +34,7 @@ export const readHandlers = {
 			const count = row !== null ? parseInt((/\((\d+)\)\s*$/.exec(row.message) || [])[1] || '0', 10) : 0;
 			return { ...base, ...data, uncommittedPending: false, uncommittedCount: count };
 		} catch (e) {
-			return { ...base, commits: [], head: null, tags: [], moreCommitsAvailable: false, error: message(e) };
+			return { ...base, commits: [], head: null, tags: [], moreCommitsAvailable: false, error: errorText(e) };
 		}
 	},
 
@@ -47,7 +47,7 @@ export const readHandlers = {
 					? await ctx.engine('loadCommitDetails', { hash: m.commitHash })
 					: await ctx.engine('loadStashDetails', { hash: m.commitHash, stash: m.stash });
 		} catch (e) {
-			error = message(e);
+			error = errorText(e);
 		}
 		const codeReview = m.commitHash === UNCOMMITTED ? null : ctx.codeReviews.get(m.commitHash);
 		return { command: 'commitDetails', commitDetails, error, avatar: null, codeReview, refresh: m.refresh };
@@ -57,7 +57,7 @@ export const readHandlers = {
 		try {
 			return { command: 'commitFileCounts', commitHash: m.commitHash, compareWithHash: m.compareWithHash, counts: await ctx.engine('loadLineCounts', { from: m.from, to: m.to, paths: m.paths }), error: null };
 		} catch (e) {
-			return { command: 'commitFileCounts', commitHash: m.commitHash, compareWithHash: m.compareWithHash, counts: {}, error: message(e) };
+			return { command: 'commitFileCounts', commitHash: m.commitHash, compareWithHash: m.compareWithHash, counts: {}, error: errorText(e) };
 		}
 	},
 
@@ -76,7 +76,7 @@ export const readHandlers = {
 			const fileChanges = await ctx.engine('compareCommits', { from: m.fromHash, to: m.toHash === UNCOMMITTED ? '' : m.toHash });
 			return { ...base, fileChanges, codeReview, error: null };
 		} catch (e) {
-			return { ...base, fileChanges: [], codeReview, error: message(e) };
+			return { ...base, fileChanges: [], codeReview, error: errorText(e) };
 		}
 	},
 
@@ -92,7 +92,7 @@ export const readHandlers = {
 		try {
 			return { command: 'tagDetails', tagName: m.tagName, commitHash: m.commitHash, details: await ctx.engine('loadTagDetails', { tagName: m.tagName }), error: null };
 		} catch (e) {
-			return { command: 'tagDetails', tagName: m.tagName, commitHash: m.commitHash, details: null, error: message(e) };
+			return { command: 'tagDetails', tagName: m.tagName, commitHash: m.commitHash, details: null, error: errorText(e) };
 		}
 	},
 

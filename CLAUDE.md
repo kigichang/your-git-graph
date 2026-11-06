@@ -22,7 +22,7 @@
 app/
   src-tauri/            Rust 端（獨立 Cargo workspace）
     Cargo.toml          workspace：App 本身、crates/backend、crates/remote（`cargo build` 只建 App；測試用 `cargo test --workspace`）
-    crates/backend/     gg-backend：不依賴 Tauri 的核心，App 與遠端 helper 共用。git.rs（`run`、`locate_git`）、repo.rs（operation state、寫 repo 設定）、files.rs（讀工作目錄檔案、掃描、`write_atomic`）、watch.rs（檔案監看）、wire.rs（App 與 helper 的協定）、`engine()`
+    crates/backend/     gg-backend：不依賴 Tauri 的核心，App 與遠端 helper 共用。git.rs（`run`、`locate_git`）、repo.rs（operation state、寫 repo 設定）、files.rs（讀工作目錄檔案、掃描、`write_atomic`）、watch.rs（檔案監看）、wire.rs（App 與 helper 的協定）、askpass.rs（兩邊 askpass 共用的部分：被 git／ssh 啟動的那一端、socket 上的兩行訊息、環境變數清單、0700 目錄）、`engine()`
     crates/remote/      gg-remote：放到遠端機器上執行的 helper（引擎、git、讀檔、監看、askpass），經 ssh 的 stdin/stdout 服務 App
     remote-dist/        由 scripts/build-remote.sh 產生（已 gitignore）：三個平台的 helper（gzip）與 id，`remote.rs` 用 `include_bytes!` 嵌入；沒建時 build.rs 放空檔
     src/main.rs         commands：engine_request、initial_repo、host_log、self_test、preview
@@ -31,7 +31,7 @@ app/
     src/repo.rs         repo_operation_state、export_repo_config 的 command（核心在 backend）
     src/state.rs        Application Support 裡的檔案：state.json（view state）、settings.json（設定）、session.log；data_dir、write_atomic
     src/system.rs       clipboard_write、open_url、open_path、open_terminal（macOS 整合）；mount_volume（掛載 SMB share）、network_volume（路徑在哪個 share 上）
-    src/askpass.rs      git/ssh 的帳密提示：helper 模式（main() 最前面）＋ Unix socket 伺服器＋askpass_reply
+    src/askpass.rs      git/ssh 的帳密提示：helper 模式（main() 最前面，實作在 backend 的 askpass.rs）＋ Unix socket 伺服器＋askpass_reply
     src/diff.rs         open_diff_window（開 diff 視窗並注入 spec）、worktree_file 的 command
     src/plantuml.rs     render_plantuml：Markdown 預覽的 PlantUML 區塊，用設定裡的 plantuml.jar 在本機渲染
     src/repos.rs        視窗與 repo 的對應、最近清單、子 repo 掃描、開新視窗（open_new_window）、選單（App、File、View）
@@ -54,6 +54,7 @@ app/
     host/remote.js      遠端 repo 的名稱（`ssh://…`）與 share 位址：解析、檢查、路徑處理；純函式
     host/addremote.js   Add SSH Repository 與 Connect to Server 對話框（只負責問，不碰 Tauri）
     host/askpass.js     帳密對話框（接 `askpass` 事件，排隊顯示，回 askpass_reply）
+    host/errors.js      `errorText`（丟出來的東西 → 文字）、`engineAnswer`（引擎回應裡的錯誤 → throw）；純函式，主視窗與 diff 視窗共用
     host/diffspec.js    diff 請求 → 視窗 spec（左右各讀哪個 revision/路徑）；純函式，主視窗與 diff 視窗共用
     diff.html           diff 視窗頁面（工具列、檔案清單、編輯器、圖片比較）
     diff-dist/          由 scripts/build-diff.mjs 產生（已 gitignore）
@@ -70,6 +71,7 @@ app/
   tests/theme.test.mjs  解析 theme.css，檢查四種外觀的 WCAG 對比（含側欄）
   tests/sidebar.test.mjs  sidebar.js 的純函式
   tests/remote.test.mjs  remote.js 的純函式
+  tests/errors.test.mjs  errors.js：哪些引擎回應算失敗
   tests/markdown.test.mjs  markdown.js 的渲染（HTML 不會被帶進來）與 mdview.js 的純函式
   tests/fake-java.sh    假的 java（`GG_PLANTUML_JAVA`）：回一張帶有 argv 與輸入的 SVG，cargo 測試與 self-test 用
   tests/fake-ssh.sh     假的 ssh（`GG_REMOTE_SSH`）：在本機用 `sh -c` 跑 bootstrap，cargo 測試與 self-test 用
@@ -124,7 +126,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]  # 打包的正式做
   ```
   self-test 會用 `-c credential.helper=` 關掉 Keychain，不讀也不存。改動 askpass 時要跑，打包後也要用 `.app` 內的執行檔再跑一次（路徑含空格）。
 - **測圖片 diff**：做一個「同一個 commit 同時改一個文字檔和一個 PNG」的小 repo 再跑 self-test，例如複製 `src-tauri/icons/32x32.png` 後換成 `64x64.png` 並 commit。
-- **host 的測試**：`cd app && npm test`（目前 75 個；markdown 7 個；sidebar 11 個；remote 4 個；theme 5 個；gitops 38 個在臨時 repo 上用真的 git 測所有寫入操作、data-loss 警告與全域作者同步，`GIT_CONFIG_GLOBAL` 指向臨時檔，不會動到你的全域設定；settings 的測試需要先 `npm run compile-src` 產生上游 `out/config.js`，沒有就略過）。
+- **host 的測試**：`cd app && npm test`（目前 77 個；errors 2 個；markdown 7 個；sidebar 11 個；remote 4 個；theme 5 個；gitops 38 個在臨時 repo 上用真的 git 測所有寫入操作、data-loss 警告與全域作者同步，`GIT_CONFIG_GLOBAL` 指向臨時檔，不會動到你的全域設定；settings 的測試需要先 `npm run compile-src` 產生上游 `out/config.js`，沒有就略過）。
 - **Rust 的測試**：`cd app/src-tauri && cargo test --workspace`（目前 56 個）。
   - backend 23 個：監看的判斷與真正的 FSEvents（被忽略的檔案不刷新、一陣變動只回報一次、linked worktree、缺一個 root 時其他照常監看）、子 repo 掃描、工作目錄讀檔與路徑限制、git 解析與執行、operation state、repo 設定只寫固定路徑且不經過 symlink、協定的 frame。
   - remote 7 個（以 pipe 啟動 helper）：引擎與讀檔、git 的環境／串流／逾時／取消、5 MB 檔案不擋住小請求、監看事件、帳密提示（回答、取消、git 先結束）、連線結束時殺掉執行中的 git。
@@ -137,7 +139,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]  # 打包的正式做
 
 - **改了 `app/ui/*` 一定要重新 `cargo build`**：前端是在編譯時嵌入執行檔的。
 - **上游 webview 在 `window` 的 `load` 事件才初始化**（`web/main.ts`）。`host/main.js` 動態載入 bundle 之後，會補發一次 `load` 事件，不能拿掉。
-- **引擎的錯誤是放在回應內容裡**：回應只有 `{"error": "Kind: message"}` 時代表失敗，由 `host/main.js` 的 `engine()` 轉成 throw。一般的成功回應也可能帶 `error: null` 欄位，不能把它當成失敗。
+- **引擎的錯誤是放在回應內容裡**：回應只有 `{"error": "Kind: message"}` 時代表失敗，由 `host/errors.js` 的 `engineAnswer()` 轉成 throw（主視窗與 diff 視窗的 `engine()` 都用它）。一般的成功回應也可能帶 `error: null` 欄位，不能把它當成失敗。
 - **不要直接修改 `vendor/`**：用 shim、`host/`、`theme.css` 來適配。真的非改上游不可時，改成 patch 檔並在這裡記錄，好讓升級 submodule 時能重新套用。
 - **host 走路線 (b)：自己寫，不沿用上游 `src/`**。只參考 `vendor/.../src/types/*.ts` 的協定型別（86 種請求，目前全部有 handler），以及 webview 端如何使用回應（`web/main.ts` 的 `handleResponseMessage`）。**不要看 `src/dataSource.ts`、`src/gitGraphView.ts` 的實作**，git 參數一律自己組。
   - 型別速查：`node <script> vendor/.../node_modules/typescript src/types/messages.ts '^Request'`，用 TypeScript compiler API 列出介面欄位。不要用 sed 去註解，單行的 `/** */` 會讓它刪錯段落。
@@ -224,7 +226,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]  # 打包的正式做
 - **git 的選擇順序**：`GIT_GRAPH_GIT` → `PATH`（略過 `/usr/bin/git`）→ Homebrew → `/usr/bin/git`。`/usr/bin/git` 只有在 `xcode-select -p` 成功時才採用。結果在每個 process 只解析一次。
 - **每次執行 git 都在獨立的 process group**：逾時或取消時用 `killpg` 連同 hook、ssh 等子程序一起終止，避免 pipe 被佔住而卡死。
 - **帳密提示一律走 askpass**（`askpass.rs`）：`git_exec` 會為每次執行加上 `GIT_ASKPASS`/`SSH_ASKPASS`（都指向 App 執行檔本身）、`SSH_ASKPASS_REQUIRE=force`、`GG_ASKPASS_SOCKET`、`GG_ASKPASS_TOKEN`；呼叫端自己給的同名變數優先。`GIT_TERMINAL_PROMPT=0` 保留，確保不會在終端機提示。
-  - **helper 模式**：`main()` 一開頭就檢查 `GG_ASKPASS_SOCKET`，有就當 helper 執行完立刻結束。不要在那之前加任何初始化。
+  - **helper 模式**：`main()` 一開頭就檢查 `GG_ASKPASS_SOCKET`，有就當 helper 執行完立刻結束。不要在那之前加任何初始化。被啟動的那一端（`ask`、`helper_main`）在 `crates/backend/src/askpass.rs`，遠端 helper 用同一份（環境變數是 `GG_REMOTE_ASKPASS_*`）；兩邊的伺服器各自實作。
   - **安全**：socket 放在權限 0700 的臨時目錄，請求必須帶 token，token 不符就不會顯示。提示文字來自遠端，前端只能用 `textContent` 顯示。
   - **只送給發出請求的視窗**：token 依視窗分開（`Askpass::env(label)`，`git_exec` 傳入呼叫它的視窗），伺服器用 token 找出視窗，`emit_to` 給它；前端用 `getCurrentWindow().listen`。那個視窗已經關掉時直接回沒有答案（git 立刻失敗，不等 5 分鐘）。
   - **生命週期**：helper 寫完請求後只讀不寫，所以伺服器把連線讀到 EOF 視為 helper 已死，自動送出 `close` 關掉對話框。不要在 helper 端 `shutdown(Write)`。未回答的提示 5 分鐘後放棄。

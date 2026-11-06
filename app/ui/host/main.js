@@ -7,6 +7,7 @@ import { readHandlers } from './reads.js';
 import { gitHandlers, READ_COMMANDS } from './gitops.js';
 import { appHandlers, APP_WRITES } from './app.js';
 import { installAskpass } from './askpass.js';
+import { errorText, engineAnswer } from './errors.js';
 import { configFrom } from './settings.js';
 import { fileViewOf } from './diffspec.js';
 import { importRepoConfig } from './repoconfig.js';
@@ -40,13 +41,8 @@ window.addEventListener('unhandledrejection', (e) => log('webview rejection: ' +
 async function engine(repo, method, params) {
 	const t0 = performance.now();
 	const raw = await invoke('engine_request', { repo, request: JSON.stringify({ method, params: params || null }) });
-	const answer = JSON.parse(raw);
 	log(`engine ${method} ${Math.round(performance.now() - t0)}ms (${raw.length} bytes)`);
-	if (answer !== null && typeof answer === 'object' && !Array.isArray(answer)
-		&& Object.keys(answer).length === 1 && typeof answer.error === 'string') {
-		throw new Error(answer.error);
-	}
-	return answer;
+	return engineAnswer(raw);
 }
 
 /** One git CLI run (Rust: src-tauri/src/git.rs).
@@ -338,7 +334,7 @@ async function updateStatus(repos) {
 /** Add the repositories of `path` to the sidebar and show (the first of) them. */
 async function addAndShow(path) {
 	let found;
-	try { found = await repositoriesOf(path); } catch (e) { system.showError(String((e && e.message) || e)).catch(() => {}); return; }
+	try { found = await repositoriesOf(path); } catch (e) { system.showError(errorText(e)).catch(() => {}); return; }
 	const added = found.filter((repo) => !windowRepos.includes(repo));
 	await importRepoConfigs(added);
 	setRepos(addRepos(windowRepos, found));
@@ -366,7 +362,7 @@ async function reconnect(repo) {
 		await engine(repo, 'close').catch(() => {}); // a handle from before the volume went away
 		await engine(repo, 'open');
 	} catch (e) {
-		system.showError(String((e && e.message) || e)).catch(() => {});
+		system.showError(errorText(e)).catch(() => {});
 		return;
 	}
 	// Everything on that machine is reachable again.
@@ -396,7 +392,7 @@ async function addRemote(initial, error) {
 		const hello = await invoke('remote_connect', { repo: remoteId(answer.destination, answer.port, '/') });
 		repo = remoteId(answer.destination, answer.port, absolutePath(answer.path, hello.home));
 	} catch (e) {
-		addRemote(answer, String((e && e.message) || e));
+		addRemote(answer, errorText(e));
 		return;
 	}
 	openHere(repo);
@@ -409,7 +405,7 @@ async function connectServer(initial, error) {
 	const answer = await askServer({ language, initial, error });
 	if (answer === null) return;
 	let mounted;
-	try { mounted = await invoke('mount_volume', { url: answer.url }); } catch (e) { connectServer(answer, String((e && e.message) || e)); return; }
+	try { mounted = await invoke('mount_volume', { url: answer.url }); } catch (e) { connectServer(answer, errorText(e)); return; }
 	(await pickFolders('Add Repository', mounted)).forEach(openHere);
 }
 
@@ -719,7 +715,7 @@ async function start(path) {
 		await boot(path);
 	} catch (e) {
 		windowRepos = []; repoRoot = null;
-		const message = String((e && e.message) || e);
+		const message = errorText(e);
 		if (message !== NO_REPOSITORIES) log('boot failed: ' + message);
 		showPicker(message === NO_REPOSITORIES ? null : message);
 	}
@@ -787,7 +783,7 @@ async function runPreview(scenes) {
 		}
 		log('preview: ready (' + scenes.join(', ') + ')');
 	} catch (e) {
-		log('preview: ' + ((e && e.message) || e));
+		log('preview: ' + errorText(e));
 	}
 }
 
@@ -1342,7 +1338,7 @@ async function selfTest(t0, gitInfo, options) {
 			const [destination, port = ''] = authority.split(':');
 			const remote = 'ssh://' + authority + there;
 			const row = (repo) => document.querySelector('.ggRepo[data-repo="' + CSS.escape(repo) + '"]');
-			const failure = (promise) => promise.then(() => null, (e) => String((e && e.message) || e));
+			const failure = (promise) => promise.then(() => null, (e) => errorText(e));
 			const asked = [];
 			/** Wait for `cond`, answering ssh's questions meanwhile. */
 			const connecting = async (what, cond) => {
@@ -1420,6 +1416,6 @@ async function selfTest(t0, gitInfo, options) {
 		log(`selftest: body bg ${cs.backgroundColor}, classes "${document.body.className}"`);
 		log('selftest: PASS');
 	} catch (e) {
-		log('selftest: FAIL ' + ((e && e.message) || e));
+		log('selftest: FAIL ' + errorText(e));
 	}
 }

@@ -6,6 +6,7 @@
 import MarkdownIt from 'markdown-it';
 import taskLists from 'markdown-it-task-lists';
 import katexPlugin from '@vscode/markdown-it-katex';
+import { errorText } from '../ui/host/errors.js';
 
 const md = new MarkdownIt({ html: false, linkify: true });
 md.use(taskLists, { enabled: false });
@@ -33,6 +34,6 @@ export function renderMarkdown(text) {
 	try {
 		return md.render(text);
 	} catch (e) {
-		return `<pre>${md.utils.escapeHtml(String((e && e.message) || e))}</pre>`;
+		return `<pre>${md.utils.escapeHtml(errorText(e))}</pre>`;
 	}
 }

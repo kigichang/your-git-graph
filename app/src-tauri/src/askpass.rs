@@ -3,7 +3,8 @@
 //! Git (GIT_ASKPASS) and ssh (SSH_ASKPASS) run an "askpass" program with the prompt as its only
 //! argument and read the answer from its stdout. Here that program is this very executable: when
 //! it starts with `GG_ASKPASS_SOCKET` set ([`helper_main`]), it forwards the prompt over a Unix
-//! socket to the running app and prints the answer - no window, no Tauri.
+//! socket to the running app and prints the answer - no window, no Tauri (gg_backend::askpass,
+//! which the remote helper uses the same way on its machine).
 //!
 //! The app side ([`Askpass`]) listens on a socket in a private (0700) directory and requires a
 //! random token with every request, so another local process cannot pose as git to harvest a
@@ -16,33 +17,20 @@
 //! and Homebrew's git) never reach this: git only asks when the keychain has nothing.
 
 use std::collections::HashMap;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::fs::DirBuilderExt;
+use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
+pub use gg_backend::askpass::ANSWER_TIMEOUT;
+use gg_backend::askpass::{answer_line, private_dir, random_hex, Question, Vars};
+use serde::Serialize;
 
-const SOCKET_ENV: &str = "GG_ASKPASS_SOCKET";
-const TOKEN_ENV: &str = "GG_ASKPASS_TOKEN";
-/// An unanswered prompt is given up (answered "no answer") after this long.
-pub const ANSWER_TIMEOUT: Duration = Duration::from_secs(300);
+const VARS: Vars = Vars { socket: "GG_ASKPASS_SOCKET", token: "GG_ASKPASS_TOKEN" };
 /// How often a waiting request checks whether its helper is still alive.
 const POLL: Duration = Duration::from_millis(250);
-
-#[derive(Serialize, Deserialize)]
-struct WireRequest {
-    token: String,
-    prompt: String,
-}
-
-#[derive(Serialize, Deserialize)]
-struct WireAnswer {
-    answer: Option<String>,
-}
 
 /// What the frontend is told.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -70,9 +58,7 @@ impl Askpass {
     /// Listen in a fresh private directory under the temp dir; `notify` delivers the events.
     pub fn start(notify: Notify) -> std::io::Result<Arc<Self>> {
         remove_stale_dirs(&std::env::temp_dir());
-        let dir = std::env::temp_dir().join(format!("{DIR_PREFIX}{}-{}", std::process::id(), random_hex(4)?));
-        std::fs::DirBuilder::new().mode(0o700).create(&dir)?;
-        let socket = dir.join("s");
+        let socket = private_dir(DIR_PREFIX)?.join("s");
         let listener = UnixListener::bind(&socket)?;
         let askpass = Arc::new(Askpass {
             socket,
@@ -104,15 +90,7 @@ impl Askpass {
                 }
             }
         };
-        let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_default();
-        Ok(vec![
-            ("GIT_ASKPASS".into(), exe.clone()),
-            ("SSH_ASKPASS".into(), exe),
-            // ssh only uses SSH_ASKPASS without a terminal *and* with $DISPLAY - unless forced.
-            ("SSH_ASKPASS_REQUIRE".into(), "force".into()),
-            (SOCKET_ENV.into(), self.socket.display().to_string()),
-            (TOKEN_ENV.into(), token),
-        ])
+        gg_backend::askpass::env(VARS, &self.socket, token)
     }
 
     /// Answer prompt `id` (`None` = cancelled). `false` when it is no longer waiting.
@@ -129,15 +107,13 @@ impl Askpass {
         if BufReader::new(&stream).read_line(&mut line).is_err() {
             return;
         }
-        let request = serde_json::from_str::<WireRequest>(&line).ok();
+        let request = Question::parse(&line);
         let window = request.as_ref().and_then(|r| self.tokens.lock().unwrap().get(&r.token).cloned());
         let answer = match (request, window) {
             (Some(request), Some(window)) => self.ask(&stream, &window, request.prompt),
             _ => None, // malformed or wrong token: never shown to the user
         };
-        let mut reply = serde_json::to_string(&WireAnswer { answer }).unwrap_or_default();
-        reply.push('\n');
-        let _ = (&stream).write_all(reply.as_bytes());
+        let _ = (&stream).write_all(answer_line(answer).as_bytes());
     }
 
     /// Show `prompt` in `window`: its id and where the answer arrives (`reply`; nothing arrives
@@ -212,39 +188,10 @@ fn process_alive(pid: i32) -> bool {
     unsafe { libc::kill(pid, 0) == 0 || *libc::__error() == libc::EPERM }
 }
 
-fn random_hex(bytes: usize) -> std::io::Result<String> {
-    let mut buf = vec![0u8; bytes];
-    std::fs::File::open("/dev/urandom")?.read_exact(&mut buf)?;
-    Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
-}
-
-/* ---------- The helper side (this executable, run by git or ssh) ---------- */
-
-/// Ask the app at `socket` and return its answer (`None`: cancelled, refused or unreachable).
-pub fn ask(socket: &Path, token: &str, prompt: &str) -> Option<String> {
-    let mut stream = UnixStream::connect(socket).ok()?;
-    let mut request = serde_json::to_string(&WireRequest { token: token.into(), prompt: prompt.into() }).ok()?;
-    request.push('\n');
-    stream.write_all(request.as_bytes()).ok()?;
-    // Deliberately no shutdown(Write): the server reads an end-of-stream as "the helper died".
-    let mut line = String::new();
-    BufReader::new(&stream).read_line(&mut line).ok()?;
-    serde_json::from_str::<WireAnswer>(&line).ok()?.answer
-}
-
-/// When this process was started as an askpass helper, do that job and return the exit code;
-/// `None` for a normal app launch.
+/// When this process was started as an askpass helper (by git or ssh), do that job and return the
+/// exit code; `None` for a normal app launch.
 pub fn helper_main() -> Option<i32> {
-    let socket = std::env::var_os(SOCKET_ENV)?;
-    let token = std::env::var(TOKEN_ENV).unwrap_or_default();
-    let prompt = std::env::args().nth(1).unwrap_or_default();
-    Some(match ask(Path::new(&socket), &token, &prompt) {
-        Some(answer) => {
-            println!("{answer}");
-            0
-        }
-        None => 1,
-    })
+    gg_backend::askpass::helper_main(VARS)
 }
 
 /* ---------- Tauri ---------- */
@@ -257,6 +204,10 @@ pub fn askpass_reply(askpass: tauri::State<'_, Arc<Askpass>>, id: u64, answer: O
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gg_backend::askpass::ask;
+
+    const SOCKET_ENV: &str = VARS.socket;
+    const TOKEN_ENV: &str = VARS.token;
 
     /// A server whose "frontend" answers every request with `respond(prompt)`; also records events
     /// (with the window they went to). Windows "main" and "repo-1" exist, no other.
@@ -362,8 +313,8 @@ mod tests {
         let (askpass, events) = server(|_| None); // the "user" never answers
         let socket = PathBuf::from(env_of(&askpass, SOCKET_ENV));
         let mut stream = UnixStream::connect(&socket).unwrap();
-        let request = serde_json::to_string(&WireRequest { token: env_of(&askpass, TOKEN_ENV), prompt: "Password: ".into() }).unwrap();
-        stream.write_all((request + "\n").as_bytes()).unwrap();
+        let request = Question { token: env_of(&askpass, TOKEN_ENV), prompt: "Password: ".into() };
+        stream.write_all(request.line().as_bytes()).unwrap();
         while events.lock().unwrap().is_empty() {
             std::thread::sleep(Duration::from_millis(10));
         }
