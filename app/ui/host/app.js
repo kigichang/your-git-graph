@@ -2,14 +2,12 @@
  * the view's persisted state, settings, code reviews - and polite refusals for what this app
  * does not offer yet. Handler shape as in gitops.js; ctx.system, ctx.store, ctx.settings and
  * ctx.config come from main.js. */
-import { syncGlobalAuthor } from './gitops.js';
+import { NOT_REMOTE, syncGlobalAuthor } from './gitops.js';
 import { UNCOMMITTED, diffSpec, workingFileSpec, fileSpec, compareSpec } from './diffspec.js';
 import { validateSetting } from './settings.js';
 import { exportRepoConfig } from './repoconfig.js';
 import { isRemote, pathOf } from './remote.js';
 import { errorText } from './errors.js';
-
-const NOT_REMOTE = 'Not available for a repository on another machine.';
 
 /** The handlers below that write into a repository (the file watcher's echo is ignored). */
 export const APP_WRITES = new Set(['exportRepoConfig']);

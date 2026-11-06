@@ -733,11 +733,12 @@ sessionStorage.removeItem('gg.reopen');
 
 /* ---------- GG_PREVIEW: the view in a given state, to look at (no checks) ---------- */
 
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
 async function runPreview(scenes) {
 	try {
 		const rows = await until('commit rows', () => { const r = document.querySelectorAll('#commitTable tr.commit:not([data-hash="*"])'); return r.length > 1 && r; });
 		const row = rows[1];
-		const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 		const contextMenu = () => {
 			const cell = row.querySelector('td:nth-child(2)'), box = cell.getBoundingClientRect();
 			cell.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: box.left + 40, clientY: box.top + 8 }));
@@ -791,7 +792,7 @@ async function runPreview(scenes) {
 
 const until = async (what, cond, ms = 15000) => {
 	const end = performance.now() + ms;
-	while (performance.now() < end) { const v = cond(); if (v) return v; await new Promise((r) => setTimeout(r, 50)); }
+	while (performance.now() < end) { const v = cond(); if (v) return v; await pause(50); }
 	throw new Error('timed out waiting for ' + what);
 };
 const check = (ok, what) => { if (!ok) throw new Error(what); };
@@ -807,7 +808,7 @@ async function selfTest(t0, gitInfo, options) {
 			sessionStorage.setItem('gg.selftestPhase', 'zh-cn');
 			const r = await respond({ command: 'setInterfaceLanguage', language: 'zh-cn' });
 			check(r.error === null, 'setInterfaceLanguage: ' + JSON.stringify(r));
-			await new Promise((resolve) => setTimeout(resolve, 5000));
+			await pause(5000);
 			throw new Error('the page did not reload for the new interface language');
 		}
 		if (phase === 'zh-cn') {
@@ -816,7 +817,7 @@ async function selfTest(t0, gitInfo, options) {
 			check(document.querySelector('.ggSidebarTitle')?.textContent === '儲存庫', 'the sidebar is not in Traditional Chinese');
 			sessionStorage.setItem('gg.selftestPhase', 'en');
 			await respond({ command: 'setInterfaceLanguage', language: 'en' });
-			await new Promise((resolve) => setTimeout(resolve, 5000));
+			await pause(5000);
 			throw new Error('the page did not reload for English');
 		}
 		sessionStorage.removeItem('gg.selftestPhase');
@@ -839,7 +840,7 @@ async function selfTest(t0, gitInfo, options) {
 		check(target !== null, 'no commit with file changes among the first rows');
 		target.querySelector('td:nth-child(2)').click();
 		const files = await until('commit details file list', () => { const f = document.getElementById('cdvFiles'); return f && f.textContent.trim() !== '' && f; });
-		await new Promise((r) => setTimeout(r, 500)); // let the deferred line counts settle
+		await pause(500); // let the deferred line counts settle
 		log(`selftest: details for ${target.dataset.hash.slice(0, 8)} opened, files: ${files.textContent.replace(/\s+/g, ' ').trim().slice(0, 120)}`);
 
 		/* git_exec over the real IPC: cwd, streaming, cancel. */
@@ -851,7 +852,7 @@ async function selfTest(t0, gitInfo, options) {
 		const streamed = chunks.filter((c) => c.stream === 'stdout').map((c) => c.data).join('');
 		check(logged.exitCode === 0 && streamed === logged.stdout && streamed !== '', 'git_exec streaming mismatch');
 		const pending = git(repoRoot, ['-c', 'alias.s=!sleep 30', 's'], { id: 'selftest-cancel' });
-		await new Promise((r) => setTimeout(r, 200));
+		await pause(200);
 		check(await invoke('git_cancel', { id: 'selftest-cancel' }), 'git_cancel found no run');
 		const cancelled = await pending;
 		check(cancelled.cancelled && cancelled.durationMs < 5000, 'git_exec cancel: ' + JSON.stringify(cancelled));
@@ -899,7 +900,7 @@ async function selfTest(t0, gitInfo, options) {
 		proceed.click();
 		let moved = lonely;
 		for (let tries = 0; tries < 80 && moved !== head; tries++) {
-			await new Promise((r) => setTimeout(r, 100));
+			await pause(100);
 			moved = (await git(repoRoot, ['rev-parse', 'refs/heads/' + forced])).stdout.trim();
 		}
 		await git(repoRoot, ['branch', '-D', forced]);
@@ -1036,10 +1037,10 @@ async function selfTest(t0, gitInfo, options) {
 			}
 		} finally {
 			await sh(`rm -f ${mdName} ${pngName}`);
-			await new Promise((r) => setTimeout(r, 1500)); // the watcher's reports of these files, before its own test below
+			await pause(1500); // the watcher's reports of these files, before its own test below
 		}
 		// Each closed itself on the Esc the test sent.
-		for (let tries = 0; tries < 50 && (await window.__TAURI__.window.getAllWindows()).some((w) => w.label.startsWith('diff-')); tries++) await new Promise((r) => setTimeout(r, 100));
+		for (let tries = 0; tries < 50 && (await window.__TAURI__.window.getAllWindows()).some((w) => w.label.startsWith('diff-')); tries++) await pause(100);
 		check(!(await window.__TAURI__.window.getAllWindows()).some((w) => w.label.startsWith('diff-')), 'a diff window did not close on Esc');
 		check(escapeFindChecks > 0, 'Esc with the find widget open was never checked');
 		log('selftest: diff windows OK (Esc closes them; with the find widget open it closes only the widget, checked in ' + escapeFindChecks + ') - ' + summary.join('; '));
@@ -1186,6 +1187,7 @@ async function selfTest(t0, gitInfo, options) {
 		 * back to the window's edge (and brings back the view's own repo dropdown). */
 		const viewLeft = () => getComputedStyle(document.getElementById('view')).left;
 		const rowsInSidebar = () => [...document.querySelectorAll('#ggRepoList .ggRepo')].map((b) => b.dataset.repo);
+		const row = (repo) => document.querySelector('.ggRepo[data-repo="' + CSS.escape(repo) + '"]');
 		check(JSON.stringify(rowsInSidebar()) === JSON.stringify(windowRepos) && document.querySelector('.ggRepo.current').dataset.repo === repoRoot, 'the sidebar lists ' + JSON.stringify(rowsInSidebar()));
 		check(viewLeft() === '220px', 'the view does not start after the sidebar: ' + viewLeft());
 		MENU_COMMANDS.sidebar();
@@ -1213,7 +1215,7 @@ async function selfTest(t0, gitInfo, options) {
 			document.querySelector('.ggRepo[data-repo="' + CSS.escape(originally) + '"]').click();
 			await until('switching back through the sidebar', () => repoRoot === originally && document.querySelector('.ggRepo.current')?.dataset.repo === originally);
 			await invoke('open_repo_folder', { folder: originally });
-			await new Promise((r) => setTimeout(r, 1500));
+			await pause(1500);
 			unlisten();
 			check(newWindows === 0 && repoRoot === originally, 'opening repositories opened ' + newWindows + ' window(s)');
 			const opened = new Promise((resolve) => events.once('selftest-window', (e) => resolve(e.payload)));
@@ -1227,7 +1229,6 @@ async function selfTest(t0, gitInfo, options) {
 			check(report.askpassShown === true && askpassHere === 0, 'the new window\'s askpass prompt: shown there ' + report.askpassShown + ', here ' + askpassHere + ' time(s)');
 			// Dragging its row above the first one moves it to the top, in the list kept for every window.
 			const firstBefore = windowRepos[0];
-			const row = (repo) => document.querySelector('.ggRepo[data-repo="' + CSS.escape(repo) + '"]');
 			const fromBox = row(otherFolder).getBoundingClientRect(), toBox = row(firstBefore).getBoundingClientRect();
 			const pointer = (type, target, y) => target.dispatchEvent(new PointerEvent(type, { bubbles: true, button: 0, pointerId: 1, isPrimary: true, clientX: fromBox.left + 30, clientY: y }));
 			pointer('pointerdown', row(otherFolder), fromBox.top + 5);
@@ -1278,7 +1279,7 @@ async function selfTest(t0, gitInfo, options) {
 				&& row(otherFolder).dataset.group === 'gg selftest', 'dragging a group above another: ' + JSON.stringify(groupNames()));
 			groupMenu('gg second', 'Delete Group');
 			// A click on a group's name folds it away, and its rename keeps it folded.
-			await new Promise((r) => setTimeout(r, 0)); // the click right after a drag's release is not one
+			await pause(0); // the click right after a drag's release is not one
 			header('gg selftest').click();
 			check(row(otherFolder) === null && header('gg selftest').classList.contains('folded') && header('gg selftest').dataset.count === '1'
 				&& JSON.stringify(store.get('sidebar').foldedGroups) === '["gg selftest"]', 'folding the group: ' + JSON.stringify(store.get('sidebar')));
@@ -1311,7 +1312,7 @@ async function selfTest(t0, gitInfo, options) {
 			check(document.querySelectorAll('.ggRepo.dragging').length === 2, 'both selected rows are dragged');
 			pointer('pointerup', document, targetBox.top + 4);
 			check(groupsOfRows() === '["gg renamed","gg renamed"]' && JSON.stringify(rowsInSidebar()) === orderBefore && repoRoot === originally, 'dragging the selection into the group: ' + JSON.stringify(store.get('sidebar')));
-			await new Promise((r) => setTimeout(r, 0));
+			await pause(0);
 			groupMenu('gg renamed', 'Delete Group');
 			check(header('gg renamed') === undefined && row(otherFolder).dataset.group === '' && store.get('sidebar').groups.length === 0 && !(otherFolder in store.get('sidebar').groupOf),
 				'deleting the group: ' + JSON.stringify(store.get('sidebar')));
@@ -1337,7 +1338,6 @@ async function selfTest(t0, gitInfo, options) {
 			const authority = real ? real.authority : 'selftest@localhost', there = real ? real.path : local;
 			const [destination, port = ''] = authority.split(':');
 			const remote = 'ssh://' + authority + there;
-			const row = (repo) => document.querySelector('.ggRepo[data-repo="' + CSS.escape(repo) + '"]');
 			const failure = (promise) => promise.then(() => null, (e) => errorText(e));
 			const asked = [];
 			/** Wait for `cond`, answering ssh's questions meanwhile. */
@@ -1352,7 +1352,7 @@ async function selfTest(t0, gitInfo, options) {
 						input.value = /yes\/no/.test(prompt) ? 'yes' : options.sshPassword;
 						document.querySelector('#ggAskpass .ggAskpassOk').click();
 					}
-					await new Promise((r) => setTimeout(r, 100));
+					await pause(100);
 				}
 			};
 			check((await failure(engine(remote, 'open'))).includes('Not connected'), 'nothing connects by itself');
@@ -1380,7 +1380,7 @@ async function selfTest(t0, gitInfo, options) {
 			check(question.type === 'password' && question.prompt === 'Password for the other machine:' && told.stdout === 'over-there\n', 'the remote git\'s prompt: ' + JSON.stringify(question) + ' → ' + JSON.stringify(told));
 			await until('the prompt to close', () => document.querySelector('#ggAskpass') === null);
 			// A branch made behind the view's back (as from a shell on that machine) refreshes it.
-			await new Promise((r) => setTimeout(r, 800)); // the watcher there needs a moment to start
+			await pause(800); // the watcher there needs a moment to start
 			const side = 'gg-selftest-remote-' + Date.now();
 			let seen = watcherRefreshes;
 			check((await git(remote, ['branch', side])).exitCode === 0, 'creating ' + side);

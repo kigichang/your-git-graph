@@ -122,14 +122,11 @@ impl Session {
                 }
             }
         });
-        let stream = request.stream;
         let result = gg_backend::git::run(
             &git,
             &request,
             move |chunk| {
-                if stream {
-                    let _ = chunks.send(chunk);
-                }
+                let _ = chunks.send(chunk);
             },
             cancel,
         )

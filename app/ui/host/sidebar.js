@@ -214,8 +214,6 @@ export function createSidebar(actions) {
 		];
 	};
 	document.addEventListener('mousedown', (e) => { if (menu && !menu.contains(e.target) && !addBtn.contains(e.target)) closeMenu(); }, true);
-	document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeMenu(); clearSelection(); } });
-	window.addEventListener('blur', closeMenu);
 	/** items: [label, action] each, null for a separator. */
 	function openMenu(items, x, y) {
 		closeMenu();
@@ -318,8 +316,9 @@ export function createSidebar(actions) {
 	});
 	document.addEventListener('pointerup', () => endDrag(true));
 	document.addEventListener('pointercancel', () => endDrag(false));
-	document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && drag !== null) endDrag(false); });
-	window.addEventListener('blur', () => endDrag(false));
+	// Escape, or the window losing focus, ends what is under way: the menu, the selection, a drag.
+	document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeMenu(); clearSelection(); endDrag(false); } });
+	window.addEventListener('blur', () => { closeMenu(); endDrag(false); });
 
 	function render(next) {
 		state = { ...state, ...next };

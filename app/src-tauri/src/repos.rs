@@ -58,9 +58,15 @@ fn push_recent(mut list: Vec<String>, folder: &str) -> Vec<String> {
     list
 }
 
+/// `folder` is shown: it leads the recent list. Called whenever a window reports what it shows
+/// (also after the sidebar was only reordered), so a list that stays the same is not written again.
 fn remember<R: Runtime>(app: &AppHandle<R>, folder: &str) {
     let Some(file) = recent_file(app) else { return };
-    let list = push_recent(recent(app), folder);
+    let before = recent(app);
+    let list = push_recent(before.clone(), folder);
+    if list == before {
+        return;
+    }
     let _ = gg_backend::files::write_atomic(&file, serde_json::to_string_pretty(&list).unwrap_or_default().as_bytes());
     rebuild_recent_menu(app);
 }
@@ -420,5 +426,6 @@ mod tests {
         assert_eq!(list[0], "/r5");
         assert_eq!(list[1], "/r11");
         assert_eq!(list.iter().filter(|p| *p == "/r5").count(), 1);
+        assert_eq!(push_recent(list.clone(), "/r5"), list, "showing the first one again changes nothing");
     }
 }

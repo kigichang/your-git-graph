@@ -14,8 +14,10 @@
  */
 
 import { errorText } from './errors.js';
+import { isRemote } from './remote.js';
 
 export const TagType = Object.freeze({ Annotated: 0, Lightweight: 1 });
+export const NOT_REMOTE = 'Not available for a repository on another machine.';
 export const PUSH_TAG_COMMIT_NOT_ON_REMOTE = 'VSCODE_GIT_GRAPH:PUSH_TAG:COMMIT_NOT_ON_REMOTE:';
 
 /* ---------- Running git ---------- */
@@ -60,6 +62,10 @@ function unsafe(...values) {
 }
 
 const flag = (on, ...args) => (on ? args : []);
+
+/** An operation in progress is continued or aborted by the git command it is named after. */
+const OPERATIONS = ['merge', 'rebase', 'cherry-pick', 'revert'];
+const resume = (ctx, type, how) => (OPERATIONS.includes(type) ? run(ctx, [type, how]) : 'Unknown operation ' + type);
 
 /** `git config --unset-all` exits 5 when the key is absent - already the wanted state. */
 async function unsetConfig(ctx, location, key) {
@@ -488,12 +494,10 @@ export const gitHandlers = {
 		return { command: 'revertCommit', error: unsafe(m.commitHash) ?? await run(ctx, args) };
 	},
 	async continueOperation(ctx, m) {
-		const verb = { merge: 'merge', rebase: 'rebase', 'cherry-pick': 'cherry-pick', revert: 'revert' }[m.type];
-		return { command: 'continueOperation', error: verb ? await run(ctx, [verb, '--continue']) : 'Unknown operation ' + m.type };
+		return { command: 'continueOperation', error: await resume(ctx, m.type, '--continue') };
 	},
 	async abortOperation(ctx, m) {
-		const verb = { merge: 'merge', rebase: 'rebase', 'cherry-pick': 'cherry-pick', revert: 'revert' }[m.type];
-		return { command: 'abortOperation', error: verb ? await run(ctx, [verb, '--abort']) : 'Unknown operation ' + m.type };
+		return { command: 'abortOperation', error: await resume(ctx, m.type, '--abort') };
 	},
 
 	/* --- Commits --- */
@@ -557,7 +561,7 @@ export const gitHandlers = {
 	async createArchive(ctx, m) {
 		if (unsafe(m.ref) !== null) return { command: 'createArchive', error: unsafe(m.ref) };
 		// git would write the archive on the repository's machine, not where the dialog points.
-		if (ctx.repo.startsWith('ssh://')) return { command: 'createArchive', error: 'Not available for a repository on another machine.' };
+		if (isRemote(ctx.repo)) return { command: 'createArchive', error: NOT_REMOTE };
 		const name = ctx.repo.split('/').pop() + '-' + m.ref.replace(/[^\w.-]+/g, '-') + '.zip';
 		const path = await ctx.saveDialog(name);
 		if (path === null) return { command: 'createArchive', error: null }; // cancelled

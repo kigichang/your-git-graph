@@ -88,14 +88,11 @@ pub async fn git_exec(
     }
     let (cancel_tx, cancel_rx) = oneshot::channel();
     jobs.add(&request.id, || Job::Local(cancel_tx))?;
-    let stream = request.stream;
     let result = run(
         &git,
         &request,
         move |chunk| {
-            if stream {
-                let _ = on_output.send(chunk);
-            }
+            let _ = on_output.send(chunk);
         },
         cancel_rx,
     )

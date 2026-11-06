@@ -138,8 +138,8 @@ pub enum GitOutput {
     Stderr(String),
 }
 
-/// Run git once. `on_output` sees every chunk as it arrives (git's progress lines included);
-/// the full output is also returned. Resolves when git exits, the timeout elapses, or `cancel`
+/// Run git once. When the request asks to stream, `on_output` sees every chunk as it arrives
+/// (git's progress lines included); the full output is returned either way. Resolves when git exits, the timeout elapses, or `cancel`
 /// fires - in the last two cases after killing git's whole process group.
 pub async fn run<F>(
     git: &Path,
@@ -168,7 +168,12 @@ where
         .map_err(|e| format!("failed to run git in {}: {e}", request.cwd))?;
     let pgid = child.id();
 
-    let on_output = std::sync::Arc::new(on_output);
+    let stream = request.stream;
+    let on_output = std::sync::Arc::new(move |chunk| {
+        if stream {
+            on_output(chunk);
+        }
+    });
     let stdout = child.stdout.take().expect("stdout is piped");
     let stderr = child.stderr.take().expect("stderr is piped");
     let out_cb = on_output.clone();
@@ -345,7 +350,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let chunks = Arc::new(Mutex::new(Vec::new()));
         let sink = chunks.clone();
-        let request = req(dir.path(), &["-c", "alias.e=!printf 'out\\n'; printf 'err\\n' >&2", "e"]);
+        let mut request = req(dir.path(), &["-c", "alias.e=!printf 'out\\n'; printf 'err\\n' >&2", "e"]);
+        let (_keep, rx) = never();
+        let quiet = sink.clone();
+        let result = run(&git(), &request, move |c| quiet.lock().unwrap().push(c), rx).await.unwrap();
+        assert_eq!((result.stdout.as_str(), result.stderr.as_str()), ("out\n", "err\n"));
+        assert!(chunks.lock().unwrap().is_empty(), "nothing is streamed unless asked");
+        request.stream = true;
         let (_keep, rx) = never();
         let result = run(&git(), &request, move |c| sink.lock().unwrap().push(c), rx).await.unwrap();
         assert_eq!((result.stdout.as_str(), result.stderr.as_str()), ("out\n", "err\n"));

@@ -42,6 +42,8 @@ for (const f of ['out.min.js', 'out.min.css', 'vendor/markdown-it.min.js']) {
 	let bundle = fs.readFileSync(bundlePath, 'utf8');
 	const cjkEscape = /\\u(?:3[4-9A-Fa-f]|[4-9][0-9A-Fa-f])[0-9A-Fa-f]{2}/;
 	let converted = 0;
+	/** Non-ASCII text as esbuild writes it in the bundle. */
+	const esc = (t) => t.replace(/[^\x00-\x7f]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0'));
 	// Runs of text between quotes, backslash escapes other than \\uXXXX, and line breaks: a
 	// Chinese string is converted within its own literal (any quote style - esbuild single-quotes
 	// strings that hold double quotes), and code, which is ASCII, passes through untouched.
@@ -49,12 +51,11 @@ for (const f of ['out.min.js', 'out.min.css', 'vendor/markdown-it.min.js']) {
 		if (!cjkEscape.test(run)) return run;
 		converted++;
 		const text = run.replace(/\\u([0-9A-Fa-f]{4})/g, (m, hex) => (parseInt(hex, 16) >= 0x80 ? String.fromCharCode(parseInt(hex, 16)) : m));
-		return toTaiwanese(text).replace(/[^\x00-\x7f]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0'));
+		return esc(toTaiwanese(text));
 	});
 	const englishAuto = '"Auto (follows Visual Studio Code)"';
 	if (!bundle.includes(englishAuto)) throw new Error('prepare-ui: the English "Auto" language label was not found in the bundle (upstream changed?)');
 	bundle = bundle.split(englishAuto).join('"Auto (follows the system)"');
-	const esc = (t) => t.replace(/[^\x00-\x7f]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, '0'));
 	for (const [what, text] of [['the Traditional Chinese language label', '中文（繁體）'], ['the Chinese "auto" label', '自動（跟隨系統）']]) {
 		if (!bundle.includes(esc(text))) throw new Error('prepare-ui: ' + what + ' is missing after the conversion (upstream changed?)');
 	}
