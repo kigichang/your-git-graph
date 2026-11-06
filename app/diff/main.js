@@ -450,26 +450,37 @@ window.addEventListener('keydown', (e) => {
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 const escapeKey = () => new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true });
 
+/** Self-test: wait until `cond()` holds, for at most `ms`; whether it came to hold. */
+async function settles(cond, ms = 5000) {
+	for (const end = performance.now() + ms; performance.now() < end; await pause(25)) if (cond()) return true;
+	return cond();
+}
+
 /** Self-test: Esc with Monaco's find widget open closes only the widget; the next Esc closes
- * the window. findFirst is null where there is no editor (images, other binaries). */
+ * the window. findFirst is null where there is no editor (images, other binaries); when it is
+ * false, `stuck` says what was (not) the case when Esc was sent. */
 async function checkEscape() {
 	escapeLog = [];
 	const editor = diffEditor !== null ? diffEditor.getModifiedEditor() : singleEditor;
-	let findFirst = null;
+	let findFirst = null, stuck;
 	if (editor !== null) {
+		const widgetOpen = () => document.querySelector('.find-widget.visible') !== null;
 		editor.focus();
 		await editor.getAction('actions.find').run();
-		await pause(300);
-		const widgetOpen = () => document.querySelector('.find-widget.visible') !== null;
-		const opened = widgetOpen();
+		// Monaco takes Esc for itself only with the widget up and the focus known to be in the
+		// editor - which a window still coming to the front does not have yet. Wait for that
+		// rather than a fixed time (a busy machine needs more than any).
+		const opened = await settles(() => widgetOpen() && editor.hasWidgetFocus());
+		const before = { widget: widgetOpen(), editorFocus: editor.hasWidgetFocus(), windowFocus: document.hasFocus() };
 		(document.activeElement || document.body).dispatchEvent(escapeKey());
-		await pause(300);
+		await settles(() => !widgetOpen() || escapeLog.length > 0); // closed, or the key went to the window
 		findFirst = opened && !widgetOpen() && escapeLog.length === 0;
+		if (!findFirst) stuck = before;
 	}
 	document.body.dispatchEvent(escapeKey());
 	const closes = escapeLog.length === 1;
 	escapeLog = null;
-	return { findFirst, closes };
+	return { findFirst, closes, stuck };
 }
 
 /** Self-test: the page follows the editor to the end and back to the start, and the editor
