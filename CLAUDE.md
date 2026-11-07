@@ -92,6 +92,8 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 
   之後的改動不應讓這些數字明顯變差。`.app` 23 MB（arm64，含三個遠端 helper）。
 
+  M8（2026-11-07，預設的作者日期）之後重量：`Commits(300)` 引擎 34ms ＋ 作者日期 8ms（冷；同一頁重載走快取，0ms）；首屏 140ms；全部 86k 列：引擎 723ms ＋ 作者日期 528ms（只有第一次）＋ layout 15ms，IPC 往返 1366ms（之前 817ms）。這是預設顯示作者日期的代價（引擎只給 committer 日期）；設定改成 commit date 就回到原本的數字。捲動不變（平均 16.7ms/幀）。
+
 ## 里程碑
 
 | M | 內容 | 狀態 |
