@@ -42,18 +42,20 @@ app/
   src-tauri/              Rust（獨立 Cargo workspace：App、crates/backend、crates/remote）
     tauri.conf.json       frontendDist ../web/dist；beforeBuildCommand npm run build
     tauri.dev.conf.json   cargo tauri dev --config tauri.dev.conf.json：devUrl 指到 Vite（不放進主設定，否則 cargo build 的 debug 版會去連 dev server）
-    crates/backend/       gg-backend：不依賴 Tauri 的核心，App 與遠端 helper 共用。git.rs（run、locate_git）、repo.rs（operation state、寫 .your-git-graph.json）、files.rs（讀工作目錄、掃描、write_atomic）、watch.rs、wire.rs（App ↔ helper 協定）、askpass.rs、engine()
+    crates/backend/       gg-backend：不依賴 Tauri 的核心，App 與遠端 helper 共用。api.rs（ReadRequest／ReadResponse／OpRequest／OpResult／OpProgress／Reason 的型別，ts-rs 輸出；引擎讀取 read_engine）、runtime.rs（Runtime trait、LocalRuntime）、ops/（操作：remote、branch、history、stash、identity）、loss.rs（執行前的詢問）、reads.rs（CLI 讀取）、graph.rs（lane 配置）、settings.rs、git.rs（run、locate_git）、repo.rs（operation state、寫 .your-git-graph.json）、files.rs（讀工作目錄、掃描、write_atomic）、watch.rs、wire.rs（App ↔ helper 協定）、askpass.rs、engine()；tests/ops.rs 對真的 git 測所有操作
     crates/remote/        gg-remote：遠端機器上的 helper
     remote-dist/          build-remote.sh 的輸出（gitignore），remote.rs 以 include_bytes! 嵌入；沒建時 build.rs 放空檔
     src/main.rs           initial_repo、engine_request、host_log、self_test、preview、preview_resize
-    src/git.rs            git_exec、git_cancel、git_info（M3 後由 repo_op 取代）
+    src/api.rs            repo_read、repo_op、repo_op_cancel（本機建 LocalRuntime；ssh:// 轉給 helper 的 read／op）
+    src/git.rs            git_info；遠端 git 的 askpass 事件（remote_prompt）
+    src/settings.rs       settings_get、settings_set
     src/remote.rs         遠端 repo：名稱、連線與 bootstrap、session、remote_connect／disconnect
     src/repo.rs、repos.rs、state.rs、system.rs、askpass.rs、diff.rs、plantuml.rs   見各檔案的說明
     capabilities/         default.json（main、repo-*）、diff.json（diff-*）
 vendor/vscode-git-graph-rs  submodule；只用 native/core
 ```
 
-資料流（目標，M2 起）：Svelte 元件 → `src/lib/api/`（型別化的 `invoke`）→ Rust command（`repo_read`、`repo_op`…）→ `gg-backend::api`（本機直接呼叫；`ssh://` repo 經 wire 送給 helper 執行同一份程式）→ 引擎或 git。目前（M0）只有 Stage 1 留下的 command。
+資料流：Svelte 元件 → `web/src/lib/api/client.ts`（型別化的 `invoke`：`repoRead`、`repoOp`）→ Rust command（`src/api.rs` 的 `repo_read`、`repo_op`、`repo_op_cancel`）→ `gg_backend::api::read`／`gg_backend::ops::operate` 配一個 `Runtime`（本機 `LocalRuntime`；`ssh://` repo 經 wire 的 `read`／`op` 送給 helper，helper 用同一份程式與自己的 `LocalRuntime`）→ 引擎或 git。
 
 ## 建置與驗證
 
@@ -70,8 +72,8 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 ```
 
 - **改了 `app/web/`、`app/diff/` 要先 `npm run build` 再 `cargo build`**：前端是編譯時嵌入執行檔的。
-- `cd app && npm test`：check-cleanroom ＋ vitest（目前 22 個：diffspec、errors、remote、theme、markdown）。`npm run check`：svelte-check。
-- `cd app/src-tauri && cargo test --workspace`（目前 56 個：backend 23、remote 7、App 26；App 的遠端測試用 `target/debug/gg-remote`，所以要 `--workspace`）。
+- `cd app && npm test`：check-cleanroom ＋ vitest（目前 29 個：diffspec、errors、remote、theme、markdown、draw、filetree）。`npm run check`：svelte-check。
+- `cd app/src-tauri && cargo test --workspace`（目前 161 個：backend 91 ＋ `tests/ops.rs` 34、remote 8、App 28；App 的遠端測試用 `target/debug/gg-remote`，所以要 `--workspace`）。`tests/ops.rs` 對真的 git 測每個操作、data-loss 規則、CLI 讀取與全域作者同步，`GIT_CONFIG_GLOBAL` 指向臨時檔，不會動到你的全域設定。
 - **self-test**：`app/scripts/selftest.sh <執行檔> <repo 或含多個 repo 的資料夾> [log]`（`GG_SELFTEST=1`，`GG_DATA_DIR` 指到臨時目錄）。檢查項目與狀態在 `docs/spec/99-acceptance.md`；目前只有第 1 項（三種 diff 視窗）。它會寫入目標 repo，對 scratch 的 clone 跑。每次改動前端或 host 都要跑。遠端段落（假 ssh：`GG_REMOTE_SSH=tests/fake-ssh.sh`）、真 ssh（Docker：`tests/ssh-server.sh`、`GG_SELFTEST_SSH=…`、`GG_REMOTE_SSH=tests/real-ssh.sh`）、HTTP 帳密（`tests/basic_auth_server.py`、`GG_SELFTEST_HTTP`）的做法沿用 Stage 1，在對應里程碑接回來。
 - **看畫面**：`app/scripts/preview.sh <執行檔> <repo> <場景> <light|dark|system> <輸出前綴>`（`GG_PREVIEW`；場景由 `web/src/preview.ts` 實作，M4 起）。需要螢幕錄製權限。
 - **監看的手動檢查**：開著 App 閒置幾秒應該 0 次刷新；終端機 `git commit`、`git checkout -b` 各剛好刷新一次。
@@ -97,7 +99,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 | M0 | 分支、clean-room 檢查、規格骨架、Vite＋Svelte 骨架、diff 視窗在新建置下可開、刪除 Stage 1 的 UI、CLAUDE.md 重寫 | ✅ 2026-11-07 |
 | M1 | `crates/backend/src/graph.rs` lane 配置 ＋ 測試；`repo_read(Commits)`（`api.rs`，ts-rs 產生型別）；`GraphTable`／`GraphCanvas` 虛擬捲動；git/git 量測 | ✅ 2026-11-07，閘門全過（數字見「效能基準」） |
 | M2 | 引擎提供的讀取全部進 `api.rs`（repo info、commit／stash／未 commit 的詳細資料、比較、行數、tag、count before、authors）；工具列（分支篩選、remote 開關、refresh）；詳細資料面板（檔案樹／清單、行數、點檔案開 diff、⌘-click 開檔案、⇧-click 比較、tag）；`settings.rs` schema 與 Stage 1 key 的搬移、`settings_get`／`settings_set`、設定即時套用到 graph | ✅ 2026-11-07。CLI 的讀取（reflog、worktree、predictConflicts、repo config、ahead/behind）隨 M3 的 Runtime 一起做 |
-| M3 | `ops/*`、`loss.rs`，`main` 的 gitops 38 個測試搬成 Rust；`repo_op`／取消／進度；helper 的 `read`／`op`；遠端路由 | |
+| M3 | `runtime.rs`（`Runtime` trait、`LocalRuntime`）、`ops/*`（42 個操作）、`loss.rs`（data-loss 與「tag 的 commit 不在 remote」的詢問）、`reads.rs`（CLI 讀取：operation state、reflog、worktree、predict conflicts、repo config、ahead/behind）；`main` 的 gitops 測試搬成 `crates/backend/tests/ops.rs`（34 個）；App 的 `repo_op`／`repo_op_cancel`（取消、進度 Channel、askpass）；helper 的 `read`／`op`（進度與 askpass 走 `V` 事件，`C` 取消）；`git_exec`／`git_cancel` 移除 | ✅ 2026-11-07 |
 | M4 | 右鍵選單、全部對話框、data-loss 與進度對話框、刷新策略、互動式 rebase | |
 | M5 | 側欄、起始畫面、多視窗、Finder 拖放、遠端 repo、SMB、askpass 對話框、監看→刷新、ahead/behind | |
 | M6 | 設定面板、settings／state 搬移、匯出、Find、篩選、Reflog、Worktree、i18n、主題 WCAG | |
@@ -127,7 +129,9 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 - **git 一律 `GIT_EDITOR=true`**：沒有終端機可以編輯，`rebase --continue`、`commit --squash`、`merge --no-ff` 採用預設訊息。互動式 rebase 在 Terminal.app 執行（`system.rs` 的 `open_terminal`）。
 - **改寫歷史（drop commit、改舊訊息）**：自己產生 rebase todo，經環境變數 `GG_TODO` 給 `GIT_SEQUENCE_EDITOR`；新訊息與作者走 `GG_MESSAGE`、`GG_AUTHOR`，由 `exec git commit --amend` 讀取，所以不必跳脫。範圍內有 merge commit 就拒絕。
 - `GIT_OPTIONAL_LOCKS=0`：避免 `git diff` 之類順手改寫 index 觸發監看而無限刷新。
-- **呼叫 git 一律走 `gg_backend::git::run`**（Stage 1 的 `git_exec` command 到 M3 為止還在）：回 `{ exitCode, stdout, stderr, timedOut, cancelled, durationMs }`，非 0 不算 reject。有串流才即時回傳；大量輸出的讀取不要開串流。同一個 id 同時只能有一個執行。
+- **呼叫 git 一律經 `Runtime::git`**（`crates/backend/src/runtime.rs`；底層是 `gg_backend::git::run`）：回 `GitExecResult { exit_code, stdout, stderr, timed_out, cancelled, duration_ms }`，非 0 不是 `Err`（`ops::error_of` 轉成訊息）。`LocalRuntime` 每次都帶 `GIT_EDITOR=true`、`GIT_OPTIONAL_LOCKS=0`、`GIT_TERMINAL_PROMPT=0` 與 askpass 的環境變數；`GitOpts { stream: true }` 才串流（fetch、pull、push）。取消是 `watch` 旗標：殺掉正在跑的 git，之後的 git 不再啟動（`Err("Cancelled.")`）。前端不直接組 git 參數：只有 `repo_read`／`repo_op`。
+- **操作的結果**是 `OpResult`：`Done`、`NeedsConfirmation { reasons }`（沒帶 `confirmed` 時先檢查 `loss.rs`；前端顯示原因、使用者同意後帶 `confirmed: true` 重送）、`Failed { message, step }`（多步驟操作失敗在哪一步，例如 tag 建好了但 push 失敗）。進度 `OpProgress::Output { stderr, text }`／`Step { index, total, label }` 經 Tauri `Channel`（遠端經 `V` 事件 `{ progress }`）。同一時間每個 id 只有一個操作（`api::Jobs`）。
+- **互動式 rebase** 由 `Runtime::terminal` 打開 Terminal（App 的 `system::open_terminal`，遠端是 `ssh -t`）；`CreateArchive` 的路徑由前端先用存檔對話框問好再送，遠端拒絕。
 - **git 的選擇順序**：`GIT_GRAPH_GIT` → `PATH`（略過 `/usr/bin/git`）→ Homebrew → `/usr/bin/git`（只有 `xcode-select -p` 成功時）。每個 process 只解析一次。
 - **每次執行 git 都在獨立的 process group**：逾時或取消時 `killpg` 連同 hook、ssh 一起終止。
 - **事件要指定視窗**：Rust 的 `emit` 送給所有視窗；只給單一視窗的事件（`open-repo`、`menu-command`、`askpass`）用 `app.emit_to(label, …)`，JS 用 `getCurrentWindow().listen`。

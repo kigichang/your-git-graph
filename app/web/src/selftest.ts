@@ -6,7 +6,7 @@ import { listen } from '@tauri-apps/api/event';
 import { getAllWindows } from '@tauri-apps/api/window';
 import { errorText } from './lib/errors';
 import { compareSpec, diffSpec, fileSpec, revisions, type DiffSpec } from './lib/diffspec';
-import type { Commit, CommitsResponse, Details, FileChange, RepoInfo } from './lib/api/client';
+import { loadRepoInfo, repoOp, type Commit, type CommitsResponse, type Details, type FileChange, type OpRequest, type RepoInfo } from './lib/api/client';
 
 const log = (line: string) => invoke('host_log', { line: 'selftest: ' + line }).catch(() => {});
 
@@ -219,12 +219,60 @@ async function checkSettings(check: Check): Promise<void> {
 	check(await settles(() => (app().state() as unknown as { settings: { graph: { rowHeight: number } } }).settings.graph.rowHeight === 24), 'null brings the default back');
 }
 
+/** 5, 6, 7: operations through repo_op. A branch of the test's own is created, given a commit
+ * (a revert), force-moved - which asks first, then runs once confirmed - and deleted; a fetch
+ * from the repository itself streams git's words; a fetch that cannot connect is cancelled.
+ * Everything made is removed again. */
+async function checkOps(check: Check): Promise<void> {
+	const { repo, data } = app().state();
+	if (repo === null || data === null) return;
+	const branch = 'gg-selftest-' + Date.now().toString(36);
+	const head = data.commits.find((c) => c.hash !== '*' && c.stash === null)?.hash;
+	if (head === undefined) return;
+	const run = (request: OpRequest, confirmed = false) => repoOp(repo, request, { confirmed }).result;
+	try {
+		check((await run({ kind: 'createBranch', branch, commit: head, checkout: true, force: false })).kind === 'done', 'create and check out the branch');
+		const revert = await run({ kind: 'revert', commit: head, parentIndex: 0 });
+		check(revert.kind === 'done', 'revert HEAD on the branch: ' + JSON.stringify(revert));
+		const info = await loadRepoInfo(repo, { showRemoteBranches: false, showRemoteHeads: false, hideRemotes: [], showStashes: false });
+		check(info.branches.includes(branch) && info.head === branch, 'the branch is listed and checked out');
+		check((await run({ kind: 'checkoutBranch', branch: info.branches.find((b) => b !== branch) ?? 'main', remoteBranch: null, pullAfterwards: null })).kind === 'done', 'back to the original branch');
+		const move: OpRequest = { kind: 'createBranch', branch, commit: head, checkout: false, force: true };
+		const asked = await run(move);
+		check(asked.kind === 'needsConfirmation' && asked.reasons.length === 1 && asked.reasons[0]?.kind === 'branchMoveDropsCommits' && asked.reasons[0].count === 1,
+			'force-moving the branch asks about its commit: ' + JSON.stringify(asked));
+		check((await run(move, true)).kind === 'done', 'confirmed, it runs');
+		await log(`ops: branch ${branch} created, reverted, moved with confirmation`);
+
+		// Progress: a fetch from the repository itself says "From …" on stderr.
+		const lines: string[] = [];
+		const fetch = repoOp(repo, { kind: 'addRemote', name: branch, url: repo, pushUrl: null, fetch: true }, { onProgress: (p) => { if (p.kind === 'output') lines.push(p.text); } });
+		check((await fetch.result).kind === 'done', 'add a remote and fetch it');
+		check(lines.some((l) => l.includes('From ')), 'the fetch streamed its output: ' + JSON.stringify(lines));
+		check((await run({ kind: 'deleteRemote', name: branch })).kind === 'done', 'remove the remote');
+
+		// Cancel: a fetch from an address that never answers (an unroutable one) is killed.
+		const hanging = repoOp(repo, { kind: 'addRemote', name: branch + '-x', url: 'http://10.255.255.1/x.git', pushUrl: null, fetch: true });
+		await pause(300);
+		const started = performance.now();
+		check(await hanging.cancel(), 'the operation was in flight to cancel');
+		const outcome = await hanging.result;
+		check(outcome.kind === 'failed' && outcome.message === 'Cancelled.' && performance.now() - started < 5000, 'cancelled promptly: ' + JSON.stringify(outcome));
+		await run({ kind: 'deleteRemote', name: branch + '-x' });
+	} finally {
+		const gone = await run({ kind: 'deleteBranch', branch, force: true, deleteOnRemotes: [] });
+		check(gone.kind === 'done', 'the branch is deleted again: ' + JSON.stringify(gone));
+		await app().load(300);
+	}
+}
+
 export async function selfTest(_config: Record<string, unknown>): Promise<void> {
 	const failures: string[] = [];
 	const check: Check = (ok, what) => { if (!ok) failures.push(what); };
 	try {
 		await checkGraph(check);
 		await checkDetails(check);
+		await checkOps(check);
 		await checkSettings(check);
 	} catch (e) {
 		failures.push(errorText(e));

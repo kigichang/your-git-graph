@@ -16,7 +16,7 @@ use gg_backend::git::{GitExecRequest, GitOutput};
 use gg_backend::wire::{self, Frame};
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinSet;
 
 #[derive(Deserialize)]
@@ -25,6 +25,9 @@ enum Request {
     Engine { repo: String, request: String },
     /// A typed read (`gg_backend::api`): the same code the app runs for a local repository.
     Read { repo: String, request: gg_backend::api::ReadRequest },
+    /// A typed operation (`gg_backend::ops`): its progress and the questions of its git are
+    /// events (`V`) of the request; `C` cancels it.
+    Op { repo: String, request: gg_backend::api::OpRequest, confirmed: bool },
     Git { request: GitExecRequest },
     OperationState { repo: String },
     WorktreeFile { repo: String, path: String },
@@ -36,8 +39,24 @@ enum Request {
     Answer { ask: u64, answer: Option<String> },
 }
 
-/// What can be cancelled (git runs, watches), by request id.
-type Cancels = Arc<Mutex<HashMap<u64, oneshot::Sender<()>>>>;
+/// What can be cancelled (git runs, operations, watches), by request id.
+enum Cancel {
+    Once(oneshot::Sender<()>),
+    Flag(watch::Sender<bool>),
+}
+impl Cancel {
+    fn fire(self) {
+        match self {
+            Cancel::Once(tx) => {
+                let _ = tx.send(());
+            }
+            Cancel::Flag(tx) => {
+                let _ = tx.send(true);
+            }
+        }
+    }
+}
+type Cancels = Arc<Mutex<HashMap<u64, Cancel>>>;
 
 #[derive(Clone)]
 struct Session {
@@ -75,7 +94,19 @@ impl Session {
     async fn run(&self, id: u64, request: Request) -> Result<Vec<u8>, String> {
         match request {
             Request::Engine { repo, request } => blocking(move || Ok(gg_backend::engine(&repo, &request).into_bytes())).await,
-            Request::Read { repo, request } => blocking(move || json(&gg_backend::api::read(&repo, request)?)).await,
+            Request::Read { repo, request } => {
+                let rt = self.runtime(id, &repo, false)?;
+                json(&gg_backend::api::read(&rt, request).await?)
+            }
+            Request::Op { repo, request, confirmed } => {
+                let rt = self.runtime(id, &repo, true)?;
+                let result = gg_backend::ops::operate(&rt, request, confirmed).await;
+                self.cancels.lock().unwrap().remove(&id);
+                if let Some(askpass) = &self.askpass {
+                    askpass.done(id);
+                }
+                json(&result?)
+            }
             Request::OperationState { repo } => blocking(move || json(&gg_backend::repo::operation_state(Path::new(&repo)))).await,
             Request::WorktreeFile { repo, path } => {
                 blocking(move || json(&gg_backend::files::read_worktree_file(Path::new(&repo), &path)?)).await
@@ -98,8 +129,33 @@ impl Session {
 
     fn cancellable(&self, id: u64) -> oneshot::Receiver<()> {
         let (tx, rx) = oneshot::channel();
-        self.cancels.lock().unwrap().insert(id, tx);
+        self.cancels.lock().unwrap().insert(id, Cancel::Once(tx));
         rx
+    }
+
+    /// A runtime for request `id` on the repository at `repo`: git's live output and the
+    /// operation's steps go back as `V` events `{"progress": …}`; with `askpass`, the questions
+    /// of git and ssh too (`{"askpass", "prompt"}`), by the app's answers (`answer`).
+    fn runtime(&self, id: u64, repo: &str, askpass: bool) -> Result<gg_backend::runtime::LocalRuntime, String> {
+        let git = self.git.clone().ok_or("Git was not found on the remote machine.")?;
+        let mut env: HashMap<String, String> = HashMap::new();
+        if askpass {
+            if let Some(vars) = self.askpass.as_ref().and_then(|a| a.env(id).ok()) {
+                env.extend(vars);
+            }
+        }
+        let (tx, rx) = watch::channel(false);
+        self.cancels.lock().unwrap().insert(id, Cancel::Flag(tx));
+        let out = self.out.clone();
+        let progress = Arc::new(move |p: gg_backend::api::OpProgress| {
+            let out = out.clone();
+            if let Ok(event) = serde_json::to_vec(&serde_json::json!({ "progress": p })) {
+                tokio::spawn(async move {
+                    let _ = out.send(Frame::new(id, b'V', event)).await;
+                });
+            }
+        });
+        Ok(gg_backend::runtime::LocalRuntime::new(repo, git, env, progress, rx).remote())
     }
 
     async fn git(&self, id: u64, mut request: GitExecRequest) -> Result<Vec<u8>, String> {
@@ -236,7 +292,7 @@ async fn serve() {
                 }
                 Ok(Some(Frame { id, kind: b'C', .. })) => {
                     if let Some(cancel) = session.cancels.lock().unwrap().remove(&id) {
-                        let _ = cancel.send(());
+                        cancel.fire();
                     }
                 }
                 Ok(Some(_)) => {}
@@ -248,7 +304,7 @@ async fn serve() {
     }
     // Nobody is listening any more: end what is running (git and whatever it started).
     for (_, cancel) in session.cancels.lock().unwrap().drain() {
-        let _ = cancel.send(());
+        cancel.fire();
     }
     let _ = tokio::time::timeout(Duration::from_secs(5), async { while requests.join_next().await.is_some() {} }).await;
     if let Some(askpass) = &session.askpass {

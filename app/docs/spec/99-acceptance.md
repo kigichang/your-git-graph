@@ -9,9 +9,9 @@
 | 2 | 介面語言切成繁體中文再切回英文：工具列與側欄文字跟著變、`settings.json` 存的是 `zh-TW`；不重新載入 | M6 | |
 | 3 | 載入 repo：graph 有列、點一列打開詳細資料（列被選取、訊息、檔案清單、行數）、分支篩選（選一個分支後列數不多於全部、Show All 回來）、Esc 關閉面板 | M2 | ✅ |
 | 4 | 讀取：repo info、commits、details（commit／stash／未 commit／比較）、line counts、tag details（annotated 與否）；reflog、worktree list 隨 M3 | M2 | ✅（reflog／worktree 待 M3） |
-| 5 | 寫入：建立再刪除 `gg-selftest-*` 分支；拒絕其他視窗沒有的 repo 路徑 | M3 | |
-| 6 | data-loss：用 `commit-tree` 做只有某分支才有的 commit，強制移動該分支 → 收到需要確認 → 對話框顯示原因 → 繼續後分支真的移動 → 刪掉 | M3／M4 | |
-| 7 | 進度與取消：fetch 的串流輸出、取消後 git 結束 | M3 | |
+| 5 | 寫入（`repo_op`）：建立並 checkout `gg-selftest-*` 分支、repo info 列出它、切回原分支、最後刪掉；拒絕其他視窗沒有的 repo 路徑（M5） | M3 | ✅ |
+| 6 | data-loss：在臨時分支上 revert 一個 commit（只有它才有的 commit），強制移動該分支 → `needsConfirmation`（`branchMoveDropsCommits`，1 個）→ 帶 `confirmed` 重送 → 分支真的移動；對話框顯示原因（M4） | M3／M4 | ✅（M3 的部分） |
+| 7 | 進度與取消：加入指向自己的 remote 並 fetch，串流輸出含 `From `；fetch 一個不會回應的位址（10.255.255.1，需要網路）後取消，5 秒內回 `Cancelled.` | M3 | ✅ |
 | 8 | askpass：回答並遮罩、取消、git 逾時後對話框自動關閉、ssh-keygen 的 passphrase | M5 | |
 | 9 | 詳細資料裡的檔案：點一次開 diff、⌘-click 開檔案內容；⇧-click 兩列的比較（較舊的在前）與比較視窗 | M2 | ✅ |
 | 10 | Markdown 預覽：表格、程式碼上色、數學式、repo 裡的圖片、Mermaid、PlantUML（假 java）、`<script>` 是文字、捲動同步 | M0（沿用） | |

@@ -75,6 +75,278 @@ pub enum ReadRequest {
     /// How many commits of the graph come before `hash` (to scroll to one that is not loaded).
     CountCommitsBefore { hash: String, branches: Option<Vec<String>>, show_remote_branches: bool },
     Authors,
+    /* Answered by the git CLI (reads.rs). */
+    /// What is in progress (merge, rebase, …) and which files conflict.
+    OperationState,
+    /// The reflog of `reference` (`HEAD`, a branch): at most `limit` entries.
+    Reflog { reference: String, limit: u32 },
+    WorktreeList,
+    /// Whether merging `theirs` into `ours` would conflict, and in which files.
+    PredictConflicts { ours: String, theirs: String },
+    /// The repository's remotes, branch upstreams, user and tools, from its config.
+    RepoConfig,
+    /// How far the checked-out branch is ahead of / behind its upstream.
+    AheadBehind,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub struct OperationProgress {
+    pub step: u32,
+    pub total: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub struct ReflogEntry {
+    pub hash: String,
+    pub abbrev: String,
+    /// `HEAD@{3}`
+    pub selector: String,
+    #[ts(type = "number")]
+    pub date: i64,
+    pub message: String,
+    /// Reachable from no ref any more.
+    pub dangling: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub struct Worktree {
+    pub path: String,
+    pub hash: String,
+    pub branch: Option<String>,
+    pub detached: bool,
+    pub locked: bool,
+    pub prunable: bool,
+    pub is_main: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub struct ConflictPrediction {
+    pub conflicted: bool,
+    pub files: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub struct RemoteConfig {
+    pub name: String,
+    pub url: Option<String>,
+    pub push_url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub struct BranchConfig {
+    pub remote: Option<String>,
+    pub push_remote: Option<String>,
+}
+
+/// A config value as set in the repository and in the user's global configuration.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub struct LocalAndGlobal {
+    pub local: Option<String>,
+    pub global: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub struct RepoConfig {
+    pub remotes: Vec<RemoteConfig>,
+    pub branches: BTreeMap<String, BranchConfig>,
+    pub user_name: LocalAndGlobal,
+    pub user_email: LocalAndGlobal,
+    pub push_default: Option<String>,
+    pub diff_tool: Option<String>,
+    pub gui_diff_tool: Option<String>,
+    pub authors: Vec<Author>,
+}
+
+/* ---------- Operations ---------- */
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub enum TagKind {
+    Annotated,
+    Lightweight,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub enum PushMode {
+    Normal,
+    Force,
+    ForceWithLease,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub enum ResetMode {
+    Soft,
+    Mixed,
+    Hard,
+}
+
+/// An operation git leaves in progress on a conflict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub enum OperationKind {
+    Merge,
+    Rebase,
+    CherryPick,
+    Revert,
+}
+
+impl OperationKind {
+    pub fn git_name(self) -> &'static str {
+        match self {
+            OperationKind::Merge => "merge",
+            OperationKind::Rebase => "rebase",
+            OperationKind::CherryPick => "cherry-pick",
+            OperationKind::Revert => "revert",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "kebab-case")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub enum ConfigLocation {
+    Local,
+    Global,
+}
+
+/// A pull to run once a branch is checked out.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub struct PullAfter {
+    pub remote: String,
+    pub branch: String,
+    pub no_fast_forward: bool,
+    pub squash: bool,
+}
+
+/// What the person asks to be done to the repository. Every value that reaches git's command
+/// line is checked first: one starting with `-` is refused.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub enum OpRequest {
+    /* Remotes */
+    AddRemote { name: String, url: String, push_url: Option<String>, fetch: bool },
+    EditRemote { name_old: String, name_new: String, url_old: Option<String>, url_new: Option<String>, push_url_old: Option<String>, push_url_new: Option<String> },
+    DeleteRemote { name: String },
+    PruneRemote { name: String },
+    /// `remote` `None`: all of them.
+    Fetch { remote: Option<String>, prune: bool, prune_tags: bool },
+    FetchIntoLocalBranch { remote: String, remote_branch: String, local_branch: String, force: bool },
+    Pull { remote: String, branch: String, no_fast_forward: bool, squash: bool },
+    Push { branch: String, remotes: Vec<String>, set_upstream: bool, mode: PushMode },
+    /* Tags */
+    AddTag { tag: String, commit: String, tag_kind: TagKind, message: String, force: bool, push_to: Option<String> },
+    DeleteTag { tag: String, delete_on_remote: Option<String> },
+    PushTag { tag: String, commit: String, remotes: Vec<String> },
+    /* Branches */
+    CreateBranch { branch: String, commit: String, checkout: bool, force: bool },
+    /// `remote_branch` set: a new local branch tracking it.
+    CheckoutBranch { branch: String, remote_branch: Option<String>, pull_afterwards: Option<PullAfter> },
+    CheckoutCommit { commit: String },
+    DeleteBranch { branch: String, force: bool, delete_on_remotes: Vec<String> },
+    DeleteRemoteBranch { remote: String, branch: String },
+    RenameBranch { old_name: String, new_name: String },
+    /* Merging and rewriting */
+    Merge { target: String, no_fast_forward: bool, squash: bool, no_commit: bool },
+    Rebase { onto: String, ignore_date: bool, autosquash: bool, interactive: bool },
+    CherryPick { commit: String, parent_index: u32, record_origin: bool, no_commit: bool },
+    Revert { commit: String, parent_index: u32 },
+    ContinueOperation { operation: OperationKind },
+    AbortOperation { operation: OperationKind },
+    Reset { commit: String, mode: ResetMode },
+    UndoLastCommit,
+    DropCommit { commit: String },
+    EditCommitMessage { commit: String, message: String, author: Option<Author> },
+    CommitFixup { commit: String },
+    CommitSquash { commit: String },
+    /* Stashes */
+    StashPush { message: String, include_untracked: bool },
+    StashApply { selector: String, reinstate_index: bool },
+    StashPop { selector: String, reinstate_index: bool },
+    StashDrop { selector: String },
+    BranchFromStash { branch: String, selector: String },
+    /* The working tree */
+    CleanUntracked { directories: bool },
+    ResetFile { commit: String, path: String },
+    /// Write `reference` as a zip at `path` (on this machine: refused for a remote repository).
+    CreateArchive { reference: String, path: String },
+    /* Worktrees */
+    WorktreeAdd { path: String, branch: Option<String>, new_branch: Option<String> },
+    WorktreeRemove { path: String, force: bool },
+    WorktreePrune,
+    /* Identity */
+    EditUserDetails { name: String, email: String, location: ConfigLocation, delete_local_name: bool, delete_local_email: bool },
+    DeleteUserDetails { name: bool, email: bool, location: ConfigLocation },
+    /// The author identities of the settings changed from `previous` to `next`: keep the
+    /// global author in step (see `ops::identity`).
+    SyncGlobalAuthor { previous: Vec<Author>, next: Vec<Author> },
+}
+
+/// Why an operation asks before running: work it would leave hard to find, or a tag whose
+/// commit the remote does not have. The front end words these.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub enum Reason {
+    /// HEAD is detached on `count` commits no branch, tag or remote-tracking branch holds.
+    DetachedCommits { count: u32 },
+    /// The reset leaves `count` commits of `branch` on no other ref.
+    ResetDropsCommits { count: u32, branch: String },
+    /// A hard reset discards `count` uncommitted changes to tracked files.
+    UncommittedDiscarded { count: u32 },
+    /// Moving `branch` leaves `count` of its commits on no other ref.
+    BranchMoveDropsCommits { count: u32, branch: String },
+    /// A force push removes `count` commits of `remote_branch` that `branch` lacks.
+    ForcePushDropsCommits { count: u32, remote_branch: String, branch: String },
+    /// The tag's commit is not on these remotes yet.
+    TagCommitNotOnRemote { remotes: Vec<String> },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub enum OpResult {
+    Done,
+    /// Not run: the person has to confirm first (`confirmed: true` on the next call).
+    NeedsConfirmation { reasons: Vec<Reason> },
+    /// `step` names what failed when the operation had several (the tag was created but not
+    /// pushed, say); `message` is git's.
+    Failed { message: String, step: Option<String> },
+}
+
+/// What an operation reports while it runs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub enum OpProgress {
+    /// A chunk of git's output (fetch and push stream theirs).
+    Output { stderr: bool, text: String },
+    /// Of an operation in several steps (a push to each remote): which one is starting.
+    Step { index: u32, total: u32, label: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -212,7 +484,7 @@ pub struct Timing {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 #[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
 pub enum ReadResponse {
     RepoInfo { branches: Vec<String>, head: Option<String>, remotes: Vec<String>, stashes: Vec<Stash>, tags: Vec<String> },
@@ -226,6 +498,24 @@ pub enum ReadResponse {
         count: u64,
     },
     Authors { authors: Vec<Author> },
+    OperationState { operation: Option<OperationKind>, progress: Option<OperationProgress>, conflicted_files: Vec<String> },
+    Reflog { entries: Vec<ReflogEntry>, more: bool },
+    Worktrees { worktrees: Vec<Worktree> },
+    /// `None` when git cannot tell.
+    ConflictPrediction { prediction: Option<ConflictPrediction> },
+    RepoConfig { config: RepoConfig },
+    /// `None` without an upstream.
+    AheadBehind { ahead: Option<u32>, behind: Option<u32> },
+}
+
+impl ReadRequest {
+    /// Whether the engine answers it (else the git CLI, through a runtime).
+    pub fn is_engine(&self) -> bool {
+        !matches!(
+            self,
+            ReadRequest::OperationState | ReadRequest::Reflog { .. } | ReadRequest::WorktreeList | ReadRequest::PredictConflicts { .. } | ReadRequest::RepoConfig | ReadRequest::AheadBehind
+        )
+    }
 }
 
 /// The engine's answer to one call, or its in-band failure (`{"error": "Kind: message"}`).
@@ -324,8 +614,18 @@ struct EngineTagDetails {
     message: String,
 }
 
-/// Answer `request` for the local repository at `repo`.
-pub fn read(repo: &str, request: ReadRequest) -> Result<ReadResponse, String> {
+/// Answer `request` for the repository `rt` runs in: the engine's reads in a blocking task,
+/// the CLI's through the runtime's git.
+pub async fn read(rt: &dyn crate::runtime::Runtime, request: ReadRequest) -> Result<ReadResponse, String> {
+    if request.is_engine() {
+        let repo = rt.repo().to_string();
+        return tokio::task::spawn_blocking(move || read_engine(&repo, request)).await.map_err(|e| e.to_string())?;
+    }
+    crate::reads::read_git(rt, request).await
+}
+
+/// Answer an engine read for the local repository at `repo` (a CLI one is an error).
+pub fn read_engine(repo: &str, request: ReadRequest) -> Result<ReadResponse, String> {
     match request {
         ReadRequest::RepoInfo { show_remote_branches, show_remote_heads, hide_remotes, show_stashes } => {
             let info: EngineRepoInfo = engine_typed(
@@ -405,6 +705,7 @@ pub fn read(repo: &str, request: ReadRequest) -> Result<ReadResponse, String> {
             let authors: Vec<Author> = engine_typed(repo, "authors", Value::Null)?;
             Ok(ReadResponse::Authors { authors })
         }
+        other => Err(format!("{} is not an engine read", serde_json::to_string(&other).unwrap_or_default())),
     }
 }
 
@@ -476,7 +777,7 @@ mod tests {
     fn commits_come_with_their_layout_and_the_uncommitted_row_on_top() {
         let dir = repository();
         let repo = dir.path().to_str().unwrap();
-        let ReadResponse::Commits { commits, head, more, layout, timing } = read(repo, ReadRequest::Commits { options: options(300) }).unwrap() else { panic!() };
+        let ReadResponse::Commits { commits, head, more, layout, timing } = read_engine(repo, ReadRequest::Commits { options: options(300) }).unwrap() else { panic!() };
         assert_eq!(commits.iter().map(|c| c.message.as_str()).collect::<Vec<_>>(), ["On main: kept", "merge", "three", "two", "one"]);
         assert!(commits[0].stash.is_some(), "the stash is a row");
         assert_eq!(commits[1].parents.len(), 2);
@@ -490,18 +791,18 @@ mod tests {
         let mut with_changes = options(300);
         with_changes.show_uncommitted = true;
         with_changes.show_untracked = true;
-        let ReadResponse::Commits { commits, .. } = read(repo, ReadRequest::Commits { options: with_changes }).unwrap() else { panic!() };
+        let ReadResponse::Commits { commits, .. } = read_engine(repo, ReadRequest::Commits { options: with_changes }).unwrap() else { panic!() };
         assert_eq!(commits[0].hash, UNCOMMITTED);
         assert_eq!(commits[0].parents, [head.unwrap()]);
 
         // A page: the missing parent runs on (more to load) - no dangling edge.
-        let ReadResponse::Commits { commits, more, layout, .. } = read(repo, ReadRequest::Commits { options: options(2) }).unwrap() else { panic!() };
+        let ReadResponse::Commits { commits, more, layout, .. } = read_engine(repo, ReadRequest::Commits { options: options(2) }).unwrap() else { panic!() };
         assert_eq!(commits.len(), 3, "two commits and the stash on top");
         assert!(more);
         assert!(layout.dangling.is_empty());
         assert!(layout.spans.chunks(graph::SPAN).any(|s| s[1] == 2), "a line runs off the bottom");
 
-        assert!(read("/nonexistent", ReadRequest::Commits { options: options(1) }).is_err());
+        assert!(read_engine("/nonexistent", ReadRequest::Commits { options: options(1) }).is_err());
     }
 
     #[test]
@@ -513,7 +814,7 @@ mod tests {
         let three = git(p, &["rev-parse", "HEAD^1"]);
 
         let ReadResponse::RepoInfo { branches, head: current, remotes, stashes, tags } =
-            read(repo, ReadRequest::RepoInfo { show_remote_branches: true, show_remote_heads: false, hide_remotes: vec![], show_stashes: true }).unwrap()
+            read_engine(repo, ReadRequest::RepoInfo { show_remote_branches: true, show_remote_heads: false, hide_remotes: vec![], show_stashes: true }).unwrap()
         else { panic!() };
         assert_eq!(branches, ["main", "side"]);
         assert_eq!(current.as_deref(), Some("main"));
@@ -522,7 +823,7 @@ mod tests {
         assert_eq!(stashes[0].message, "On main: kept");
         assert_eq!(tags, ["light", "v1"]);
 
-        let ReadResponse::Details { details } = read(repo, ReadRequest::CommitDetails { hash: three.clone() }).unwrap() else { panic!() };
+        let ReadResponse::Details { details } = read_engine(repo, ReadRequest::CommitDetails { hash: three.clone() }).unwrap() else { panic!() };
         assert_eq!(details.body, "three\n\nwith a body");
         assert_eq!(details.author, "t");
         assert_eq!(details.files.len(), 1);
@@ -530,39 +831,39 @@ mod tests {
         assert_eq!(details.files[0].additions, None, "counted separately");
 
         let ReadResponse::LineCounts { counts } =
-            read(repo, ReadRequest::LineCounts { from: Some(details.parents[0].clone()), to: three.clone(), paths: vec!["c".into()] }).unwrap()
+            read_engine(repo, ReadRequest::LineCounts { from: Some(details.parents[0].clone()), to: three.clone(), paths: vec!["c".into()] }).unwrap()
         else { panic!() };
         assert_eq!(counts["c"], LineCounts { additions: Some(2), deletions: Some(0) });
 
-        let ReadResponse::Details { details } = read(repo, ReadRequest::UncommittedDetails).unwrap() else { panic!() };
+        let ReadResponse::Details { details } = read_engine(repo, ReadRequest::UncommittedDetails).unwrap() else { panic!() };
         assert_eq!(details.hash, UNCOMMITTED);
         let mut names: Vec<(String, FileStatus)> = details.files.iter().map(|f| (f.new_path.clone(), f.status)).collect();
         names.sort();
         assert_eq!(names, [("a".to_string(), FileStatus::M), ("new".to_string(), FileStatus::U)]);
 
-        let ReadResponse::Details { details } = read(repo, ReadRequest::StashDetails {
+        let ReadResponse::Details { details } = read_engine(repo, ReadRequest::StashDetails {
             hash: stashes[0].hash.clone(),
             stash: CommitStash { selector: stashes[0].selector.clone(), base_hash: stashes[0].base_hash.clone(), untracked_files_hash: None },
         })
         .unwrap() else { panic!() };
         assert_eq!(details.files.iter().map(|f| f.new_path.as_str()).collect::<Vec<_>>(), ["a"]);
 
-        let ReadResponse::Compare { files } = read(repo, ReadRequest::Compare { from: three.clone(), to: head.clone() }).unwrap() else { panic!() };
+        let ReadResponse::Compare { files } = read_engine(repo, ReadRequest::Compare { from: three.clone(), to: head.clone() }).unwrap() else { panic!() };
         assert_eq!(files.iter().map(|f| f.new_path.as_str()).collect::<Vec<_>>(), ["b"]);
-        let ReadResponse::Compare { files } = read(repo, ReadRequest::Compare { from: head.clone(), to: UNCOMMITTED.into() }).unwrap() else { panic!() };
+        let ReadResponse::Compare { files } = read_engine(repo, ReadRequest::Compare { from: head.clone(), to: UNCOMMITTED.into() }).unwrap() else { panic!() };
         assert!(files.iter().any(|f| f.new_path == "a" && f.status == FileStatus::M));
 
-        let ReadResponse::TagDetails { details } = read(repo, ReadRequest::TagDetails { name: "v1".into() }).unwrap() else { panic!() };
+        let ReadResponse::TagDetails { details } = read_engine(repo, ReadRequest::TagDetails { name: "v1".into() }).unwrap() else { panic!() };
         assert!(details.annotated);
         assert_eq!(details.message.trim(), "the first");
         assert_eq!(details.tagger, "t");
-        let ReadResponse::TagDetails { details } = read(repo, ReadRequest::TagDetails { name: "light".into() }).unwrap() else { panic!() };
+        let ReadResponse::TagDetails { details } = read_engine(repo, ReadRequest::TagDetails { name: "light".into() }).unwrap() else { panic!() };
         assert!(!details.annotated);
 
-        let ReadResponse::Count { count } = read(repo, ReadRequest::CountCommitsBefore { hash: three.clone(), branches: None, show_remote_branches: true }).unwrap() else { panic!() };
+        let ReadResponse::Count { count } = read_engine(repo, ReadRequest::CountCommitsBefore { hash: three.clone(), branches: None, show_remote_branches: true }).unwrap() else { panic!() };
         assert_eq!(count, 2, "the stash row and the merge come before 'three'");
 
-        let ReadResponse::Authors { authors } = read(repo, ReadRequest::Authors).unwrap() else { panic!() };
+        let ReadResponse::Authors { authors } = read_engine(repo, ReadRequest::Authors).unwrap() else { panic!() };
         assert_eq!(authors, [Author { name: "t".into(), email: "t@t".into() }]);
     }
 

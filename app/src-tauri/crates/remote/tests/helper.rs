@@ -259,3 +259,41 @@ async fn git_asks_the_app_for_credentials() {
     assert_eq!(closed["askpassClosed"], question["askpass"]);
     assert_eq!(helper.result(json!({ "op": "answer", "ask": question["askpass"], "answer": "late" })).await, json!(false));
 }
+
+/// The typed read and operation ops: the same code as the app's, over the pipe; an
+/// operation's git output comes back as progress events, and a question as a result.
+#[tokio::test]
+async fn typed_reads_and_operations_over_the_pipe() {
+    let (_dir, root) = repo();
+    let mut helper = Helper::start().await;
+    let info = helper.result(json!({ "op": "read", "repo": root, "request": { "kind": "repoInfo", "showRemoteBranches": true, "showRemoteHeads": false, "hideRemotes": [], "showStashes": true } })).await;
+    assert_eq!(info["kind"], "repoInfo");
+    assert_eq!(info["branches"], json!(["main"]));
+    let state = helper.result(json!({ "op": "read", "repo": root, "request": { "kind": "operationState" } })).await;
+    assert_eq!(state, json!({ "kind": "operationState", "operation": null, "progress": null, "conflictedFiles": [] }));
+
+    let done = helper.result(json!({ "op": "op", "repo": root, "confirmed": false, "request": { "kind": "createBranch", "branch": "b", "commit": "HEAD", "checkout": false, "force": false } })).await;
+    assert_eq!(done, json!({ "kind": "done" }));
+    // The branch gets a commit of its own; moving it away then asks first.
+    git(&root, &["checkout", "-q", "b"]);
+    git(&root, &["commit", "-q", "--allow-empty", "-m", "only on b"]);
+    git(&root, &["checkout", "-q", "main"]);
+    let asked = helper.result(json!({ "op": "op", "repo": root, "confirmed": false, "request": { "kind": "createBranch", "branch": "b", "commit": "main", "checkout": false, "force": true } })).await;
+    assert_eq!(asked, json!({ "kind": "needsConfirmation", "reasons": [{ "kind": "branchMoveDropsCommits", "count": 1, "branch": "b" }] }));
+    let done = helper.result(json!({ "op": "op", "repo": root, "confirmed": true, "request": { "kind": "createBranch", "branch": "b", "commit": "main", "checkout": false, "force": true } })).await;
+    assert_eq!(done, json!({ "kind": "done" }));
+
+    // A fetch from itself streams what git says, as events of the request.
+    let id = helper.ask(json!({ "op": "op", "repo": root, "confirmed": false, "request": { "kind": "addRemote", "name": "self", "url": root, "pushUrl": null, "fetch": true } })).await;
+    let (result, others) = helper.answer(id).await;
+    assert_eq!(serde_json::from_slice::<Value>(&result.unwrap()).unwrap(), json!({ "kind": "done" }));
+    let progress: Vec<Value> = others.iter().filter(|f| f.id == id && f.kind == b'V').map(|f| serde_json::from_slice(&f.body).unwrap()).collect();
+    assert!(progress.iter().any(|p| p["progress"]["kind"] == "output" && p["progress"]["text"].as_str().unwrap_or_default().contains("From ")), "{progress:?}");
+
+    // Archives stay on the person's machine: refused over here.
+    let refused = helper.result(json!({ "op": "op", "repo": root, "confirmed": false, "request": { "kind": "createArchive", "reference": "main", "path": root.join("a.zip") } })).await;
+    assert_eq!(refused["kind"], "failed");
+    assert!(refused["message"].as_str().unwrap().contains("another machine"));
+    drop(helper.stdin.take());
+    helper.child.wait().await.unwrap();
+}

@@ -133,7 +133,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .manage(git::GitJobs::default())
+        .manage(api::Jobs::default())
         .manage(repos::Windows::default())
         .manage(Launch::default())
         .manage(plantuml::Cache::default())
@@ -171,13 +171,13 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             initial_repo,
             api::repo_read,
+            api::repo_op,
+            api::repo_op_cancel,
             engine_request,
             host_log,
             self_test,
             preview,
             preview_resize,
-            git::git_exec,
-            git::git_cancel,
             git::git_info,
             repo::repo_operation_state,
             repo::export_repo_config,
