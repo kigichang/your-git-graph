@@ -12,9 +12,9 @@
 		| { kind: 'compare'; from: string; to: string; files: FileChange[] }
 		| { kind: 'tag'; name: string; details: TagDetails };
 
-	let { view, fileView = 'tree', compactFolders = true, onClose, onOpenFile }: {
+	let { view, fileView = 'tree', compactFolders = true, onClose, onOpenFile, onFileMenu }: {
 		view: DetailsView; fileView?: 'tree' | 'list'; compactFolders?: boolean;
-		onClose: () => void; onOpenFile: (change: FileChange, fileOnly: boolean) => void;
+		onClose: () => void; onOpenFile: (change: FileChange, fileOnly: boolean) => void; onFileMenu?: (e: MouseEvent, change: FileChange) => void;
 	} = $props();
 
 	let height = $state(280);
@@ -94,7 +94,7 @@
 				{#if (view.kind === 'compare' ? view.files : view.details.files).length === 0}
 					<p class="gg-muted">No files changed.</p>
 				{:else}
-					<FileList files={view.kind === 'compare' ? view.files : view.details.files} view={fileView} compact={compactFolders} onOpen={onOpenFile} />
+					<FileList files={view.kind === 'compare' ? view.files : view.details.files} view={fileView} compact={compactFolders} onOpen={onOpenFile} onMenu={onFileMenu} />
 				{/if}
 			</div>
 		</div>

@@ -6,10 +6,13 @@
 	import { graphWidth } from '../graph/draw';
 	import { formatDate } from '../dates';
 	import { UNCOMMITTED, type Commit, type Layout } from '../api/client';
+	import type { MenuTarget } from '../menus';
 
-	let { commits, layout, head = null, more = false, rowHeight = 24, fontSize = 13, palette, loadMoreAutomatically = true, onLoadMore, onSelect, onCompare, onEscape, onTag }: {
-		commits: Commit[]; layout: Layout; head?: string | null; more?: boolean; rowHeight?: number; fontSize?: number; palette?: string[]; loadMoreAutomatically?: boolean;
+	let { commits, layout, head = null, currentBranch = null, more = false, rowHeight = 24, fontSize = 13, palette, loadMoreAutomatically = true, onLoadMore, onSelect, onCompare, onEscape, onTag, onContextMenu }: {
+		commits: Commit[]; layout: Layout; head?: string | null; currentBranch?: string | null; more?: boolean; rowHeight?: number; fontSize?: number; palette?: string[]; loadMoreAutomatically?: boolean;
 		onLoadMore?: () => void;
+		/** A right-click: on a row (its commit, the uncommitted row, a stash), a ref label, or the empty space. */
+		onContextMenu?: (e: MouseEvent, target: MenuTarget) => void;
 		/** A row was selected (click, keys); `again` when it was the selected one already. */
 		onSelect?: (row: number, commit: Commit, again: boolean) => void;
 		/** ⇧-click: the selected row against another. */
@@ -88,6 +91,26 @@
 		else if (e.key === 'j' && e.metaKey) { if (headRow >= 0) select(headRow); e.preventDefault(); }
 	}
 
+	function menu(e: MouseEvent, target: MenuTarget) {
+		if (!onContextMenu) return;
+		e.preventDefault();
+		e.stopPropagation();
+		onContextMenu(e, target);
+	}
+	function rowTarget(row: number, commit: Commit): MenuTarget {
+		if (commit.hash === UNCOMMITTED) return { kind: 'uncommitted', commit };
+		if (commit.stash !== null) return { kind: 'stash', selector: commit.stash.selector, commit };
+		return { kind: 'commit', commit, isHead: row === headRow };
+	}
+	function onRowMenu(e: MouseEvent, row: number, commit: Commit) {
+		if (selected !== row && commit.hash !== UNCOMMITTED) select(row);
+		menu(e, rowTarget(row, commit));
+	}
+	function onBackgroundMenu(e: MouseEvent) {
+		if ((e.target as Element).closest('.gg-row')) return;
+		menu(e, { kind: 'background' });
+	}
+
 	/** Scroll to HEAD's row and select it (View > Show HEAD Commit); false when it is not loaded. */
 	export function showHead(): boolean {
 		if (headRow < 0) return false;
@@ -107,18 +130,21 @@
 		<div class="gg-cell gg-col-hash">Commit</div>
 	</div>
 	<div class="gg-body">
-	<div class="gg-viewport" bind:this={viewport} onscroll={onScroll} onkeydown={onKeydown} tabindex="0" role="grid" aria-rowcount={rows}>
+	<div class="gg-viewport" bind:this={viewport} onscroll={onScroll} onkeydown={onKeydown} oncontextmenu={onBackgroundMenu} tabindex="0" role="grid" aria-rowcount={rows}>
 		<div class="gg-spacer" style:height="{rows * rowHeight}px">
 			<div class="gg-rows" style:transform="translateY({first * rowHeight}px)">
 				{#each visible as { row, commit } (commit.hash)}
 					<!-- svelte-ignore a11y_click_events_have_key_events a11y_interactive_supports_focus -->
 					<div class="gg-row" class:selected={row === selected} class:head={row === headRow} role="row" aria-rowindex={row + 1} tabindex="-1"
-						onclick={(e) => onRowClick(e, row)}>
+						onclick={(e) => onRowClick(e, row)} oncontextmenu={(e) => onRowMenu(e, row, commit)}>
 						<div class="gg-cell gg-col-graph"></div>
 						<div class="gg-cell gg-col-desc">
-							{#each commit.heads as name (name)}<span class="gg-ref gg-ref-head" class:gg-ref-current={name === head || (row === headRow)}>{name}</span>{/each}
-							{#each commit.remotes as r (r.name)}<span class="gg-ref gg-ref-remote">{r.name}</span>{/each}
-							{#each commit.tags as t (t.name)}<button class="gg-ref gg-ref-tag" onclick={(e) => { e.stopPropagation(); onTag?.(t.name, commit); }}>{t.name}</button>{/each}
+							{#each commit.heads as name (name)}<span class="gg-ref gg-ref-head" class:gg-ref-current={name === currentBranch} role="button" tabindex="-1"
+								oncontextmenu={(e) => menu(e, { kind: 'branch', name, commit, current: name === currentBranch })}>{name}</span>{/each}
+							{#each commit.remotes as r (r.name)}<span class="gg-ref gg-ref-remote" role="button" tabindex="-1"
+								oncontextmenu={(e) => menu(e, { kind: 'remoteBranch', name: r.name, remote: r.remote, commit })}>{r.name}</span>{/each}
+							{#each commit.tags as t (t.name)}<button class="gg-ref gg-ref-tag" onclick={(e) => { e.stopPropagation(); onTag?.(t.name, commit); }}
+								oncontextmenu={(e) => menu(e, { kind: 'tag', name: t.name, annotated: t.annotated, commit })}>{t.name}</button>{/each}
 							{#if commit.stash}<span class="gg-ref gg-ref-stash">{commit.stash.selector}</span>{/if}
 							<span class="gg-message">{commit.message}</span>
 						</div>

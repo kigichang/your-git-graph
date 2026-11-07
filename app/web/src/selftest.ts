@@ -7,6 +7,7 @@ import { getAllWindows } from '@tauri-apps/api/window';
 import { errorText } from './lib/errors';
 import { compareSpec, diffSpec, fileSpec, revisions, type DiffSpec } from './lib/diffspec';
 import { loadRepoInfo, repoOp, type Commit, type CommitsResponse, type Details, type FileChange, type OpRequest, type RepoInfo } from './lib/api/client';
+import { t } from './lib/i18n';
 
 const log = (line: string) => invoke('host_log', { line: 'selftest: ' + line }).catch(() => {});
 
@@ -16,7 +17,8 @@ type DetailsView =
 	| { kind: 'compare'; from: string; to: string; files: FileChange[] }
 	| { kind: 'tag'; name: string; details: { annotated: boolean; message: string } };
 type AppHandle = {
-	state: () => { repo: string | null; data: CommitsResponse | null; info: RepoInfo | null; error: string; firstPaintMs: number | null; details: DetailsView | null; branches: string[] | null };
+	state: () => { repo: string | null; data: CommitsResponse | null; info: RepoInfo | null; error: string; firstPaintMs: number | null; details: DetailsView | null; branches: string[] | null; menu: unknown; dialog: unknown; ops: { question: unknown; error: { message: string } | null; running: unknown } };
+	operate: (request: OpRequest) => Promise<boolean>;
 	load: (max: number) => Promise<void>;
 	table: () => { stats: () => { rows: number; rendered: number; paints: number; selected: number }; scrollTo: (top: number) => void } | undefined;
 	setBranches: (b: string[] | null) => Promise<void>;
@@ -219,6 +221,62 @@ async function checkSettings(check: Check): Promise<void> {
 	check(await settles(() => (app().state() as unknown as { settings: { graph: { rowHeight: number } } }).settings.graph.rowHeight === 24), 'null brings the default back');
 }
 
+/** 6 (the dialogs), 9: the context menu and the dialogs, driven as a person would: a branch is
+ * created from the menu of a row and deleted from the menu of its label; the question before
+ * losing work and the error after a failure show up as dialogs. */
+async function checkMenusAndDialogs(check: Check): Promise<void> {
+	const { repo, data } = app().state();
+	if (repo === null || data === null) return;
+	const branch = 'gg-selftest-ui-' + Date.now().toString(36);
+	const row = data.commits.findIndex((c) => c.hash !== '*' && c.stash === null);
+	if (row < 0) return;
+	const rowEl = () => document.querySelector(`.gg-row[aria-rowindex="${row + 1}"]`);
+	const menuItem = (id: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.gg-menu .gg-item')).find((b) => b.textContent?.trim() === t(('menu.' + id) as never));
+	const press = (el: Element, key: string) => el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+
+	// The row's menu: Create Branch… → the dialog → the name typed → Enter.
+	rowEl()?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 200 }));
+	check(await settles(() => document.querySelector('.gg-menu') !== null), 'the context menu opens on a row');
+	check(menuItem('createBranch') !== undefined && menuItem('copyHash') !== undefined, 'the menu lists the commit actions');
+	menuItem('createBranch')?.click();
+	check(await settles(() => document.querySelector('.gg-box input[type=text]') !== null), 'the Create Branch dialog opens');
+	const input = document.querySelector<HTMLInputElement>('.gg-box input[type=text]');
+	if (input) {
+		input.value = branch;
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+		press(input, 'Enter');
+	}
+	check(await settles(() => app().state().data?.commits.some((c) => c.heads.includes(branch)) === true, 20000), 'the branch appears in the graph after the dialog');
+	check(document.querySelector('.gg-box') === null, 'the dialog closed');
+
+	// The label's menu: Delete… → the dialog → Enter.
+	const label = Array.from(document.querySelectorAll('.gg-ref-head')).find((e) => e.textContent === branch);
+	check(label !== undefined, 'the branch has a label');
+	label?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 200 }));
+	check(await settles(() => menuItem('deleteBranch') !== undefined), 'the label\'s menu offers Delete');
+	menuItem('deleteBranch')?.click();
+	check(await settles(() => document.querySelector('.gg-box') !== null), 'the Delete Branch dialog opens');
+	const box = document.querySelector('.gg-box');
+	if (box) press(box, 'Enter');
+	check(await settles(() => app().state().data?.commits.some((c) => c.heads.includes(branch)) === false, 20000), 'the branch is gone after the dialog');
+
+	// A failure shows the error dialog: a branch that exists cannot be created again.
+	const existing = data.commits.flatMap((c) => c.heads)[0];
+	if (existing !== undefined) {
+		void app().operate({ kind: 'createBranch', branch: existing, commit: (data.commits[row] as Commit).hash, checkout: false, force: false });
+		check(await settles(() => app().state().ops.error !== null), 'the failure shows up');
+		check(await settles(() => document.querySelector('.gg-errortext')?.textContent?.includes('already exists') === true), 'the error dialog shows git\'s message');
+		const close = Array.from(document.querySelectorAll<HTMLButtonElement>('.gg-ok')).find((b) => b.textContent === t('dialog.close'));
+		close?.click();
+		check(await settles(() => app().state().ops.error === null), 'Close takes the error away');
+	}
+	// Esc closes an open menu.
+	rowEl()?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 300, clientY: 200 }));
+	await settles(() => document.querySelector('.gg-menu') !== null);
+	press(document.body, 'Escape');
+	check(await settles(() => document.querySelector('.gg-menu') === null), 'Esc closes the menu');
+}
+
 /** 5, 6, 7: operations through repo_op. A branch of the test's own is created, given a commit
  * (a revert), force-moved - which asks first, then runs once confirmed - and deleted; a fetch
  * from the repository itself streams git's words; a fetch that cannot connect is cancelled.
@@ -241,7 +299,13 @@ async function checkOps(check: Check): Promise<void> {
 		const asked = await run(move);
 		check(asked.kind === 'needsConfirmation' && asked.reasons.length === 1 && asked.reasons[0]?.kind === 'branchMoveDropsCommits' && asked.reasons[0].count === 1,
 			'force-moving the branch asks about its commit: ' + JSON.stringify(asked));
-		check((await run(move, true)).kind === 'done', 'confirmed, it runs');
+		// Through the window: the question is a dialog with the reason; Continue runs it.
+		const moving = app().operate(move);
+		check(await settles(() => app().state().ops.question !== null), 'the question shows as a dialog');
+		const reason = document.querySelector('.gg-reasons li')?.textContent ?? '';
+		check(/1 commit\(s\) of gg-selftest-.* will be on no other branch/.test(reason), 'the dialog words the reason: ' + reason);
+		(Array.from(document.querySelectorAll<HTMLButtonElement>('.gg-ok')).find((b) => b.textContent === t('dialog.continue')))?.click();
+		check(await moving, 'confirmed in the dialog, it runs');
 		await log(`ops: branch ${branch} created, reverted, moved with confirmation`);
 
 		// Progress: a fetch from the repository itself says "From …" on stderr.
@@ -273,6 +337,7 @@ export async function selfTest(_config: Record<string, unknown>): Promise<void> 
 		await checkGraph(check);
 		await checkDetails(check);
 		await checkOps(check);
+		await checkMenusAndDialogs(check);
 		await checkSettings(check);
 	} catch (e) {
 		failures.push(errorText(e));

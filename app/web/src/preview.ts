@@ -4,12 +4,16 @@
 //   details   the details of the third row (a merge commit, on git/git)
 //   compare   the first row compared with the fourth
 //   branches  the branch dropdown open
+//   menu      the context menu of the third row
+//   dialog    the Create Branch dialog for the third row
 import { log } from './lib/api/client';
+import type { MenuTarget } from './lib/menus';
 
 type AppHandle = {
-	state: () => { data: { commits: unknown[] } | null; error: string; details: { kind: string } | null };
+	state: () => { data: { commits: { hash: string; parents: string[] }[] } | null; error: string; details: { kind: string } | null };
 	selectRow: (row: number) => void;
 	compareRows: (a: number, b: number) => void;
+	action: (action: string, target: MenuTarget) => Promise<void>;
 };
 
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -30,6 +34,14 @@ export async function runPreview(scenes: string): Promise<void> {
 			await until(() => app().state().details?.kind !== 'loading');
 		} else if (scene === 'branches') {
 			(document.querySelector('.gg-branch-filter button') as HTMLButtonElement | null)?.click();
+		} else if (scene === 'menu' && rows > 2) {
+			const row = document.querySelector('.gg-row[aria-rowindex="3"]');
+			row?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 420, clientY: 160 }));
+			await until(() => document.querySelector('.gg-menu') !== null);
+		} else if (scene === 'dialog' && rows > 2) {
+			const commit = app().state().data?.commits[2];
+			if (commit) await app().action('createBranch', { kind: 'commit', commit: commit as never, isHead: false });
+			await until(() => document.querySelector('.gg-box') !== null);
 		}
 	}
 	await pause(400); // the last paint

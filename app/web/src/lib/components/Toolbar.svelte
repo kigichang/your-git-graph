@@ -3,9 +3,9 @@
 	// refresh, and a status line.
 	import BranchFilter from './BranchFilter.svelte';
 
-	let { repo, branches, selected, showRemoteBranches, status, onBranches, onShowRemoteBranches, onRefresh }: {
+	let { repo, branches, selected, showRemoteBranches, status, onBranches, onShowRemoteBranches, onRefresh, onFetch }: {
 		repo: string; branches: string[]; selected: string[] | null; showRemoteBranches: boolean; status: string;
-		onBranches: (selected: string[] | null) => void; onShowRemoteBranches: (on: boolean) => void; onRefresh: () => void;
+		onBranches: (selected: string[] | null) => void; onShowRemoteBranches: (on: boolean) => void; onRefresh: () => void; onFetch: () => void;
 	} = $props();
 
 	const name = $derived(repo.replace(/\/+$/, '').split('/').pop() ?? repo);
@@ -15,6 +15,7 @@
 	<span class="gg-repo" title={repo}>{name}</span>
 	<BranchFilter {branches} {selected} onChange={onBranches} />
 	<label class="gg-check"><input type="checkbox" checked={showRemoteBranches} onchange={(e) => onShowRemoteBranches((e.target as HTMLInputElement).checked)} /> Remote branches</label>
+	<button class="gg-button" onclick={onFetch} title="Fetch from Remotes (⌘⇧F)">Fetch</button>
 	<button class="gg-button" onclick={onRefresh} title="Refresh (⌘R)">Refresh</button>
 	<span class="gg-status" title={status}>{status}</span>
 </div>

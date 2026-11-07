@@ -4,9 +4,10 @@
 	import { buildTree, folderPaths, countsText, type TreeNode } from '../filetree';
 	import type { FileChange } from '../api/client';
 
-	let { files, view = 'tree', compact = true, onOpen }: {
+	let { files, view = 'tree', compact = true, onOpen, onMenu }: {
 		files: FileChange[]; view?: 'tree' | 'list'; compact?: boolean;
 		onOpen: (change: FileChange, fileOnly: boolean) => void;
+		onMenu?: (e: MouseEvent, change: FileChange) => void;
 	} = $props();
 
 	const tree = $derived(buildTree(files, compact));
@@ -19,7 +20,8 @@
 </script>
 
 {#snippet file(change: FileChange, name: string, depth: number)}
-	<button class="gg-file" style:padding-left="{8 + depth * 14}px" title={title(change)} onclick={(e) => open(e, change)}>
+	<button class="gg-file" style:padding-left="{8 + depth * 14}px" title={title(change)} onclick={(e) => open(e, change)}
+		oncontextmenu={(e) => { if (onMenu) { e.preventDefault(); onMenu(e, change); } }}>
 		<span class="gg-status gg-status-{change.status}">{change.status}</span>
 		<span class="gg-name">{name}</span>
 		<span class="gg-counts">{countsText(change)}</span>
