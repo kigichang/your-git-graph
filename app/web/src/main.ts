@@ -5,6 +5,13 @@ import App from './App.svelte';
 
 mount(App, { target: document.body });
 
+invoke<string | null>('preview').then(async (scenes) => {
+	if (scenes) {
+		const { runPreview } = await import('./preview');
+		await runPreview(scenes);
+	}
+}, () => {});
+
 invoke<unknown>('self_test').then(async (config) => {
 	if (config !== null) {
 		const { selfTest } = await import('./selftest');
