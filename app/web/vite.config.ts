@@ -10,6 +10,7 @@ const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
 export default defineConfig({
 	root: here('.'),
+	cacheDir: here('../node_modules/.vite'), // not under web/ (the Vite root)
 	plugins: [svelte()],
 	clearScreen: false,
 	server: { port: 1420, strictPort: true },

@@ -3,6 +3,7 @@ app/src-tauri/target/
 app/src-tauri/gen/
 # npm (app/: Vite, Svelte, Monaco, esbuild)
 app/node_modules/
+app/web/node_modules/
 # Built by `npm run build` (Vite) and app/scripts/build-diff.mjs (the diff window's bundles)
 app/web/dist/
 app/web/public/diff-dist/
