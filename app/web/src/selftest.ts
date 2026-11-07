@@ -21,6 +21,16 @@ type AppHandle = {
 	state: () => { repo: string | null; data: CommitsResponse | null; info: RepoInfo | null; error: string; firstPaintMs: number | null; details: DetailsView | null; branches: string[] | null; menu: unknown; dialog: unknown; ops: { question: unknown; error: { message: string } | null; running: unknown }; sidebar: SidebarState };
 	operate: (request: OpRequest) => Promise<boolean>;
 	show: (repo: string) => Promise<boolean>;
+	openFind: () => void;
+	onFindChange: (next: { query: string; caseSensitive: boolean; regex: boolean }) => void;
+	onFindStep: (forward: boolean) => void;
+	findMatches: () => number[];
+	openSettings: () => Promise<void>;
+	closeSettings: () => void;
+	showPanel: (p: 'reflog' | 'worktrees' | null) => void;
+	exportRepoState: () => Promise<boolean>;
+	repoState: () => { order: string | null };
+	saveRepoState: (patch: Record<string, unknown>) => void;
 	addAndShow: (paths: string[]) => Promise<void>;
 	removeRepos: (repos: string[]) => Promise<void>;
 	saveSidebar: (next: SidebarState) => void;
@@ -208,6 +218,57 @@ async function checkDetails(check: Check): Promise<void> {
 	check(await settles(() => app().state().details === null), 'Esc closes the details');
 	const closed = await settles(async () => (await getAllWindows()).length === 1);
 	check(closed, 'diff windows still open: ' + (await getAllWindows()).map((w) => w.label).join(', '));
+}
+
+/** 2, 4 (reflog, worktrees), 16, 17: the language switches in place; the reflog and worktree
+ * panels read; the repository's config file is exported once and taken back when newer; the
+ * find widget finds, steps and closes. */
+async function checkPanelsAndMore(check: Check): Promise<void> {
+	const { repo, data } = app().state();
+	if (repo === null || data === null) return;
+	// Language: Traditional Chinese reaches the toolbar and the sidebar without a reload; back to English.
+	await invoke('settings_set', { key: 'language', value: 'zh-TW' });
+	check(await settles(() => document.querySelector('.gg-sidebar .gg-title')?.textContent === '儲存庫'), 'the sidebar title is in Chinese');
+	check(await settles(() => Array.from(document.querySelectorAll('.gg-toolbar .gg-button')).some((b) => b.textContent === '擷取')), 'the toolbar is in Chinese');
+	const file = await invoke<{ settings: { language: string } }>('settings_get');
+	check(file.settings.language === 'zh-TW', 'settings.json says zh-TW');
+	await invoke('settings_set', { key: 'language', value: null });
+	check(await settles(() => document.querySelector('.gg-sidebar .gg-title')?.textContent === 'Repositories'), 'back to English');
+	// The reflog and worktree panels.
+	app().showPanel('reflog');
+	check(await settles(() => document.querySelectorAll('.gg-panel .gg-row').length > 0), 'the reflog lists entries');
+	app().showPanel('worktrees');
+	check(await settles(() => document.querySelectorAll('.gg-panel .gg-row').length >= 1), 'the worktree panel lists the main worktree');
+	app().showPanel(null);
+	// The repository's config file: exported once; a newer one is taken in when the repository is shown.
+	check(await app().exportRepoState(), 'the config file is written');
+	check(!(await app().exportRepoState()), 'not written over an existing one');
+	const newer = JSON.stringify({ version: 1, exportedAt: Math.floor(Date.now() / 1000) + 10, order: 'topo' });
+	await invoke('export_repo_config', { repo, contents: newer });
+	await app().show(repo);
+	check(app().repoState().order === 'topo', 'a newer file is imported when the repository is shown: ' + JSON.stringify(app().repoState()));
+	app().saveRepoState({ order: null });
+	await app().operate({ kind: 'cleanUntracked', directories: false }); // the file is untracked: gone again
+	// Find.
+	const word = (data.commits.find((c) => c.hash !== '*')?.message.split(/\s+/)[0] ?? 'a').toLowerCase();
+	app().openFind();
+	check(await settles(() => document.querySelector('.gg-find input') !== null), 'the find widget opens');
+	app().onFindChange({ query: word, caseSensitive: false, regex: false });
+	check(await settles(() => app().findMatches().length > 0), 'matches for "' + word + '"');
+	const matches = app().findMatches();
+	check(app().table()?.stats().selected === matches[0], 'the first match is selected');
+	if (matches.length > 1) {
+		app().onFindStep(true);
+		check(app().table()?.stats().selected === matches[1], 'Enter steps to the next match');
+	}
+	check(document.querySelectorAll('.gg-row.highlighted').length > 0, 'matches are highlighted');
+	(document.querySelector('.gg-find input') as HTMLElement | null)?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+	check(await settles(() => document.querySelector('.gg-find') === null), 'Esc closes the find widget');
+	// The settings drawer opens and closes.
+	await app().openSettings();
+	check(await settles(() => document.querySelector('.gg-settings') !== null), 'the settings open');
+	app().closeSettings();
+	check(await settles(() => document.querySelector('.gg-settings') === null), 'and close');
 }
 
 /** 14 (the part M2 has): the settings are read; a value out of range is refused; a change is
@@ -431,6 +492,7 @@ export async function selfTest(config: Record<string, unknown>): Promise<void> {
 		await checkMenusAndDialogs(check);
 		await checkSidebar(check);
 		if (config['remote'] === true) await checkRemote(check);
+		await checkPanelsAndMore(check);
 		await checkSettings(check);
 	} catch (e) {
 		failures.push(errorText(e));

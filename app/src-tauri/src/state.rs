@@ -77,6 +77,31 @@ impl State {
         let _ = self.dirty.lock().unwrap().send(());
     }
 
+    /// The first version kept the view state of the upstream webview under keys of its own
+    /// shape (`repoState:`, `webviewState:`, …); today's app has its own (`repo:`, `window:`).
+    /// Once: drop the old keys and mark the file as version 2. How many keys were dropped.
+    pub fn migrate_v2(&self) -> usize {
+        let mut values = self.values.lock().unwrap();
+        if values.get("stateVersion").and_then(Value::as_u64) >= Some(2) {
+            return 0;
+        }
+        let old: Vec<String> = values
+            .keys()
+            .filter(|k| {
+                ["repoState:", "codeReviews:", "webviewState:", "lastActive:"].iter().any(|p| k.starts_with(p))
+                    || ["globalViewState", "workspaceViewState"].contains(&k.as_str())
+            })
+            .cloned()
+            .collect();
+        for k in &old {
+            values.remove(k);
+        }
+        values.insert("stateVersion".into(), Value::from(2));
+        drop(values);
+        let _ = self.dirty.lock().unwrap().send(());
+        old.len()
+    }
+
     /// Write now (at exit: the writer thread may still be waiting out [`COALESCE`]).
     pub fn flush(&self) {
         if let Some(file) = &self.file {
@@ -216,6 +241,21 @@ mod tests {
         reopened.set("now".into(), Some(json!("yes")));
         reopened.flush();
         assert_eq!(State::open(Some(file)).snapshot().get("now"), Some(&json!("yes")));
+    }
+
+    #[test]
+    fn the_first_versions_keys_go_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("state.json");
+        std::fs::write(&file, r#"{"repoState:/a":{},"codeReviews:/a":{},"webviewState:window:main":1,"globalViewState":{},"workspaceViewState":{},"lastActive:/x":1,"sidebar":{"repos":["/a"]},"lastActiveRepo":"/a","mounts":{},"appearance":"dark"}"#).unwrap();
+        let state = State::open(Some(file.clone()));
+        assert_eq!(state.migrate_v2(), 6);
+        let mut kept: Vec<String> = state.snapshot().keys().cloned().collect();
+        kept.sort();
+        assert_eq!(kept, ["appearance", "lastActiveRepo", "mounts", "sidebar", "stateVersion"]);
+        assert_eq!(state.migrate_v2(), 0, "done once");
+        state.set("repoState:/b".into(), Some(json!(1)));
+        assert_eq!(state.migrate_v2(), 0, "a version-2 file is left alone");
     }
 
     #[test]

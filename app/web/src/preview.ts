@@ -6,6 +6,11 @@
 //   branches  the branch dropdown open
 //   menu      the context menu of the third row
 //   dialog    the Create Branch dialog for the third row
+//   settings  the settings drawer
+//   find      the find widget with "fix" typed
+//   reflog    the reflog panel
+//   zh        the interface in Traditional Chinese
+import { invoke } from '@tauri-apps/api/core';
 import { log } from './lib/api/client';
 import type { MenuTarget } from './lib/menus';
 
@@ -14,6 +19,10 @@ type AppHandle = {
 	selectRow: (row: number) => void;
 	compareRows: (a: number, b: number) => void;
 	action: (action: string, target: MenuTarget) => Promise<void>;
+	openSettings: () => Promise<void>;
+	openFind: () => void;
+	onFindChange: (next: { query: string; caseSensitive: boolean; regex: boolean }) => void;
+	showPanel: (p: 'reflog' | 'worktrees' | null) => void;
 };
 
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -42,6 +51,19 @@ export async function runPreview(scenes: string): Promise<void> {
 			const commit = app().state().data?.commits[2];
 			if (commit) await app().action('createBranch', { kind: 'commit', commit: commit as never, isHead: false });
 			await until(() => document.querySelector('.gg-box') !== null);
+		} else if (scene === 'settings') {
+			await app().openSettings();
+			await until(() => document.querySelector('.gg-settings') !== null);
+		} else if (scene === 'find') {
+			app().openFind();
+			await until(() => document.querySelector('.gg-find') !== null);
+			app().onFindChange({ query: 'fix', caseSensitive: false, regex: false });
+		} else if (scene === 'reflog') {
+			app().showPanel('reflog');
+			await until(() => document.querySelector('.gg-panel .gg-row') !== null);
+		} else if (scene === 'zh') {
+			await invoke('settings_set', { key: 'language', value: 'zh-TW' });
+			await until(() => document.querySelector('.gg-sidebar .gg-title')?.textContent === '儲存庫' || document.querySelector('.gg-toolbar .gg-button')?.textContent === '擷取');
 		}
 	}
 	await pause(400); // the last paint

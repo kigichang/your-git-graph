@@ -4,6 +4,8 @@
 	import FileList from './FileList.svelte';
 	import { formatDate } from '../dates';
 	import { UNCOMMITTED, type Details, type FileChange, type TagDetails } from '../api/client';
+	import type { DateFormat } from '../api/generated/DateFormat';
+	import { t } from '../i18n';
 
 	export type DetailsView =
 		| { kind: 'loading' }
@@ -12,13 +14,14 @@
 		| { kind: 'compare'; from: string; to: string; files: FileChange[] }
 		| { kind: 'tag'; name: string; details: TagDetails };
 
-	let { view, fileView = 'tree', compactFolders = true, onClose, onOpenFile, onFileMenu }: {
-		view: DetailsView; fileView?: 'tree' | 'list'; compactFolders?: boolean;
+	let { view, fileView = 'tree', compactFolders = true, dateFormat = 'date-time', onClose, onOpenFile, onFileMenu }: {
+		view: DetailsView; fileView?: 'tree' | 'list'; compactFolders?: boolean; dateFormat?: DateFormat;
 		onClose: () => void; onOpenFile: (change: FileChange, fileOnly: boolean) => void; onFileMenu?: (e: MouseEvent, change: FileChange) => void;
 	} = $props();
 
 	let height = $state(280);
-	const short = (hash: string) => (hash === UNCOMMITTED ? 'Working Tree' : hash.slice(0, 8));
+	const short = (hash: string) => (hash === UNCOMMITTED ? t('details.workingTree') : hash.slice(0, 8));
+	const date = (seconds: number) => formatDate(seconds, dateFormat === 'relative' ? 'date-time' : dateFormat);
 
 	function startResize(e: PointerEvent) {
 		const startY = e.clientY, startHeight = height;
@@ -44,21 +47,21 @@
 <section class="gg-details" style:height="{height}px" aria-label="Details">
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="gg-resize" onpointerdown={startResize}></div>
-	<button class="gg-close" title="Close (Esc)" onclick={onClose}>✕</button>
+	<button class="gg-close" title={t('details.close')} onclick={onClose}>✕</button>
 	{#if view.kind === 'loading'}
-		<p class="gg-muted">Loading…</p>
+		<p class="gg-muted">{t('details.loading')}</p>
 	{:else if view.kind === 'error'}
 		<p class="gg-error">{view.message}</p>
 	{:else if view.kind === 'tag'}
 		<div class="gg-header">
-			<h2>Tag {view.name}</h2>
+			<h2>{t('details.tag', { name: view.name })}</h2>
 			<dl>
-				<dt>Object</dt><dd class="gg-mono">{view.details.hash}</dd>
+				<dt>{t('details.object')}</dt><dd class="gg-mono">{view.details.hash}</dd>
 				{#if view.details.annotated}
-					<dt>Tagger</dt><dd>{view.details.tagger} &lt;{view.details.taggerEmail}&gt;</dd>
-					<dt>Date</dt><dd>{formatDate(view.details.taggerDate)}</dd>
+					<dt>{t('details.tagger')}</dt><dd>{view.details.tagger} &lt;{view.details.taggerEmail}&gt;</dd>
+					<dt>{t('details.date')}</dt><dd>{date(view.details.taggerDate)}</dd>
 				{:else}
-					<dt>Kind</dt><dd>Lightweight</dd>
+					<dt>{t('details.kind')}</dt><dd>{t('details.lightweight')}</dd>
 				{/if}
 			</dl>
 			{#if view.details.annotated}<pre class="gg-body">{view.details.message}</pre>{/if}
@@ -67,24 +70,24 @@
 		<div class="gg-columns">
 			<div class="gg-header">
 				{#if view.kind === 'compare'}
-					<h2>Compare {short(view.from)} ↔ {short(view.to)}</h2>
+					<h2>{t('details.compare', { from: short(view.from), to: short(view.to) })}</h2>
 					<dl>
-						<dt>From</dt><dd class="gg-mono">{view.from}</dd>
-						<dt>To</dt><dd class="gg-mono">{view.to === UNCOMMITTED ? 'Working tree' : view.to}</dd>
+						<dt>{t('details.from')}</dt><dd class="gg-mono">{view.from}</dd>
+						<dt>{t('details.to')}</dt><dd class="gg-mono">{view.to === UNCOMMITTED ? t('details.workingTree') : view.to}</dd>
 					</dl>
 				{:else if view.details.hash === UNCOMMITTED}
-					<h2>Uncommitted Changes</h2>
+					<h2>{t('details.uncommitted')}</h2>
 				{:else}
-					<h2>{view.stash !== null ? 'Stash ' + view.stash : 'Commit ' + short(view.details.hash)}</h2>
+					<h2>{view.stash !== null ? t('details.stash', { name: view.stash }) : t('details.commit', { name: short(view.details.hash) })}</h2>
 					<dl>
-						<dt>Hash</dt><dd class="gg-mono">{view.details.hash}</dd>
+						<dt>{t('details.hash')}</dt><dd class="gg-mono">{view.details.hash}</dd>
 						{#if view.details.parents.length > 0}
-							<dt>Parents</dt><dd class="gg-mono">{view.details.parents.map(short).join(', ')}</dd>
+							<dt>{t('details.parents')}</dt><dd class="gg-mono">{view.details.parents.map(short).join(', ')}</dd>
 						{/if}
-						<dt>Author</dt><dd>{view.details.author} &lt;{view.details.authorEmail}&gt;</dd>
-						<dt>Date</dt><dd>{formatDate(view.details.authorDate)}</dd>
+						<dt>{t('details.author')}</dt><dd>{view.details.author} &lt;{view.details.authorEmail}&gt;</dd>
+						<dt>{t('details.date')}</dt><dd>{date(view.details.authorDate)}</dd>
 						{#if view.details.committer !== view.details.author || view.details.committerEmail !== view.details.authorEmail}
-							<dt>Committer</dt><dd>{view.details.committer} &lt;{view.details.committerEmail}&gt; · {formatDate(view.details.committerDate)}</dd>
+							<dt>{t('details.committer')}</dt><dd>{view.details.committer} &lt;{view.details.committerEmail}&gt; · {date(view.details.committerDate)}</dd>
 						{/if}
 					</dl>
 					<pre class="gg-body">{view.details.body}</pre>
@@ -92,7 +95,7 @@
 			</div>
 			<div class="gg-filecol">
 				{#if (view.kind === 'compare' ? view.files : view.details.files).length === 0}
-					<p class="gg-muted">No files changed.</p>
+					<p class="gg-muted">{t('details.noFiles')}</p>
 				{:else}
 					<FileList files={view.kind === 'compare' ? view.files : view.details.files} view={fileView} compact={compactFolders} onOpen={onOpenFile} onMenu={onFileMenu} />
 				{/if}

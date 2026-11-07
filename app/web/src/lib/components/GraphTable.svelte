@@ -4,12 +4,29 @@
 	// canvas, a sticky header, keyboard selection, and "load more" at the bottom.
 	import GraphCanvas from './GraphCanvas.svelte';
 	import { graphWidth } from '../graph/draw';
-	import { formatDate } from '../dates';
+	import { formatDate, relative } from '../dates';
 	import { UNCOMMITTED, type Commit, type Layout } from '../api/client';
+	import type { DateFormat } from '../api/generated/DateFormat';
 	import type { MenuTarget } from '../menus';
+	import { t } from '../i18n';
 
-	let { commits, layout, head = null, currentBranch = null, more = false, rowHeight = 24, fontSize = 13, palette, loadMoreAutomatically = true, onLoadMore, onSelect, onCompare, onEscape, onTag, onContextMenu }: {
+	const relativeWords = (n: number, unit: string, ago: boolean) => {
+		if (n === 0) return t('relative.justNow');
+		const text = t(('relative.' + unit) as 'relative.year', { n });
+		return ago ? t('relative.ago', { text }) : t('relative.in', { text });
+	};
+	const dateText = (seconds: number) => formatDate(seconds, dateFormat, relativeWords);
+	/** The remote labels not already shown as a local branch's (combined onto it). */
+	const remoteLabels = (commit: Commit) => (combineLabels ? commit.remotes.filter((r) => !commit.heads.some((h) => r.name === (r.remote ?? '') + '/' + h)) : commit.remotes);
+	const combinedWith = (commit: Commit, head: string) => (combineLabels ? commit.remotes.filter((r) => r.name === (r.remote ?? '') + '/' + head).map((r) => r.remote ?? '').join(', ') : '');
+
+	let { commits, layout, head = null, currentBranch = null, more = false, rowHeight = 24, fontSize = 13, palette, loadMoreAutomatically = true, highlighted = null, dateFormat = 'date-time', combineLabels = true, onLoadMore, onSelect, onCompare, onEscape, onTag, onContextMenu }: {
 		commits: Commit[]; layout: Layout; head?: string | null; currentBranch?: string | null; more?: boolean; rowHeight?: number; fontSize?: number; palette?: string[]; loadMoreAutomatically?: boolean;
+		/** The rows the find widget matched. */
+		highlighted?: Set<number> | null;
+		dateFormat?: DateFormat;
+		/** A remote branch with the same name as a local one shows as one label. */
+		combineLabels?: boolean;
 		onLoadMore?: () => void;
 		/** A right-click: on a row (its commit, the uncommitted row, a stash), a ref label, or the empty space. */
 		onContextMenu?: (e: MouseEvent, target: MenuTarget) => void;
@@ -123,11 +140,11 @@
 
 <div class="gg-table" style:--gg-graph-width="{width}px" style:--gg-row-height="{rowHeight}px" style:font-size="{fontSize}px">
 	<div class="gg-header" role="row">
-		<div class="gg-cell gg-col-graph">Graph</div>
-		<div class="gg-cell gg-col-desc">Description</div>
-		<div class="gg-cell gg-col-date">Date</div>
-		<div class="gg-cell gg-col-author">Author</div>
-		<div class="gg-cell gg-col-hash">Commit</div>
+		<div class="gg-cell gg-col-graph">{t('column.graph')}</div>
+		<div class="gg-cell gg-col-desc">{t('column.description')}</div>
+		<div class="gg-cell gg-col-date">{t('column.date')}</div>
+		<div class="gg-cell gg-col-author">{t('column.author')}</div>
+		<div class="gg-cell gg-col-hash">{t('column.commit')}</div>
 	</div>
 	<div class="gg-body">
 	<div class="gg-viewport" bind:this={viewport} onscroll={onScroll} onkeydown={onKeydown} oncontextmenu={onBackgroundMenu} tabindex="0" role="grid" aria-rowcount={rows}>
@@ -135,20 +152,20 @@
 			<div class="gg-rows" style:transform="translateY({first * rowHeight}px)">
 				{#each visible as { row, commit } (commit.hash)}
 					<!-- svelte-ignore a11y_click_events_have_key_events a11y_interactive_supports_focus -->
-					<div class="gg-row" class:selected={row === selected} class:head={row === headRow} role="row" aria-rowindex={row + 1} tabindex="-1"
+					<div class="gg-row" class:selected={row === selected} class:head={row === headRow} class:highlighted={highlighted?.has(row)} role="row" aria-rowindex={row + 1} tabindex="-1"
 						onclick={(e) => onRowClick(e, row)} oncontextmenu={(e) => onRowMenu(e, row, commit)}>
 						<div class="gg-cell gg-col-graph"></div>
 						<div class="gg-cell gg-col-desc">
 							{#each commit.heads as name (name)}<span class="gg-ref gg-ref-head" class:gg-ref-current={name === currentBranch} role="button" tabindex="-1"
-								oncontextmenu={(e) => menu(e, { kind: 'branch', name, commit, current: name === currentBranch })}>{name}</span>{/each}
-							{#each commit.remotes as r (r.name)}<span class="gg-ref gg-ref-remote" role="button" tabindex="-1"
+								oncontextmenu={(e) => menu(e, { kind: 'branch', name, commit, current: name === currentBranch })}>{name}{#if combinedWith(commit, name)}<span class="gg-ref-also"> · {combinedWith(commit, name)}</span>{/if}</span>{/each}
+							{#each remoteLabels(commit) as r (r.name)}<span class="gg-ref gg-ref-remote" role="button" tabindex="-1"
 								oncontextmenu={(e) => menu(e, { kind: 'remoteBranch', name: r.name, remote: r.remote, commit })}>{r.name}</span>{/each}
 							{#each commit.tags as t (t.name)}<button class="gg-ref gg-ref-tag" onclick={(e) => { e.stopPropagation(); onTag?.(t.name, commit); }}
 								oncontextmenu={(e) => menu(e, { kind: 'tag', name: t.name, annotated: t.annotated, commit })}>{t.name}</button>{/each}
 							{#if commit.stash}<span class="gg-ref gg-ref-stash">{commit.stash.selector}</span>{/if}
 							<span class="gg-message">{commit.message}</span>
 						</div>
-						<div class="gg-cell gg-col-date">{commit.hash === UNCOMMITTED ? '' : formatDate(commit.date)}</div>
+						<div class="gg-cell gg-col-date">{commit.hash === UNCOMMITTED ? '' : dateText(commit.date)}</div>
 						<div class="gg-cell gg-col-author">{commit.author}</div>
 						<div class="gg-cell gg-col-hash">{shortHash(commit.hash)}</div>
 					</div>
@@ -163,7 +180,7 @@
 	{/if}
 	</div>
 	{#if more}
-		<div class="gg-footer"><button onclick={() => onLoadMore?.()}>Load more commits</button></div>
+		<div class="gg-footer"><button onclick={() => onLoadMore?.()}>{t('toolbar.loadMore')}</button></div>
 	{/if}
 </div>
 
@@ -176,7 +193,10 @@
 	.gg-spacer { position: relative; }
 	.gg-rows { position: absolute; left: 0; right: 0; top: 0; }
 	.gg-row:hover { background: var(--gg-list-hoverBackground); }
+	.gg-row.highlighted { background: var(--gg-editor-findMatchHighlightBackground); box-shadow: inset 0 0 0 1px var(--gg-editor-findMatchHighlightBorder); }
 	.gg-row.selected { background: var(--gg-menu-selectionBackground); color: var(--gg-menu-selectionForeground); }
+	.gg-ref-also { font-weight: 400; color: var(--gg-descriptionForeground); }
+	.gg-row.selected .gg-ref-also { color: inherit; }
 	.gg-row.head .gg-message { font-weight: 600; }
 	.gg-cell { padding: 0 8px; overflow: hidden; text-overflow: ellipsis; }
 	.gg-col-graph { flex: none; width: var(--gg-graph-width); padding: 0; }

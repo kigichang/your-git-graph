@@ -10,7 +10,8 @@
 	import { open as pickFolders, save } from '@tauri-apps/plugin-dialog';
 	import {
 		loadCommits, loadRepoInfo, commitDetails, stashDetails, uncommittedDetails, compare, lineCounts, tagDetails, operationState, aheadBehind, openDiffWindow,
-		defaultLoadOptions, log, UNCOMMITTED, type CommitsResponse, type Commit, type FileChange, type RepoInfo, type LoadOptions, type OpRequest, type OperationKind
+		authors as readAuthors, repoConfig as readRepoConfig, countCommitsBefore,
+		defaultLoadOptions, log, UNCOMMITTED, type CommitsResponse, type Commit, type FileChange, type RepoInfo, type LoadOptions, type OpRequest, type OperationKind, type RepoConfig, type Worktree
 	} from './lib/api/client';
 	import { diffSpec, fileSpec, workingFileSpec, revisions } from './lib/diffspec';
 	import { errorText } from './lib/errors';
@@ -22,7 +23,9 @@
 	import { ops, runOperation } from './lib/ops.svelte';
 	import { settings, watchSettings } from './lib/settings.svelte';
 	import { appState, loadState } from './lib/state.svelte';
-	import { t } from './lib/i18n';
+	import { t, setLanguage, languageFor } from './lib/i18n';
+	import { findRows, stepMatch } from './lib/find';
+	import { DEFAULT_REPO_STATE, REPO_CONFIG_FILE, exportRepoConfig, importRepoConfig, repoStateFrom, type RepoState } from './lib/repoconfig';
 	import GraphTable from './lib/components/GraphTable.svelte';
 	import Toolbar from './lib/components/Toolbar.svelte';
 	import DetailsPanel, { type DetailsView } from './lib/components/DetailsPanel.svelte';
@@ -33,6 +36,10 @@
 	import Sidebar, { type RepoStatus, type SidebarTarget } from './lib/components/Sidebar.svelte';
 	import StartPage from './lib/components/StartPage.svelte';
 	import AskpassDialog from './lib/components/AskpassDialog.svelte';
+	import FindWidget from './lib/components/FindWidget.svelte';
+	import ReflogPanel from './lib/components/ReflogPanel.svelte';
+	import WorktreePanel from './lib/components/WorktreePanel.svelte';
+	import SettingsPanel from './lib/components/SettingsPanel.svelte';
 
 	let repo = $state<string | null>(null);
 	let data = $state.raw<CommitsResponse | null>(null);
@@ -42,7 +49,18 @@
 	let status = $state('');
 	let maxCommits = $state(300);
 	let branches = $state<string[] | null>(null);
+	let authorFilter = $state<string[] | null>(null);
+	let authorNames = $state<string[]>([]);
 	let showRemoteBranches = $state(true);
+	let firstParentOnly = $state(false);
+	let panel = $state<'reflog' | 'worktrees' | null>(null);
+	let settingsOpen = $state(false);
+	let repoConfig = $state.raw<RepoConfig | null>(null);
+	let worktreeVersion = $state(0);
+	let find = $state<{ open: boolean; query: string; caseSensitive: boolean; regex: boolean; index: number }>({ open: false, query: '', caseSensitive: false, regex: false, index: -1 });
+	let findWidget: ReturnType<typeof FindWidget> | undefined = $state();
+	const findMatches = $derived(data === null || !find.open ? [] : findRows(data.commits, find.query, { caseSensitive: find.caseSensitive, regex: find.regex }));
+	const highlighted = $derived(new Set(findMatches));
 	let loading = $state(false);
 	let table: ReturnType<typeof GraphTable> | undefined = $state();
 	let details = $state.raw<DetailsView | null>(null);
@@ -61,10 +79,45 @@
 	const options = (max: number): LoadOptions => {
 		const s = settings.current;
 		return {
-			...defaultLoadOptions(max), branches, showRemoteBranches, order: s.commits.order,
-			showRemoteHeads: s.repository.showRemoteHeads, showUncommitted: s.commits.showUncommitted, showUntracked: s.commits.showUntracked
+			...defaultLoadOptions(max), branches, authors: authorFilter, showRemoteBranches, firstParentOnly, order: repoState().order ?? s.commits.order,
+			hideRemotes: repoState().hiddenRemotes, showRemoteHeads: s.repository.showRemoteHeads, showUncommitted: s.commits.showUncommitted, showUntracked: s.commits.showUntracked
 		};
 	};
+
+	/* ---------- Per-repository state (state.json "repo:<repo>") ---------- */
+
+	const repoState = (): RepoState => (repo === null ? DEFAULT_REPO_STATE : repoStateFrom(appState.get('repo:' + repo)));
+	function saveRepoState(patch: Partial<RepoState>) {
+		if (repo === null) return;
+		appState.set('repo:' + repo, { ...repoState(), ...patch });
+	}
+	/** The repository's own view settings, and its config file when it is newer than what was taken before. */
+	async function restoreRepoState(r: string) {
+		let st = repoStateFrom(appState.get('repo:' + r));
+		try {
+			const file = await invoke<{ exists: boolean; text?: string | null }>('worktree_file', { repo: r, path: REPO_CONFIG_FILE });
+			if (file.exists && typeof file.text === 'string') {
+				const imported = importRepoConfig(st, file.text);
+				if (imported !== null) { st = imported; appState.set('repo:' + r, st); void log('repo config: imported ' + REPO_CONFIG_FILE); }
+			}
+		} catch (e) {
+			void log('repo config: ' + errorText(e));
+		}
+		branches = st.branches;
+		authorFilter = st.authors;
+		showRemoteBranches = st.showRemoteBranches;
+		firstParentOnly = st.firstParentOnly;
+	}
+	/** Write the repository's config file (Export Repository Configuration); false when it exists already. */
+	async function exportRepoState(): Promise<boolean> {
+		if (repo === null) return false;
+		const existing = await invoke<{ exists: boolean }>('worktree_file', { repo, path: REPO_CONFIG_FILE }).catch(() => ({ exists: false }));
+		if (existing.exists) return false;
+		const now = Math.floor(Date.now() / 1000);
+		await invoke('export_repo_config', { repo, contents: exportRepoConfig(repoState(), now) });
+		saveRepoState({ lastImportAt: now });
+		return true;
+	}
 
 	/* ---------- Loading the shown repository ---------- */
 
@@ -139,7 +192,9 @@
 		info = null;
 		selected = null;
 		error = '';
+		panel = null;
 		appState.set('lastActiveRepo', r);
+		await restoreRepoState(r);
 		const ok = await load(settings.current.commits.initialLoad);
 		if (!ok) { setStatus(r, { missing: true, note: error }); return false; }
 		void reportShown();
@@ -150,6 +205,7 @@
 			if (share && mounts[r] !== share) { mounts[r] = share; appState.set('mounts', mounts); }
 		}
 		recent = await invoke<string[]>('recent_repos').catch(() => recent);
+		authorNames = await readAuthors(r).then((list) => list.map((a) => a.name)).catch(() => []);
 		return true;
 	}
 
@@ -202,13 +258,17 @@
 		await Promise.all([loadState(), watchSettings()]);
 		let settingsSeen = JSON.stringify(settings.current);
 		showRemoteBranches = settings.current.repository.showRemoteBranches;
+		setLanguage(languageFor(settings.current.language));
 		settings.onChange((next) => {
+			setLanguage(languageFor(next.language));
 			const text = JSON.stringify(next);
 			if (text === settingsSeen) return;
 			settingsSeen = text;
 			void reload();
 		});
 		recent = await invoke<string[]>('recent_repos').catch(() => []);
+		const savedFind = appState.get<{ caseSensitive?: boolean; regex?: boolean }>('find');
+		if (savedFind) find = { ...find, caseSensitive: savedFind.caseSensitive === true, regex: savedFind.regex === true };
 		// What this window opens with: the folder it was made for, the command line (main), or
 		// the repository shown last. Repositories on other machines wait until shown.
 		const forThisWindow = (window as unknown as { __GG_OPEN_REPO?: string }).__GG_OPEN_REPO;
@@ -237,7 +297,9 @@
 		switch (event.payload) {
 			case 'refresh': void reload(); break;
 			case 'fetch': fetchDialog(); break;
-			case 'head': table?.showHead(); break;
+			case 'head': void showHead(); break;
+			case 'find': openFind(); break;
+			case 'settings': openSettings(); break;
 			case 'sidebar': saveSidebar({ ...sidebar, collapsed: !sidebar.collapsed }); break;
 			case 'addRemote': addRemote(); break;
 			case 'addServer': connectServer(); break;
@@ -267,6 +329,72 @@
 	// Changes on another machine or by another one on a share are not watched: look again
 	// when the window comes to the front.
 	window.addEventListener('focus', () => { if (repo !== null && (isRemote(repo) || appState.mounts[repo] !== undefined)) void reload(); });
+
+	/* ---------- Find, HEAD, the panels ---------- */
+
+	function openFind() {
+		find = { ...find, open: true };
+		findWidget?.focus();
+	}
+	function onFindChange(next: { query: string; caseSensitive: boolean; regex: boolean }) {
+		find = { ...find, ...next, index: -1 };
+		appState.set('find', { caseSensitive: next.caseSensitive, regex: next.regex });
+		const rows = data === null ? [] : findRows(data.commits, next.query, { caseSensitive: next.caseSensitive, regex: next.regex });
+		if (rows.length > 0) { find.index = 0; table?.select(rows[0] as number); }
+	}
+	function onFindStep(forward: boolean) {
+		const rows = findMatches;
+		if (rows.length === 0) return;
+		const current = table?.stats().selected ?? -1;
+		const i = stepMatch(rows, current, forward);
+		find = { ...find, index: i };
+		table?.select(rows[i] as number);
+	}
+	/** Show HEAD's row: loaded, or after loading as far as it (⌘J). */
+	async function showHead() {
+		if (table?.showHead()) return;
+		if (repo === null || data === null || data.head === null || !data.more) return;
+		const before = await countCommitsBefore(repo, data.head, branches, showRemoteBranches).catch(() => null);
+		if (before === null) return;
+		await load(Math.max(maxCommits, before + 50));
+		table?.showHead();
+	}
+	/** Select the row of `hash` when it is loaded. */
+	function showCommit(hash: string): boolean {
+		const row = data?.commits.findIndex((c) => c.hash === hash) ?? -1;
+		if (row < 0) return false;
+		table?.select(row);
+		return true;
+	}
+	async function openSettings() {
+		if (repo !== null) repoConfig = await readRepoConfig(repo).catch(() => null);
+		settingsOpen = true;
+	}
+	function worktreeAddDialog() {
+		if (repo === null) return;
+		const spec: DialogSpec<OpRequest> = {
+			title: t('worktree.addTitle'), action: t('worktree.add').replace('…', ''),
+			fields: [
+				{ kind: 'text', id: 'path', label: t('worktree.path'), value: repo.replace(/\/+$/, '') + '-worktree' },
+				{ kind: 'text', id: 'branch', label: t('worktree.branch'), value: '', refName: true },
+				{ kind: 'text', id: 'newBranch', label: t('worktree.newBranch'), value: '', refName: true }
+			],
+			build: (v) => {
+				const path = String(v['path'] ?? '').trim(), branch = String(v['branch'] ?? '').trim(), newBranch = String(v['newBranch'] ?? '').trim();
+				if (path === '') return { error: t('worktree.path') + '?' };
+				return { kind: 'worktreeAdd', path, branch: branch === '' ? null : branch, newBranch: newBranch === '' ? null : newBranch };
+			}
+		};
+		dialog = { spec: spec as DialogSpec<unknown>, onDone: (built) => { void operate(built as OpRequest).then(() => { worktreeVersion++; }); } };
+	}
+	function worktreeRemoveDialog(w: Worktree) {
+		const spec: DialogSpec<OpRequest> = {
+			title: t('worktree.removeTitle', { name: w.path }), action: t('worktree.remove').replace('…', ''), danger: true,
+			fields: [{ kind: 'checkbox', id: 'force', label: t('worktree.force'), value: false }],
+			build: (v) => ({ kind: 'worktreeRemove', path: w.path, force: v['force'] === true })
+		};
+		dialog = { spec: spec as DialogSpec<unknown>, onDone: (built) => { void operate(built as OpRequest).then(() => { worktreeVersion++; }); } };
+	}
 
 	/* ---------- The details panel ---------- */
 
@@ -450,6 +578,7 @@
 		const done = await runOperation(repo, request);
 		await reload();
 		void updateAheadBehind([repo]);
+		if (settingsOpen) repoConfig = await readRepoConfig(repo).catch(() => null);
 		return done;
 	}
 
@@ -573,7 +702,18 @@
 			removeRepos,
 			saveSidebar,
 			addRemote,
-			connectServer
+			connectServer,
+			openFind,
+			onFindChange,
+			onFindStep,
+			findMatches: () => findMatches,
+			openSettings,
+			closeSettings: () => { settingsOpen = false; },
+			showPanel: (p: 'reflog' | 'worktrees' | null) => { panel = p; },
+			exportRepoState,
+			repoState,
+			saveRepoState,
+			setAuthors: (a: string[] | null) => { authorFilter = a; saveRepoState({ authors: a }); return reload(); }
 		}
 	};
 </script>
@@ -589,15 +729,24 @@
 				<StartPage {recent} {error} onOpen={(r) => { void addAndShow([r]); }} onAddLocal={addLocal} onAddRemote={addRemote} onConnectServer={connectServer} />
 			{/if}
 		{:else}
-			<Toolbar {repo} branches={info?.branches ?? []} selected={branches} {showRemoteBranches} status={error || status} sidebarCollapsed={sidebar.collapsed}
-				onBranches={(b) => { branches = b; void reload(); }}
-				onShowRemoteBranches={(on) => { showRemoteBranches = on; void reload(); }}
-				onRefresh={reload} onFetch={fetchDialog} onExpandSidebar={() => saveSidebar({ ...sidebar, collapsed: false })} />
+			<Toolbar {repo} branches={info?.branches ?? []} selected={branches} authors={authorNames} selectedAuthors={authorFilter} {showRemoteBranches} {firstParentOnly} status={error || status} sidebarCollapsed={sidebar.collapsed}
+				onBranches={(b) => { branches = b; saveRepoState({ branches: b }); void reload(); }}
+				onAuthors={(a) => { authorFilter = a; saveRepoState({ authors: a }); void reload(); }}
+				onShowRemoteBranches={(on) => { showRemoteBranches = on; saveRepoState({ showRemoteBranches: on }); void reload(); }}
+				onFirstParent={(on) => { firstParentOnly = on; saveRepoState({ firstParentOnly: on }); void reload(); }}
+				onRefresh={reload} onFetch={fetchDialog} onFind={openFind} onReflog={() => { panel = panel === 'reflog' ? null : 'reflog'; }}
+				onWorktrees={() => { panel = panel === 'worktrees' ? null : 'worktrees'; }} onSettings={openSettings}
+				onExpandSidebar={() => saveSidebar({ ...sidebar, collapsed: false })} />
+			{#if find.open}
+				<FindWidget bind:this={findWidget} query={find.query} caseSensitive={find.caseSensitive} regex={find.regex} count={findMatches.length} index={find.index}
+					onChange={onFindChange} onStep={onFindStep} onClose={() => { find = { ...find, open: false }; }} />
+			{/if}
 			{#if data}
 				<GraphTable bind:this={table} commits={data.commits} layout={data.layout} head={data.head} currentBranch={info?.head ?? null} more={data.more}
 					rowHeight={settings.current.graph.rowHeight} fontSize={settings.current.graph.fontSize} palette={settings.current.graph.colours}
-					loadMoreAutomatically={settings.current.commits.loadMoreAutomatically}
-					onLoadMore={loadMore} {onSelect} {onCompare} onEscape={closeDetails} {onTag} {onContextMenu} />
+					loadMoreAutomatically={settings.current.commits.loadMoreAutomatically} {highlighted} dateFormat={settings.current.commits.dateFormat}
+					combineLabels={settings.current.graph.combineLocalAndRemoteLabels}
+					onLoadMore={loadMore} {onSelect} {onCompare} onEscape={() => { if (find.open) find = { ...find, open: false }; else closeDetails(); }} {onTag} {onContextMenu} />
 			{:else if error}
 				<p class="gg-error">{error}</p>
 			{/if}
@@ -606,12 +755,22 @@
 					onContinue={() => inProgress && operate({ kind: 'continueOperation', operation: inProgress.operation })}
 					onAbort={() => inProgress && operate({ kind: 'abortOperation', operation: inProgress.operation })} />
 			{/if}
+			{#if panel === 'reflog'}
+				<ReflogPanel {repo} references={info?.branches.filter((b) => !b.startsWith('remotes/')) ?? []} onShow={showCommit} onClose={() => { panel = null; }} />
+			{:else if panel === 'worktrees'}
+				<WorktreePanel {repo} version={worktreeVersion} onAdd={worktreeAddDialog} onRemove={worktreeRemoveDialog}
+					onPrune={() => { void operate({ kind: 'worktreePrune' }).then(() => { worktreeVersion++; }); }} onOpen={(path) => { void addAndShow([path]); }} onClose={() => { panel = null; }} />
+			{/if}
 			{#if details !== null}
-				<DetailsPanel view={details} fileView={settings.current.details.fileView} compactFolders={settings.current.details.compactFolders}
+				<DetailsPanel view={details} fileView={settings.current.details.fileView} compactFolders={settings.current.details.compactFolders} dateFormat={settings.current.commits.dateFormat}
 					onClose={closeDetails} onOpenFile={openFile} {onFileMenu} />
 			{/if}
 		{/if}
 	</div>
+	{#if settingsOpen}
+		<SettingsPanel {repo} remoteRepo={repo !== null && isRemote(repo)} config={repoConfig} onClose={() => { settingsOpen = false; }} onOperate={operate}
+			onDialog={(spec, onDone) => { dialog = { spec, onDone }; }} />
+	{/if}
 	{#if menu}
 		<ContextMenu items={menu.items} x={menu.x} y={menu.y} onClose={() => { menu = null; }}
 			onPick={(id) => { const pick = (menu as { onPick: (id: string) => void }).onPick; menu = null; pick(id); }} />
@@ -625,6 +784,6 @@
 
 <style>
 	.gg-main { display: flex; flex-direction: row; height: 100vh; }
-	.gg-content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+	.gg-content { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
 	.gg-error { color: var(--gg-errorForeground); padding: 16px; white-space: pre-wrap; margin: 0; }
 </style>

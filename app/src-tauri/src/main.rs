@@ -154,6 +154,10 @@ fn main() {
             if std::env::var_os("GG_DATA_DIR").is_some() && !saved.snapshot().contains_key("migratedFromLocalStorage") {
                 saved.set("migratedFromLocalStorage".into(), Some(serde_json::Value::Bool(true)));
             }
+            let dropped = saved.migrate_v2();
+            if dropped > 0 {
+                eprintln!("[state] dropped {dropped} keys of the first version's state");
+            }
             app.manage(saved);
             let appearance = repos::saved_appearance(app.handle());
             let _ = repos::apply_appearance(app.handle(), &appearance);
