@@ -33,10 +33,13 @@ pub async fn read_git(rt: &dyn Runtime, request: ReadRequest) -> Result<ReadResp
                     }
                 }
             }
+            // Exit 1: the index differs from HEAD (fixup and squash commit what is staged).
+            let staged = exec(rt, args(&["diff", "--cached", "--quiet", "--no-ext-diff"])).await?.exit_code == Some(1);
             Ok(ReadResponse::OperationState {
                 operation,
                 progress: marker.progress.map(|p| OperationProgress { step: p.step, total: p.total }),
                 conflicted_files,
+                staged,
             })
         }
         ReadRequest::Reflog { reference, limit } => {

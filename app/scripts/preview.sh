@@ -13,14 +13,15 @@
 set -euo pipefail
 app="$1"; repo="$2"; scenes="$3"; appearance="$4"; out="$5"
 
-helper="${TMPDIR:-/tmp}/gg-window-ids"
+helper="${TMPDIR:-/tmp}/gg-window-ids-2"
 if [ ! -x "$helper" ]; then
 	cat > "$helper.swift" <<'SWIFT'
 import CoreGraphics
 // The on-screen windows of a process: "<window id>" per line.
 let pid = Int(CommandLine.arguments[1])!
 let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as! [[String: Any]]
-for w in list where (w[kCGWindowOwnerPID as String] as? Int) == pid && (w[kCGWindowLayer as String] as? Int) == 0 {
+// Normal and floating windows (under GG_PREVIEW they are kept on top): not the menu bar's.
+for w in list where (w[kCGWindowOwnerPID as String] as? Int) == pid && (0...8).contains(w[kCGWindowLayer as String] as? Int ?? -1) {
     print(w[kCGWindowNumber as String]!)
 }
 SWIFT

@@ -20,7 +20,8 @@
 	const GROUPS: { title: Key; rows: Row[] }[] = [
 		{ title: 'settings.general', rows: [
 			{ key: 'language', label: 'settings.language', kind: 'select', options: [{ value: 'auto', label: 'value.auto' }, { value: 'en', label: 'value.en' }, { value: 'zh-TW', label: 'value.zhTW' }] },
-			{ key: 'commits.dateFormat', label: 'settings.commits.dateFormat', kind: 'select', options: [{ value: 'date-time', label: 'value.dateTime' }, { value: 'date', label: 'value.dateOnly' }, { value: 'iso-date-time', label: 'value.isoDateTime' }, { value: 'iso-date', label: 'value.isoDate' }, { value: 'relative', label: 'value.relative' }] }
+			{ key: 'commits.dateFormat', label: 'settings.commits.dateFormat', kind: 'select', options: [{ value: 'date-time', label: 'value.dateTime' }, { value: 'date', label: 'value.dateOnly' }, { value: 'iso-date-time', label: 'value.isoDateTime' }, { value: 'iso-date', label: 'value.isoDate' }, { value: 'relative', label: 'value.relative' }] },
+			{ key: 'commits.dateType', label: 'settings.commits.dateType', kind: 'select', options: [{ value: 'author', label: 'value.authorDate' }, { value: 'commit', label: 'value.commitDate' }] }
 		] },
 		{ title: 'settings.graph', rows: [
 			{ key: 'graph.style', label: 'settings.graph.style', kind: 'select', options: [{ value: 'rounded', label: 'value.rounded' }, { value: 'angular', label: 'value.angular' }] },

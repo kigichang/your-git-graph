@@ -3,6 +3,7 @@
 	// here with its graph and details, the operations, and the ways a repository gets in
 	// (the command line, File > Open, the sidebar, a folder dropped on the window, a machine
 	// over ssh, a share).
+	import { tick } from 'svelte';
 	import { invoke } from '@tauri-apps/api/core';
 	import { listen } from '@tauri-apps/api/event';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -45,6 +46,8 @@
 	let data = $state.raw<CommitsResponse | null>(null);
 	let info = $state.raw<RepoInfo | null>(null);
 	let inProgress = $state.raw<{ operation: OperationKind; progress: { step: number; total: number } | null; conflicted: string[] } | null>(null);
+	/** The index has changes to commit (fixup and squash need some). */
+	let staged = $state(false);
 	let error = $state('');
 	let status = $state('');
 	let maxCommits = $state(300);
@@ -66,6 +69,14 @@
 	let details = $state.raw<DetailsView | null>(null);
 	let detailsFor = ''; // what the panel shows, so a late answer for something else is dropped
 	let selected = $state.raw<Commit | null>(null);
+	/** Where the open details are: chosen as they open (`details.location`), kept until closed. */
+	let detailsWhere = $state<'bottom' | 'inline'>('bottom');
+	let detailsHeight = $state(280);
+	/** The commit whose row the details belong to (the newer one of a comparison, a tag's). */
+	let detailsAt = $state<string | null>(null);
+	/** The row the details are shown below when inline; -1 docks them at the bottom (also when
+	 * that row is not loaded). */
+	const inlineRow = $derived(details !== null && detailsWhere === 'inline' && detailsAt !== null && data !== null ? data.commits.findIndex((c) => c.hash === detailsAt) : -1);
 	let firstPaintMs = $state<number | null>(null);
 	let menu = $state.raw<{ x: number; y: number; items: MenuItem[]; onPick: (id: string) => void } | null>(null);
 	let dialog = $state.raw<{ spec: DialogSpec<unknown>; onDone: (built: unknown) => void } | null>(null);
@@ -80,7 +91,8 @@
 		const s = settings.current;
 		return {
 			...defaultLoadOptions(max), branches, authors: authorFilter, showRemoteBranches, firstParentOnly, order: repoState().order ?? s.commits.order,
-			hideRemotes: repoState().hiddenRemotes, showRemoteHeads: s.repository.showRemoteHeads, showUncommitted: s.commits.showUncommitted, showUntracked: s.commits.showUntracked
+			hideRemotes: repoState().hiddenRemotes, showRemoteHeads: s.repository.showRemoteHeads, showUncommitted: s.commits.showUncommitted, showUntracked: s.commits.showUntracked,
+			authorDates: s.commits.dateType === 'author'
 		};
 	};
 
@@ -134,7 +146,7 @@
 			maxCommits = max;
 			error = '';
 			const tm = answer.timing;
-			status = `${answer.commits.length} commits${answer.more ? ' (more available)' : ''} · engine ${tm.engineMs.toFixed(0)} ms · layout ${tm.layoutMs.toFixed(1)} ms · request ${requestMs.toFixed(0)} ms · ${answer.layout.lanes} lanes`;
+			status = `${answer.commits.length} commits${answer.more ? ' (more available)' : ''} · engine ${tm.engineMs.toFixed(0)} ms${tm.datesMs > 0 ? ` · author dates ${tm.datesMs.toFixed(0)} ms` : ''} · layout ${tm.layoutMs.toFixed(1)} ms · request ${requestMs.toFixed(0)} ms · ${answer.layout.lanes} lanes`;
 			void log('graph: ' + status);
 			if (firstPaintMs === null) {
 				requestAnimationFrame(() => {
@@ -145,6 +157,7 @@
 			info = await loadRepoInfo(r, { showRemoteBranches, showRemoteHeads: true, hideRemotes: [], showStashes: true });
 			const state = await operationState(r);
 			inProgress = state.operation === null ? null : { operation: state.operation, progress: state.progress, conflicted: state.conflictedFiles };
+			staged = state.staged;
 			setStatus(r, { missing: false, note: undefined });
 			return true;
 		} catch (e) {
@@ -398,10 +411,19 @@
 
 	/* ---------- The details panel ---------- */
 
-	/** Show `view` once `work` answers, unless something else was asked for meanwhile. */
-	async function showDetails(key: string, work: () => Promise<DetailsView>) {
+	/** Show `view` once `work` answers, unless something else was asked for meanwhile; `at` is
+	 * the commit whose row the details belong to. The row is brought into view (centred as the
+	 * details open, with `details.autoCenter`) once the panel has its place. */
+	async function showDetails(key: string, at: string | null, work: () => Promise<DetailsView>) {
+		const opening = details === null;
+		if (opening) detailsWhere = settings.current.details.location;
 		detailsFor = key;
+		detailsAt = at;
 		details = { kind: 'loading' };
+		void tick().then(() => {
+			const row = at === null || data === null ? -1 : data.commits.findIndex((c) => c.hash === at);
+			if (detailsFor === key && row >= 0) table?.showRow(row, opening && settings.current.details.autoCenter);
+		});
 		try {
 			const view = await work();
 			if (detailsFor === key) details = view;
@@ -429,16 +451,16 @@
 		if (again && details !== null) { closeDetails(); return; }
 		const r = repo;
 		if (commit.hash === UNCOMMITTED) {
-			void showDetails('*', async () => ({ kind: 'commit', details: await uncommittedDetails(r), stash: null }));
+			void showDetails('*', UNCOMMITTED, async () => ({ kind: 'commit', details: await uncommittedDetails(r), stash: null }));
 		} else if (commit.stash !== null) {
 			const stash = commit.stash;
-			void showDetails(commit.hash, async () => {
+			void showDetails(commit.hash, commit.hash, async () => {
 				const d = await stashDetails(r, commit.hash, stash);
 				void countLines(commit.hash, stash.baseHash, commit.hash, d.files);
 				return { kind: 'commit', details: d, stash: stash.selector };
 			});
 		} else {
-			void showDetails(commit.hash, async () => {
+			void showDetails(commit.hash, commit.hash, async () => {
 				const d = await commitDetails(r, commit.hash);
 				void countLines(commit.hash, d.parents[0] ?? null, commit.hash, d.files);
 				return { kind: 'commit', details: d, stash: null };
@@ -452,22 +474,23 @@
 		const older = (c: Commit) => (data as CommitsResponse).commits.indexOf(c);
 		const [from, to] = older(a) > older(other) ? [a, other] : [other, a];
 		const r = repo, key = from.hash + '..' + to.hash;
-		void showDetails(key, async () => {
+		void showDetails(key, to.hash, async () => {
 			const files = await compare(r, from.hash, to.hash);
 			void countLines(key, from.hash, to.hash, files);
 			return { kind: 'compare', from: from.hash, to: to.hash, files };
 		});
 	}
 
-	function onTag(name: string) {
+	function onTag(name: string, commit?: Commit) {
 		if (repo === null) return;
 		const r = repo;
-		void showDetails('tag:' + name, async () => ({ kind: 'tag', name, details: await tagDetails(r, name) }));
+		void showDetails('tag:' + name, commit?.hash ?? null, async () => ({ kind: 'tag', name, details: await tagDetails(r, name) }));
 	}
 
 	function closeDetails() {
 		details = null;
 		detailsFor = '';
+		detailsAt = null;
 	}
 
 	/** The revisions the details panel shows a file between. */
@@ -497,7 +520,7 @@
 
 	function onContextMenu(e: MouseEvent, target: MenuTarget) {
 		if (repo === null) return;
-		const items = menuFor(target, { hasSelection: selected !== null && 'commit' in target && selected.hash !== target.commit.hash, remote: isRemote(repo), staged: target.kind === 'commit' });
+		const items = menuFor(target, { hasSelection: selected !== null && 'commit' in target && selected.hash !== target.commit.hash, remote: isRemote(repo), staged });
 		showMenu(e, items, (id) => { void doAction(id as MenuAction, target); });
 	}
 
@@ -741,8 +764,15 @@
 				<FindWidget bind:this={findWidget} query={find.query} caseSensitive={find.caseSensitive} regex={find.regex} count={findMatches.length} index={find.index}
 					onChange={onFindChange} onStep={onFindStep} onClose={() => { find = { ...find, open: false }; }} />
 			{/if}
+			{#snippet inlineDetails()}
+				{#if details !== null}
+					<DetailsPanel view={details} inline fileView={settings.current.details.fileView} compactFolders={settings.current.details.compactFolders} dateFormat={settings.current.commits.dateFormat}
+						bind:height={detailsHeight} onClose={closeDetails} onOpenFile={openFile} {onFileMenu} />
+				{/if}
+			{/snippet}
 			{#if data}
 				<GraphTable bind:this={table} commits={data.commits} layout={data.layout} head={data.head} currentBranch={info?.head ?? null} more={data.more}
+					gapRow={inlineRow} gapHeight={detailsHeight} gap={inlineDetails}
 					rowHeight={settings.current.graph.rowHeight} fontSize={settings.current.graph.fontSize} palette={settings.current.graph.colours}
 					loadMoreAutomatically={settings.current.commits.loadMoreAutomatically} {highlighted} dateFormat={settings.current.commits.dateFormat}
 					combineLabels={settings.current.graph.combineLocalAndRemoteLabels}
@@ -761,9 +791,9 @@
 				<WorktreePanel {repo} version={worktreeVersion} onAdd={worktreeAddDialog} onRemove={worktreeRemoveDialog}
 					onPrune={() => { void operate({ kind: 'worktreePrune' }).then(() => { worktreeVersion++; }); }} onOpen={(path) => { void addAndShow([path]); }} onClose={() => { panel = null; }} />
 			{/if}
-			{#if details !== null}
+			{#if details !== null && inlineRow < 0}
 				<DetailsPanel view={details} fileView={settings.current.details.fileView} compactFolders={settings.current.details.compactFolders} dateFormat={settings.current.commits.dateFormat}
-					onClose={closeDetails} onOpenFile={openFile} {onFileMenu} />
+					bind:height={detailsHeight} onClose={closeDetails} onOpenFile={openFile} {onFileMenu} />
 			{/if}
 		{/if}
 	</div>

@@ -37,6 +37,23 @@ export type DrawOptions = {
 
 const colourOf = (palette: string[], c: number): string => palette[c % palette.length] as string;
 
+/** A space of `height` px below row `row` (the details shown inline); `row` -1: none. */
+export type Gap = { row: number; height: number };
+export const NO_GAP: Gap = { row: -1, height: 0 };
+
+/** Where row `row` starts in the table's content: rows below the gap move down by its height. */
+export function rowTop(row: number, rowHeight: number, gap: Gap): number {
+	return row * rowHeight + (gap.row >= 0 && row > gap.row ? gap.height : 0);
+}
+
+/** The row at content offset `y`; inside the gap, the row the gap belongs to. */
+export function rowAt(y: number, rowHeight: number, gap: Gap): number {
+	const gapTop = (gap.row + 1) * rowHeight;
+	if (gap.row < 0 || y < gapTop) return Math.floor(y / rowHeight);
+	if (y < gapTop + gap.height) return gap.row;
+	return Math.floor((y - gap.height) / rowHeight);
+}
+
 /** The spans crossing rows `first..=last` (any part of them), as indices into `layout.spans`. */
 export function spansInView(layout: Layout, first: number, last: number): number[] {
 	const out: number[] = [];
@@ -76,7 +93,10 @@ export function drawRows(ctx: Ctx, layout: Layout, o: DrawOptions): void {
 				ctx.lineTo(x1, o.yOf(run));
 				row = run;
 			} else {
-				const y0 = o.yOf(row), y1 = o.yOf(row + 1);
+				// Across a gap (more than a row apart): straight down through it, then the curve
+				// over the last row's height, as between any two rows.
+				const y1 = o.yOf(row + 1), y0 = Math.max(o.yOf(row), y1 - o.rowHeight);
+				if (y0 > o.yOf(row)) ctx.lineTo(x0, y0);
 				ctx.bezierCurveTo(x0, y0 + (y1 - y0) / 2, x1, y1 - (y1 - y0) / 2, x1, y1);
 				row++;
 			}

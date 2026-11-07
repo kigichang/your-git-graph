@@ -270,7 +270,7 @@ async fn typed_reads_and_operations_over_the_pipe() {
     assert_eq!(info["kind"], "repoInfo");
     assert_eq!(info["branches"], json!(["main"]));
     let state = helper.result(json!({ "op": "read", "repo": root, "request": { "kind": "operationState" } })).await;
-    assert_eq!(state, json!({ "kind": "operationState", "operation": null, "progress": null, "conflictedFiles": [] }));
+    assert_eq!(state, json!({ "kind": "operationState", "operation": null, "progress": null, "conflictedFiles": [], "staged": false }));
 
     let done = helper.result(json!({ "op": "op", "repo": root, "confirmed": false, "request": { "kind": "createBranch", "branch": "b", "commit": "HEAD", "checkout": false, "force": false } })).await;
     assert_eq!(done, json!({ "kind": "done" }));

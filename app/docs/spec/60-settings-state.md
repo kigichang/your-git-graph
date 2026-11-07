@@ -22,7 +22,7 @@
 | `commits.showUncommitted` | true | |
 | `commits.showUntracked` | true | |
 | `commits.includeReflog` | false | |
-| `commits.dateType` | `author` | `author`／`commit` |
+| `commits.dateType` | `author` | `author`／`commit`：Date 欄顯示作者日期或 committer 日期（引擎列出 committer 日期，作者日期另外讀，見 CLAUDE.md） |
 | `commits.dateFormat` | `date-time` | 待填：有哪些 |
 | `commits.markdown` | true | 標題的輕量標記 |
 | `repository.showRemoteBranches` | true | |

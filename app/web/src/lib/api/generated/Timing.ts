@@ -3,4 +3,8 @@
 /**
  * How long the parts of a read took, for the performance gate.
  */
-export type Timing = { engineMs: number, layoutMs: number, };
+export type Timing = { engineMs: number, layoutMs: number, 
+/**
+ * Reading the author dates (`LoadOptions::author_dates`); 0 without.
+ */
+datesMs: number, };

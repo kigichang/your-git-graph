@@ -92,7 +92,7 @@ export function defaultLoadOptions(maxCommits = 300): LoadOptions {
 	return {
 		maxCommits, branches: null, authors: null, filterPaths: [], order: 'date', firstParentOnly: false,
 		showTags: true, showRemoteBranches: true, showRemoteHeads: true, hideRemotes: [],
-		showUncommitted: true, showUntracked: true
+		showUncommitted: true, showUntracked: true, authorDates: true
 	};
 }
 

@@ -333,7 +333,7 @@ async fn a_conflicting_merge_reports_its_state_and_abort_restores_the_branch() {
     let r = f.op(OpRequest::Merge { target: "other".into(), no_fast_forward: false, squash: false, no_commit: false }).await;
     assert!(failed(&r).contains("CONFLICT"));
     let rt = f.rt();
-    let ReadResponse::OperationState { operation, conflicted_files, progress } = read_git(&rt, ReadRequest::OperationState).await.unwrap() else { panic!() };
+    let ReadResponse::OperationState { operation, conflicted_files, progress, .. } = read_git(&rt, ReadRequest::OperationState).await.unwrap() else { panic!() };
     assert_eq!((operation, conflicted_files, progress), (Some(OperationKind::Merge), vec!["a".to_string()], None));
     let ReadResponse::ConflictPrediction { prediction } = read_git(&rt, ReadRequest::PredictConflicts { ours: "main".into(), theirs: "other".into() }).await.unwrap() else { panic!() };
     assert_eq!(prediction, Some(ConflictPrediction { conflicted: true, files: vec!["a".into()] }));
@@ -371,10 +371,14 @@ async fn rebase_plain_autosquash_and_interactive_handed_to_the_terminal() {
     assert_eq!(&f.subjects()[..3], ["add s2", "add s1", "add m1"]);
 
     let s1 = f.git(&["rev-parse", "HEAD~1"]);
+    let staged = || async { matches!(read_git(&f.rt(), ReadRequest::OperationState).await.unwrap(), ReadResponse::OperationState { staged: true, .. }) };
     f.write("s1", "s1 fixed\n");
+    assert!(!staged().await, "changed but not staged: nothing for fixup");
     f.git(&["add", "s1"]);
+    assert!(staged().await);
     assert!(done(&f.op(OpRequest::CommitFixup { commit: s1 }).await));
     assert_eq!(f.subjects()[0], "fixup! add s1");
+    assert!(!staged().await, "committed");
     assert!(done(&f.op(OpRequest::Rebase { onto: "main".into(), ignore_date: false, autosquash: true, interactive: false }).await));
     assert_eq!(&f.subjects()[..3], ["add s2", "add s1", "add m1"]);
     assert_eq!(f.git(&["show", "HEAD~1:s1"]), "s1 fixed");
@@ -756,4 +760,35 @@ async fn every_git_run_is_non_interactive_and_takes_no_optional_locks_and_can_be
     assert!(started.elapsed().as_secs() < 5);
     assert!(rt.cancelled());
     assert_eq!(rt.git(vec!["status".into()], Default::default()).await.unwrap_err(), "Cancelled.", "nothing more runs");
+}
+
+/* ---------- the commit list ---------- */
+
+#[tokio::test]
+async fn the_list_shows_the_author_date_when_asked_and_the_committer_date_otherwise() {
+    let w = World::new();
+    let f = w.fixture();
+    f.git(&["commit", "-q", "--allow-empty", "-m", "written long before", "--date=1600000000 +0000"]);
+    f.write("a", "changed\n");
+    let rt = f.rt();
+    let mut options = LoadOptions {
+        max_commits: 10, branches: None, authors: None, filter_paths: vec![], order: CommitOrder::Date, first_parent_only: false,
+        show_tags: true, show_remote_branches: true, show_remote_heads: true, hide_remotes: vec![], show_uncommitted: true, show_untracked: true,
+        author_dates: false,
+    };
+    let list = |r: ReadResponse| match r {
+        ReadResponse::Commits { commits, timing, .. } => (commits.into_iter().map(|c| (c.hash, c.message, c.date)).collect::<Vec<_>>(), timing),
+        other => panic!("{other:?}"),
+    };
+    let (commits, timing) = list(gg_backend::api::read(&rt, ReadRequest::Commits { options: options.clone() }).await.unwrap());
+    assert_eq!(commits[0].0, UNCOMMITTED);
+    assert_eq!((commits[1].1.as_str(), commits[1].2), ("written long before", 1_700_000_000), "the engine lists the committer date");
+    assert_eq!(timing.dates_ms, 0.0);
+
+    options.author_dates = true;
+    let (dated, timing) = list(gg_backend::api::read(&rt, ReadRequest::Commits { options }).await.unwrap());
+    assert_eq!(dated[0], commits[0], "the uncommitted row keeps its date");
+    assert_eq!((dated[1].1.as_str(), dated[1].2), ("written long before", 1_600_000_000), "the author date");
+    assert!(dated[2..].iter().all(|c| c.2 == 1_700_000_000));
+    assert!(timing.dates_ms > 0.0);
 }

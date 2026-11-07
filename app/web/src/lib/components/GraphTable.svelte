@@ -2,8 +2,9 @@
 	// The commit table: Graph | Description | Date | Author | Commit, with only the rows in
 	// view in the DOM (a spacer gives the scrollbar its length), the graph column drawn on a
 	// canvas, a sticky header, keyboard selection, and "load more" at the bottom.
+	import type { Snippet } from 'svelte';
 	import GraphCanvas from './GraphCanvas.svelte';
-	import { graphWidth } from '../graph/draw';
+	import { graphWidth, rowAt, rowTop, type Gap } from '../graph/draw';
 	import { formatDate, relative } from '../dates';
 	import { UNCOMMITTED, type Commit, type Layout } from '../api/client';
 	import type { DateFormat } from '../api/generated/DateFormat';
@@ -20,8 +21,13 @@
 	const remoteLabels = (commit: Commit) => (combineLabels ? commit.remotes.filter((r) => !commit.heads.some((h) => r.name === (r.remote ?? '') + '/' + h)) : commit.remotes);
 	const combinedWith = (commit: Commit, head: string) => (combineLabels ? commit.remotes.filter((r) => r.name === (r.remote ?? '') + '/' + head).map((r) => r.remote ?? '').join(', ') : '');
 
-	let { commits, layout, head = null, currentBranch = null, more = false, rowHeight = 24, fontSize = 13, palette, loadMoreAutomatically = true, highlighted = null, dateFormat = 'date-time', combineLabels = true, onLoadMore, onSelect, onCompare, onEscape, onTag, onContextMenu }: {
+	let { commits, layout, head = null, currentBranch = null, more = false, rowHeight = 24, fontSize = 13, palette, loadMoreAutomatically = true, highlighted = null, dateFormat = 'date-time', combineLabels = true,
+		gapRow = -1, gapHeight = 0, gap, onLoadMore, onSelect, onCompare, onEscape, onTag, onContextMenu }: {
 		commits: Commit[]; layout: Layout; head?: string | null; currentBranch?: string | null; more?: boolean; rowHeight?: number; fontSize?: number; palette?: string[]; loadMoreAutomatically?: boolean;
+		/** The details shown inline: `gap` is drawn in a space of `gapHeight` px below row `gapRow` (-1: none). */
+		gapRow?: number;
+		gapHeight?: number;
+		gap?: Snippet;
 		/** The rows the find widget matched. */
 		highlighted?: Set<number> | null;
 		dateFormat?: DateFormat;
@@ -50,8 +56,9 @@
 	const rows = $derived(commits.length);
 	const headRow = $derived(head === null ? -1 : commits.findIndex((c) => c.hash === head));
 	const width = $derived(Math.max(64, Math.min(MAX_GRAPH_WIDTH, graphWidth(layout.lanes))));
-	const first = $derived(Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN));
-	const last = $derived(Math.min(rows - 1, Math.ceil((scrollTop + viewHeight) / rowHeight) + OVERSCAN));
+	const g: Gap = $derived(gap && gapRow >= 0 && gapRow < rows ? { row: gapRow, height: gapHeight } : { row: -1, height: 0 });
+	const first = $derived(Math.max(0, rowAt(scrollTop, rowHeight, g) - OVERSCAN));
+	const last = $derived(Math.min(rows - 1, rowAt(scrollTop + viewHeight, rowHeight, g) + 1 + OVERSCAN));
 	const visible = $derived.by(() => {
 		const out: { row: number; commit: Commit }[] = [];
 		for (let row = first; row <= last; row++) out.push({ row, commit: commits[row] as Commit });
@@ -86,9 +93,21 @@
 
 	function reveal(row: number) {
 		if (!viewport) return;
-		const top = row * rowHeight, bottom = top + rowHeight;
+		const top = rowTop(row, rowHeight, g), bottom = top + rowHeight;
 		if (top < viewport.scrollTop) viewport.scrollTop = top;
 		else if (bottom > viewport.scrollTop + viewport.clientHeight) viewport.scrollTop = bottom - viewport.clientHeight;
+	}
+
+	/** Bring `row` (with the details below it, when they are inline there) into view: centred
+	 * with `centre` (details.autoCenter), else scrolled just enough; a block taller than the
+	 * view starts at its top. */
+	export function showRow(row: number, centre: boolean) {
+		if (!viewport || row < 0 || row >= rows) return;
+		const top = rowTop(row, rowHeight, g), block = rowHeight + (row === g.row ? g.height : 0), view = viewport.clientHeight;
+		if (block >= view) viewport.scrollTop = top;
+		else if (centre) viewport.scrollTop = top - (view - block) / 2;
+		else if (top < viewport.scrollTop) viewport.scrollTop = top;
+		else if (top + block > viewport.scrollTop + view) viewport.scrollTop = top + block - view;
 	}
 
 	function onRowClick(e: MouseEvent, row: number) {
@@ -124,7 +143,7 @@
 		menu(e, rowTarget(row, commit));
 	}
 	function onBackgroundMenu(e: MouseEvent) {
-		if ((e.target as Element).closest('.gg-row')) return;
+		if ((e.target as Element).closest('.gg-row, .gg-gap')) return;
 		menu(e, { kind: 'background' });
 	}
 
@@ -148,8 +167,8 @@
 	</div>
 	<div class="gg-body">
 	<div class="gg-viewport" bind:this={viewport} onscroll={onScroll} onkeydown={onKeydown} oncontextmenu={onBackgroundMenu} tabindex="0" role="grid" aria-rowcount={rows}>
-		<div class="gg-spacer" style:height="{rows * rowHeight}px">
-			<div class="gg-rows" style:transform="translateY({first * rowHeight}px)">
+		<div class="gg-spacer" style:height="{rows * rowHeight + g.height}px">
+			<div class="gg-rows" style:transform="translateY({rowTop(first, rowHeight, g)}px)">
 				{#each visible as { row, commit } (commit.hash)}
 					<!-- svelte-ignore a11y_click_events_have_key_events a11y_interactive_supports_focus -->
 					<div class="gg-row" class:selected={row === selected} class:head={row === headRow} class:highlighted={highlighted?.has(row)} role="row" aria-rowindex={row + 1} tabindex="-1"
@@ -169,13 +188,19 @@
 						<div class="gg-cell gg-col-author">{commit.author}</div>
 						<div class="gg-cell gg-col-hash">{shortHash(commit.hash)}</div>
 					</div>
+					<!-- The rows below the inline details start below them. -->
+					{#if row === g.row}<div class="gg-gap-space" style:height="{g.height}px"></div>{/if}
 				{/each}
 			</div>
+			<!-- The details themselves: mounted once, wherever the scroll is (kept when scrolled away). -->
+			{#if g.row >= 0 && gap}
+				<div class="gg-gap" style:top="{(g.row + 1) * rowHeight}px" style:height="{g.height}px">{@render gap()}</div>
+			{/if}
 		</div>
 	</div>
 	{#if viewHeight > 0}
 		<div class="gg-graph-layer" style:height="{viewHeight}px">
-			<GraphCanvas bind:this={graph} {layout} {width} height={viewHeight} {rowHeight} {scrollTop} head={headRow} {selected} {palette} />
+			<GraphCanvas bind:this={graph} {layout} {width} height={viewHeight} {rowHeight} {scrollTop} gap={g} head={headRow} {selected} {palette} />
 		</div>
 	{/if}
 	</div>
@@ -192,6 +217,7 @@
 	.gg-viewport { position: absolute; inset: 0; overflow: auto; outline: none; }
 	.gg-spacer { position: relative; }
 	.gg-rows { position: absolute; left: 0; right: 0; top: 0; }
+	.gg-gap { position: absolute; left: 0; right: 0; display: flex; flex-direction: column; }
 	.gg-row:hover { background: var(--gg-list-hoverBackground); }
 	.gg-row.highlighted { background: var(--gg-editor-findMatchHighlightBackground); box-shadow: inset 0 0 0 1px var(--gg-editor-findMatchHighlightBorder); }
 	.gg-row.selected { background: var(--gg-menu-selectionBackground); color: var(--gg-menu-selectionForeground); }

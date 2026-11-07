@@ -6,7 +6,7 @@
 //! worktrees, conflict prediction, the repository's configuration) come with the runtime that
 //! runs git (M3).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
@@ -46,6 +46,9 @@ pub struct LoadOptions {
     pub hide_remotes: Vec<String>,
     pub show_uncommitted: bool,
     pub show_untracked: bool,
+    /// Each commit's `date` is its author date (setting `commits.dateType` = `author`); false:
+    /// its committer date, which is what the engine lists.
+    pub author_dates: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -481,6 +484,8 @@ pub struct Author {
 pub struct Timing {
     pub engine_ms: f64,
     pub layout_ms: f64,
+    /// Reading the author dates (`LoadOptions::author_dates`); 0 without.
+    pub dates_ms: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -498,7 +503,8 @@ pub enum ReadResponse {
         count: u64,
     },
     Authors { authors: Vec<Author> },
-    OperationState { operation: Option<OperationKind>, progress: Option<OperationProgress>, conflicted_files: Vec<String> },
+    /// `staged`: the index has changes to commit.
+    OperationState { operation: Option<OperationKind>, progress: Option<OperationProgress>, conflicted_files: Vec<String>, staged: bool },
     Reflog { entries: Vec<ReflogEntry>, more: bool },
     Worktrees { worktrees: Vec<Worktree> },
     /// `None` when git cannot tell.
@@ -618,10 +624,56 @@ struct EngineTagDetails {
 /// the CLI's through the runtime's git.
 pub async fn read(rt: &dyn crate::runtime::Runtime, request: ReadRequest) -> Result<ReadResponse, String> {
     if request.is_engine() {
+        let author_dates = matches!(&request, ReadRequest::Commits { options } if options.author_dates);
         let repo = rt.repo().to_string();
-        return tokio::task::spawn_blocking(move || read_engine(&repo, request)).await.map_err(|e| e.to_string())?;
+        let mut response = tokio::task::spawn_blocking(move || read_engine(&repo, request)).await.map_err(|e| e.to_string())??;
+        if let (true, ReadResponse::Commits { commits, timing, .. }) = (author_dates, &mut response) {
+            let started = Instant::now();
+            use_author_dates(rt, commits).await;
+            timing.dates_ms = started.elapsed().as_secs_f64() * 1000.0;
+        }
+        return Ok(response);
     }
     crate::reads::read_git(rt, request).await
+}
+
+/// Author dates already read, by commit hash: a commit's date never changes, so a reload or a
+/// longer page asks git only for the commits it has not seen. Shared by every repository (a
+/// hash names one commit wherever it is); 86k commits take about 8 MB.
+static AUTHOR_DATES: std::sync::LazyLock<std::sync::Mutex<HashMap<String, i64>>> = std::sync::LazyLock::new(Default::default);
+
+/// Give each listed commit its author date: the engine's list carries the committer date only.
+/// The dates not known yet come from one `git log --no-walk --stdin` (the hashes as its input:
+/// as arguments, git takes ten times longer for a long list); a commit git cannot answer for
+/// keeps the committer date.
+async fn use_author_dates(rt: &dyn crate::runtime::Runtime, commits: &mut [Commit]) {
+    let missing: Vec<&str> = {
+        let known = AUTHOR_DATES.lock().unwrap();
+        commits.iter().filter(|c| c.hash != UNCOMMITTED && !known.contains_key(&c.hash)).map(|c| c.hash.as_str()).collect()
+    };
+    if !missing.is_empty() {
+        let args = ["log", "--no-walk=unsorted", "--stdin", "--no-show-signature", "--format=%H %at"].map(String::from).to_vec();
+        let opts = crate::runtime::GitOpts { stdin: Some(missing.join("\n") + "\n"), ..Default::default() };
+        match rt.git(args, opts).await {
+            Ok(out) if out.exit_code == Some(0) => AUTHOR_DATES.lock().unwrap().extend(author_dates_of(&out.stdout)),
+            Ok(out) => eprintln!("[author dates] git log failed: {}", out.stderr.trim()),
+            Err(e) => eprintln!("[author dates] {e}"),
+        }
+    }
+    let known = AUTHOR_DATES.lock().unwrap();
+    for commit in commits.iter_mut() {
+        if let Some(date) = known.get(&commit.hash) {
+            commit.date = *date;
+        }
+    }
+}
+
+/// `<hash> <seconds>` per line.
+fn author_dates_of(stdout: &str) -> impl Iterator<Item = (String, i64)> + '_ {
+    stdout.lines().filter_map(|line| {
+        let (hash, seconds) = line.split_once(' ')?;
+        Some((hash.to_string(), seconds.trim().parse().ok()?))
+    })
 }
 
 /// Answer an engine read for the local repository at `repo` (a CLI one is an error).
@@ -661,7 +713,7 @@ pub fn read_engine(repo: &str, request: ReadRequest) -> Result<ReadResponse, Str
                 head: data.head,
                 more: data.more_commits_available,
                 layout,
-                timing: Timing { engine_ms, layout_ms },
+                timing: Timing { engine_ms, layout_ms, dates_ms: 0.0 },
             })
         }
         ReadRequest::CommitDetails { hash } => {
@@ -744,6 +796,7 @@ mod tests {
             hide_remotes: vec![],
             show_uncommitted: false,
             show_untracked: false,
+            author_dates: false,
         }
     }
 

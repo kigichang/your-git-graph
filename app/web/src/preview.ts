@@ -2,6 +2,7 @@
 // state and report `preview: <scenes>` on stderr, for a screenshot. Scenes, in order:
 //   graph      the graph as loaded (always the case)
 //   details    the details of the third row (a merge commit, on git/git)
+//   inline     the same, shown inline below the row
 //   compare    the first row compared with the fourth
 //   branches   the branch dropdown open
 //   authors    the author dropdown open
@@ -51,7 +52,9 @@ export async function runPreview(scenes: string): Promise<void> {
 	const rows = app().state().data?.commits.length ?? 0;
 	const third = () => app().state().data?.commits[2];
 	for (const scene of scenes.split(',')) {
-		if (scene === 'details' && rows > 2) {
+		if ((scene === 'details' || scene === 'inline') && rows > 2) {
+			if (scene === 'inline') await invoke('settings_set', { key: 'details.location', value: 'inline' });
+			await pause(200); // the setting reaches the window
 			app().selectRow(2);
 			await until(() => app().state().details?.kind !== 'loading');
 		} else if (scene === 'compare' && rows > 3) {

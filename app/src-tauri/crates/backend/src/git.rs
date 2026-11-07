@@ -115,6 +115,10 @@ pub struct GitExecRequest {
     /// Send each output chunk over the command's channel as it arrives (progress of fetch/push).
     /// Off by default: a large output would otherwise cross the IPC twice.
     pub stream: bool,
+    /// Written to git's standard input, which is then closed (`--stdin` options: a list too long
+    /// for the argument list); `None`: no input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdin: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -158,7 +162,7 @@ where
         // Never prompt on a terminal nobody can see; prompts go through askpass (git_exec adds it).
         .env("GIT_TERMINAL_PROMPT", "0")
         .envs(&request.env)
-        .stdin(Stdio::null())
+        .stdin(if request.stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .process_group(0)
@@ -167,6 +171,13 @@ where
         .spawn()
         .map_err(|e| format!("failed to run git in {}: {e}", request.cwd))?;
     let pgid = child.id();
+    // Written while the output is read, so that neither pipe fills up; closed when done.
+    if let (Some(text), Some(mut stdin)) = (request.stdin.clone(), child.stdin.take()) {
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt;
+            let _ = stdin.write_all(text.as_bytes()).await;
+        });
+    }
 
     let stream = request.stream;
     let on_output = std::sync::Arc::new(move |chunk| {
@@ -315,6 +326,22 @@ mod tests {
         let info = locate_git().unwrap();
         assert!(Path::new(&info.path).is_absolute());
         assert!(info.version.chars().next().unwrap().is_ascii_digit(), "{}", info.version);
+    }
+
+    #[tokio::test]
+    async fn feeds_the_input_and_closes_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_keep, rx) = never();
+        // A large input: written while the output is read, then closed (git waits for the end).
+        let mut request = req(dir.path(), &["hash-object", "--stdin"]);
+        request.stdin = Some("hello\n".repeat(200_000));
+        let ok = run(&git(), &request, |_| {}, rx).await.unwrap();
+        assert_eq!(ok.exit_code, Some(0), "{}", ok.stderr);
+        let (_keep, rx) = never();
+        request.stdin = Some("hello\n".into());
+        let small = run(&git(), &request, |_| {}, rx).await.unwrap();
+        assert_eq!(small.stdout.trim(), "ce013625030ba8dba906f756967f9e9ca394464a");
+        assert_ne!(ok.stdout, small.stdout);
     }
 
     #[tokio::test]

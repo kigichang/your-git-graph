@@ -8,4 +8,9 @@ export type LoadOptions = { maxCommits: number,
 /**
  * The branches to show (`None`: all), as the branch filter names them.
  */
-branches: Array<string> | null, authors: Array<string> | null, filterPaths: Array<string>, order: CommitOrder, firstParentOnly: boolean, showTags: boolean, showRemoteBranches: boolean, showRemoteHeads: boolean, hideRemotes: Array<string>, showUncommitted: boolean, showUntracked: boolean, };
+branches: Array<string> | null, authors: Array<string> | null, filterPaths: Array<string>, order: CommitOrder, firstParentOnly: boolean, showTags: boolean, showRemoteBranches: boolean, showRemoteHeads: boolean, hideRemotes: Array<string>, showUncommitted: boolean, showUntracked: boolean, 
+/**
+ * Each commit's `date` is its author date (setting `commits.dateType` = `author`); false:
+ * its committer date, which is what the engine lists.
+ */
+authorDates: boolean, };

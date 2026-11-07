@@ -25,4 +25,6 @@
 | 17 | Find：打開、輸入後第一筆被選取、Enter 跳下一筆、符合的列高亮、Esc 關閉 | M6 | ✅ |
 | 18 | 側欄：清單與目前的 repo、收合／展開、切到另一個 repo 與切回、群組（建立、移入、改名、收合計數、刪除）、Remove（改顯示另一個）後加回、拖資料夾到視窗（`tauri://drag-drop`）、Open in New Window 開出再關掉；拖拉排序與多選只有手動 | M5 | ✅ |
 | 19 | 主題：AccentColor 解析成顏色、強調色上的文字是白色、`set_appearance` 切到另一種外觀後 `<html>` 的 class 與 token 跟著變、之後開的 diff 視窗 Monaco 主題一致（vs／vs-dark）、強制增強對比的 class 與顏色不同、切回 system | M7 | ✅ |
+| 14b | 日期：預設顯示作者日期（`timing.datesMs > 0`，git 讀）、改成 `commit` 後不讀、改回再讀；Rust 測試確認作者日期與 committer 日期不同的 commit 顯示對的那個 | M8 | ✅ |
+| 3b | 詳細資料 inline：緊接在選取列下方、下一列在面板下方、沒有同時停靠底部；設定改回 `bottom` 時已開的不動；Esc 關閉；下一次打開停靠底部 | M8 | ✅ |
 | 20 | 遠端 repo（假 ssh）：加入、側欄顯示主機、graph 與詳細資料經 helper、建立與刪除分支、拒絕 archive、遠端 git 的帳密提示（第 8 項的一輪）、斷線後請求失敗、再顯示即重連、移除；背後變動的刷新只有手動 | M5／M7 | ✅ |

@@ -23,6 +23,8 @@ pub struct GitOpts {
     pub timeout_ms: Option<u64>,
     /// Report the output as it arrives (fetch, push: their progress).
     pub stream: bool,
+    /// git's standard input (for its `--stdin` options).
+    pub stdin: Option<String>,
 }
 
 pub trait Runtime: Send + Sync {
@@ -110,7 +112,7 @@ impl Runtime for LocalRuntime {
             env.insert("GIT_EDITOR".into(), "true".into());
             env.insert("GIT_OPTIONAL_LOCKS".into(), "0".into());
             env.extend(opts.env);
-            let request = GitExecRequest { args, cwd: self.repo.clone(), env, timeout_ms: opts.timeout_ms, id: None, stream: opts.stream };
+            let request = GitExecRequest { args, cwd: self.repo.clone(), env, timeout_ms: opts.timeout_ms, id: None, stream: opts.stream, stdin: opts.stdin };
             // git::run takes a one-shot cancel: fire it when the operation's flag turns true.
             let (tx, rx) = oneshot::channel();
             let mut flag = self.cancel.clone();

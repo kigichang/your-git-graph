@@ -1,6 +1,7 @@
 <script lang="ts">
-	// The panel docked below the graph: a commit's details, the uncommitted changes, a stash,
-	// a comparison of two commits, or a tag. Its height can be dragged.
+	// The details of a commit, the uncommitted changes, a stash, a comparison of two commits, or
+	// a tag: docked below the graph, or inline below the row (`inline`, inside the table). Its
+	// height can be dragged (at the top when docked, at the bottom when inline).
 	import FileList from './FileList.svelte';
 	import { formatDate } from '../dates';
 	import { UNCOMMITTED, type Details, type FileChange, type TagDetails } from '../api/client';
@@ -14,18 +15,20 @@
 		| { kind: 'compare'; from: string; to: string; files: FileChange[] }
 		| { kind: 'tag'; name: string; details: TagDetails };
 
-	let { view, fileView = 'tree', compactFolders = true, dateFormat = 'date-time', onClose, onOpenFile, onFileMenu }: {
+	let { view, fileView = 'tree', compactFolders = true, dateFormat = 'date-time', inline = false, height = $bindable(280), onClose, onOpenFile, onFileMenu }: {
 		view: DetailsView; fileView?: 'tree' | 'list'; compactFolders?: boolean; dateFormat?: DateFormat;
+		inline?: boolean; height?: number;
 		onClose: () => void; onOpenFile: (change: FileChange, fileOnly: boolean) => void; onFileMenu?: (e: MouseEvent, change: FileChange) => void;
 	} = $props();
-
-	let height = $state(280);
 	const short = (hash: string) => (hash === UNCOMMITTED ? t('details.workingTree') : hash.slice(0, 8));
 	const date = (seconds: number) => formatDate(seconds, dateFormat === 'relative' ? 'date-time' : dateFormat);
 
 	function startResize(e: PointerEvent) {
 		const startY = e.clientY, startHeight = height;
-		const move = (ev: PointerEvent) => { height = Math.max(120, Math.min(window.innerHeight - 160, startHeight + (startY - ev.clientY))); };
+		const move = (ev: PointerEvent) => {
+			const delta = inline ? ev.clientY - startY : startY - ev.clientY;
+			height = Math.max(120, Math.min(window.innerHeight - 160, startHeight + delta));
+		};
 		const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
 		window.addEventListener('pointermove', move);
 		window.addEventListener('pointerup', up);
@@ -44,7 +47,7 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<section class="gg-details" style:height="{height}px" aria-label="Details">
+<section class="gg-details" class:inline style:height="{height}px" aria-label="Details">
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div class="gg-resize" onpointerdown={startResize}></div>
 	<button class="gg-close" title={t('details.close')} onclick={onClose}>✕</button>
@@ -109,7 +112,9 @@
 		position: relative; flex: none; display: flex; flex-direction: column; min-height: 0;
 		border-top: 1px solid var(--gg-panel-border); background: var(--gg-editor-background);
 	}
+	.gg-details.inline { border-bottom: 1px solid var(--gg-panel-border); box-sizing: border-box; }
 	.gg-resize { position: absolute; top: -3px; left: 0; right: 0; height: 6px; cursor: row-resize; z-index: 1; }
+	.gg-details.inline .gg-resize { top: auto; bottom: -3px; }
 	.gg-close {
 		position: absolute; top: 6px; right: 10px; z-index: 1; font: inherit; font-size: 12px; line-height: 1;
 		padding: 3px 6px; border-radius: 4px; border: none; background: none; color: var(--gg-descriptionForeground); cursor: pointer;

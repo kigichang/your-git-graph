@@ -257,6 +257,31 @@ async function checkPanelsAndMore(check: Check): Promise<void> {
 	check(app().repoState().order === 'topo', 'a newer file is imported when the repository is shown: ' + JSON.stringify(app().repoState()));
 	app().saveRepoState({ order: null });
 	await app().operate({ kind: 'cleanUntracked', directories: false }); // the file is untracked: gone again
+	// The details inline: right below the row, the next row below them; a panel already open
+	// stays where it is when the setting changes, the next one opens docked; Esc closes.
+	const location = (where: string | null) => invoke('settings_set', { key: 'details.location', value: where });
+	const esc = () => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+	app().closeDetails();
+	await location('inline');
+	const row = data.commits.findIndex((c) => c.hash !== '*' && c.stash === null);
+	if (row >= 0 && row + 1 < data.commits.length) {
+		await settles(() => (app().state() as unknown as { settings: { details: { location: string } } }).settings.details.location === 'inline');
+		app().selectRow(row);
+		check(await settles(() => document.querySelector('.gg-gap .gg-details') !== null), 'the details open inline');
+		const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect();
+		const panel = rect('.gg-gap'), own = rect(`.gg-row[aria-rowindex="${row + 1}"]`), next = rect(`.gg-row[aria-rowindex="${row + 2}"]`);
+		check(panel !== undefined && own !== undefined && Math.abs(panel.top - own.bottom) < 1, 'inline: right below its row');
+		check(panel !== undefined && next !== undefined && next.top >= panel.bottom - 1, 'inline: the next row below the details');
+		check(document.querySelectorAll('.gg-details').length === 1, 'inline: not docked as well');
+		await location(null);
+		await pause(300);
+		check(document.querySelector('.gg-gap .gg-details') !== null, 'an open panel stays where it is when the setting changes');
+		esc();
+		check(await settles(() => app().state().details === null && document.querySelector('.gg-gap') === null), 'Esc closes the inline details');
+		app().selectRow(row);
+		check(await settles(() => document.querySelector('.gg-details') !== null && document.querySelector('.gg-gap') === null), 'the next one opens docked');
+		app().closeDetails();
+	} else await location(null);
 	// Find.
 	const word = (data.commits.find((c) => c.hash !== '*')?.message.split(/\s+/)[0] ?? 'a').toLowerCase();
 	app().openFind();
@@ -293,6 +318,14 @@ async function checkSettings(check: Check): Promise<void> {
 	check(applied, 'a changed row height reaches the window and its rows');
 	await invoke('settings_set', { key: 'graph.rowHeight', value: null });
 	check(await settles(() => (app().state() as unknown as { settings: { graph: { rowHeight: number } } }).settings.graph.rowHeight === 24), 'null brings the default back');
+	// The date shown: the author's by default (git reads them for the listed commits), the
+	// committer's (the engine's own) when chosen.
+	const datesMs = () => app().state().data?.timing.datesMs ?? -1;
+	check(await settles(() => datesMs() > 0), 'author dates are read by default: ' + datesMs());
+	await invoke('settings_set', { key: 'commits.dateType', value: 'commit' });
+	check(await settles(() => datesMs() === 0), 'the commit date: no author dates read');
+	await invoke('settings_set', { key: 'commits.dateType', value: null });
+	check(await settles(() => datesMs() > 0), 'back to the author date');
 }
 
 /** 6 (the dialogs), 9: the context menu and the dialogs, driven as a person would: a branch is

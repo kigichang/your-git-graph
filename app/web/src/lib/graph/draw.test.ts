@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest';
-import { drawRows, spansInView, graphWidth, laneX, LANE_PAD, LANE_WIDTH, type Ctx } from './draw';
+import { drawRows, spansInView, graphWidth, laneX, rowAt, rowTop, NO_GAP, LANE_PAD, LANE_WIDTH, type Ctx } from './draw';
 import type { Layout } from '../api/client';
 
 /* A branch merged back: rows m, f, d, e, b, a (the layout of graph.rs's test). */
@@ -76,4 +76,19 @@ test('a dangling parent fades out below the node', () => {
 	drawRows(ctx, dangling, { first: 0, last: 0, yOf: (row) => row * 20 + 10, rowHeight: 20 });
 	expect(calls).toContain('line 10,24');
 	expect(calls.some((c) => c.startsWith('stroke [object'))).toBe(true); // the gradient
+});
+
+test('a gap below a row (the details inline): rows below it move down, lines run through it', () => {
+	const gap = { row: 0, height: 100 };
+	expect([0, 1, 2].map((r) => rowTop(r, 24, gap))).toEqual([0, 124, 148]);
+	expect([0, 1, 2].map((r) => rowTop(r, 24, NO_GAP))).toEqual([0, 24, 48]);
+	expect([0, 23, 24, 123, 124, 147, 148].map((y) => rowAt(y, 24, gap))).toEqual([0, 0, 0, 0, 1, 1, 2]);
+	expect(rowAt(50, 24, NO_GAP)).toBe(2);
+	const { ctx, calls } = recorder();
+	drawRows(ctx, layout, { first: 0, last: 2, yOf: (r) => rowTop(r, 24, gap) + 12, rowHeight: 24, palette: ['A', 'B'] });
+	// m → f changes lane between rows 0 and 1, across the gap: down lane 0 to a row above f,
+	// then the usual curve over one row's height.
+	expect(calls).toContain('line 10,112');
+	expect(calls).toContain('curve 10,124,24,124,24,136');
+	expect(calls).toContain('line 10,160'); // m → d: straight, through the gap, to row 2
 });
