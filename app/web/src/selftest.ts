@@ -326,6 +326,14 @@ async function checkSettings(check: Check): Promise<void> {
 	check(await settles(() => datesMs() === 0), 'the commit date: no author dates read');
 	await invoke('settings_set', { key: 'commits.dateType', value: null });
 	check(await settles(() => datesMs() > 0), 'back to the author date');
+	// Commits only the reflog mentions: git is asked (the revert on the test's deleted branch is one).
+	const shown = app().state().data?.commits.length ?? 0;
+	await invoke('settings_set', { key: 'commits.includeReflog', value: true });
+	check(await settles(() => (app().state().data?.timing.reflogMs ?? 0) > 0), 'the reflog is read when asked');
+	await log(`reflog: ${shown} → ${app().state().data?.commits.length} rows`);
+	check((app().state().data?.commits.length ?? 0) >= shown, 'the reflog only adds rows');
+	await invoke('settings_set', { key: 'commits.includeReflog', value: null });
+	check(await settles(() => app().state().data?.timing.reflogMs === 0 && app().state().data?.commits.length === shown), 'and they go again');
 }
 
 /** 6 (the dialogs), 9: the context menu and the dialogs, driven as a person would: a branch is

@@ -37,6 +37,7 @@
 			{ key: 'commits.order', label: 'settings.commits.order', kind: 'select', options: [{ value: 'date', label: 'value.date' }, { value: 'author-date', label: 'value.authorDate' }, { value: 'topo', label: 'value.topo' }] },
 			{ key: 'commits.showUncommitted', label: 'settings.commits.showUncommitted', kind: 'checkbox' },
 			{ key: 'commits.showUntracked', label: 'settings.commits.showUntracked', kind: 'checkbox' },
+			{ key: 'commits.includeReflog', label: 'settings.commits.includeReflog', kind: 'checkbox' },
 			{ key: 'commits.markdown', label: 'settings.commits.markdown', kind: 'checkbox' }
 		] },
 		{ title: 'settings.repository', rows: [

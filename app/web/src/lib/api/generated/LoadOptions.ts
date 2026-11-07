@@ -13,4 +13,9 @@ branches: Array<string> | null, authors: Array<string> | null, filterPaths: Arra
  * Each commit's `date` is its author date (setting `commits.dateType` = `author`); false:
  * its committer date, which is what the engine lists.
  */
-authorDates: boolean, };
+authorDates: boolean, 
+/**
+ * Also the commits only reflogs mention (setting `commits.includeReflog`); not with a
+ * branch filter.
+ */
+includeReflog: boolean, };

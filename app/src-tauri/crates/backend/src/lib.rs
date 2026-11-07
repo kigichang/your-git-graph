@@ -10,6 +10,7 @@ pub mod graph;
 pub mod loss;
 pub mod ops;
 pub mod reads;
+pub mod reflogged;
 pub mod repo;
 pub mod runtime;
 pub mod settings;

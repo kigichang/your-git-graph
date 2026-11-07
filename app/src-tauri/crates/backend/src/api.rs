@@ -49,6 +49,9 @@ pub struct LoadOptions {
     /// Each commit's `date` is its author date (setting `commits.dateType` = `author`); false:
     /// its committer date, which is what the engine lists.
     pub author_dates: bool,
+    /// Also the commits only reflogs mention (setting `commits.includeReflog`); not with a
+    /// branch filter.
+    pub include_reflog: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -486,6 +489,8 @@ pub struct Timing {
     pub layout_ms: f64,
     /// Reading the author dates (`LoadOptions::author_dates`); 0 without.
     pub dates_ms: f64,
+    /// Adding the commits only reflogs mention (`LoadOptions::include_reflog`); 0 without.
+    pub reflog_ms: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -624,13 +629,28 @@ struct EngineTagDetails {
 /// the CLI's through the runtime's git.
 pub async fn read(rt: &dyn crate::runtime::Runtime, request: ReadRequest) -> Result<ReadResponse, String> {
     if request.is_engine() {
-        let author_dates = matches!(&request, ReadRequest::Commits { options } if options.author_dates);
+        let options = match &request {
+            ReadRequest::Commits { options } => Some(options.clone()),
+            _ => None,
+        };
         let repo = rt.repo().to_string();
         let mut response = tokio::task::spawn_blocking(move || read_engine(&repo, request)).await.map_err(|e| e.to_string())??;
-        if let (true, ReadResponse::Commits { commits, timing, .. }) = (author_dates, &mut response) {
-            let started = Instant::now();
-            use_author_dates(rt, commits).await;
-            timing.dates_ms = started.elapsed().as_secs_f64() * 1000.0;
+        if let (Some(o), ReadResponse::Commits { commits, timing, layout, more, .. }) = (options, &mut response) {
+            // The engine's dates are the committer's: the reflog's commits go by them too.
+            if o.include_reflog && o.branches.is_none() {
+                let started = Instant::now();
+                match crate::reflogged::add(rt, &o, commits, *more).await {
+                    Ok(0) => {}
+                    Ok(_) => *layout = layout_of(commits, *more, &o),
+                    Err(e) => eprintln!("[reflog] {e}"),
+                }
+                timing.reflog_ms = started.elapsed().as_secs_f64() * 1000.0;
+            }
+            if o.author_dates {
+                let started = Instant::now();
+                use_author_dates(rt, commits).await;
+                timing.dates_ms = started.elapsed().as_secs_f64() * 1000.0;
+            }
         }
         return Ok(response);
     }
@@ -676,6 +696,14 @@ fn author_dates_of(stdout: &str) -> impl Iterator<Item = (String, i64)> + '_ {
     })
 }
 
+/// The lanes of `commits`. A filtered history (by author or path) leaves parents out for good:
+/// those fade; otherwise a parent beyond a page runs on to the bottom.
+fn layout_of(commits: &[Commit], more: bool, o: &LoadOptions) -> Layout {
+    let rows: Vec<Row> = commits.iter().map(|c| Row { hash: &c.hash, parents: &c.parents }).collect();
+    let filtered = o.authors.as_ref().is_some_and(|a| !a.is_empty()) || !o.filter_paths.is_empty();
+    graph::layout(&rows, more && !filtered)
+}
+
 /// Answer an engine read for the local repository at `repo` (a CLI one is an error).
 pub fn read_engine(repo: &str, request: ReadRequest) -> Result<ReadResponse, String> {
     match request {
@@ -703,17 +731,14 @@ pub fn read_engine(repo: &str, request: ReadRequest) -> Result<ReadResponse, Str
             let data: EngineCommits = engine_typed(repo, "loadCommits", params)?;
             let engine_ms = started.elapsed().as_secs_f64() * 1000.0;
             let started = Instant::now();
-            let rows: Vec<Row> = data.commits.iter().map(|c| Row { hash: &c.hash, parents: &c.parents }).collect();
-            // A filtered history (by author or path) leaves parents out for good: let those fade.
-            let filtered = o.authors.as_ref().is_some_and(|a| !a.is_empty()) || !o.filter_paths.is_empty();
-            let layout = graph::layout(&rows, data.more_commits_available && !filtered);
+            let layout = layout_of(&data.commits, data.more_commits_available, &o);
             let layout_ms = started.elapsed().as_secs_f64() * 1000.0;
             Ok(ReadResponse::Commits {
                 commits: data.commits,
                 head: data.head,
                 more: data.more_commits_available,
                 layout,
-                timing: Timing { engine_ms, layout_ms, dates_ms: 0.0 },
+                timing: Timing { engine_ms, layout_ms, dates_ms: 0.0, reflog_ms: 0.0 },
             })
         }
         ReadRequest::CommitDetails { hash } => {
@@ -797,6 +822,7 @@ mod tests {
             show_uncommitted: false,
             show_untracked: false,
             author_dates: false,
+            include_reflog: false,
         }
     }
 

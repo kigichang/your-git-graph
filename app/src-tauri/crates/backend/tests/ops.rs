@@ -774,7 +774,7 @@ async fn the_list_shows_the_author_date_when_asked_and_the_committer_date_otherw
     let mut options = LoadOptions {
         max_commits: 10, branches: None, authors: None, filter_paths: vec![], order: CommitOrder::Date, first_parent_only: false,
         show_tags: true, show_remote_branches: true, show_remote_heads: true, hide_remotes: vec![], show_uncommitted: true, show_untracked: true,
-        author_dates: false,
+        author_dates: false, include_reflog: false,
     };
     let list = |r: ReadResponse| match r {
         ReadResponse::Commits { commits, timing, .. } => (commits.into_iter().map(|c| (c.hash, c.message, c.date)).collect::<Vec<_>>(), timing),
@@ -791,4 +791,50 @@ async fn the_list_shows_the_author_date_when_asked_and_the_committer_date_otherw
     assert_eq!((dated[1].1.as_str(), dated[1].2), ("written long before", 1_600_000_000), "the author date");
     assert!(dated[2..].iter().all(|c| c.2 == 1_700_000_000));
     assert!(timing.dates_ms > 0.0);
+}
+
+#[tokio::test]
+async fn commits_only_the_reflog_mentions_come_in_before_their_parents_without_the_stash_internals() {
+    let w = World::new();
+    let f = w.fixture();
+    f.commit("d");
+    f.git(&["reset", "-q", "--hard", "HEAD~1"]); // "add d" is only in the reflog now
+    f.write("a", "stashed\n");
+    f.git(&["stash", "-q"]);
+    f.write("a", "stashed again\n");
+    f.git(&["stash", "-q"]);
+    let rt = f.rt();
+    let options = |include_reflog: bool, branches: Option<Vec<String>>| LoadOptions {
+        max_commits: 50, branches, authors: None, filter_paths: vec![], order: CommitOrder::Date, first_parent_only: false,
+        show_tags: true, show_remote_branches: true, show_remote_heads: true, hide_remotes: vec![], show_uncommitted: false, show_untracked: false,
+        author_dates: false, include_reflog,
+    };
+    let load = |o: LoadOptions| async {
+        match gg_backend::api::read(&rt, ReadRequest::Commits { options: o }).await.unwrap() {
+            ReadResponse::Commits { commits, layout, timing, .. } => (commits, layout, timing),
+            other => panic!("{other:?}"),
+        }
+    };
+    let subjects = |commits: &[Commit]| commits.iter().map(|c| c.message.clone()).collect::<Vec<_>>();
+
+    let (plain, _, timing) = load(options(false, None)).await;
+    assert!(!subjects(&plain).contains(&"add d".to_string()));
+    assert_eq!(timing.reflog_ms, 0.0);
+
+    let (with, layout, timing) = load(options(true, None)).await;
+    let s = subjects(&with);
+    assert_eq!(s.iter().filter(|m| *m == "add d").count(), 1, "{s:?}");
+    let d = s.iter().position(|m| m == "add d").unwrap();
+    let c = s.iter().position(|m| m == "add c").unwrap();
+    assert!(d < c, "before its parent: {s:?}");
+    assert!(with[d].heads.is_empty() && with[d].stash.is_none());
+    assert_eq!(with.iter().filter(|c| c.stash.is_some()).count(), 2, "the two stashes, as rows");
+    assert!(!s.iter().any(|m| m.starts_with("index on")), "not the stashes' own commits: {s:?}");
+    assert_eq!(with.len(), plain.len() + 1);
+    assert_eq!(layout.node_lane.len(), with.len(), "laid out again");
+    assert!(timing.reflog_ms > 0.0);
+
+    // A branch filter shows that branch's history: no reflog.
+    let (filtered, _, _) = load(options(true, Some(vec!["main".into()]))).await;
+    assert!(!subjects(&filtered).contains(&"add d".to_string()));
 }

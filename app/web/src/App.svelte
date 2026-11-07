@@ -92,7 +92,7 @@
 		return {
 			...defaultLoadOptions(max), branches, authors: authorFilter, showRemoteBranches, firstParentOnly, order: repoState().order ?? s.commits.order,
 			hideRemotes: repoState().hiddenRemotes, showRemoteHeads: s.repository.showRemoteHeads, showUncommitted: s.commits.showUncommitted, showUntracked: s.commits.showUntracked,
-			authorDates: s.commits.dateType === 'author'
+			authorDates: s.commits.dateType === 'author', includeReflog: s.commits.includeReflog
 		};
 	};
 
@@ -146,7 +146,7 @@
 			maxCommits = max;
 			error = '';
 			const tm = answer.timing;
-			status = `${answer.commits.length} commits${answer.more ? ' (more available)' : ''} · engine ${tm.engineMs.toFixed(0)} ms${tm.datesMs > 0 ? ` · author dates ${tm.datesMs.toFixed(0)} ms` : ''} · layout ${tm.layoutMs.toFixed(1)} ms · request ${requestMs.toFixed(0)} ms · ${answer.layout.lanes} lanes`;
+			status = `${answer.commits.length} commits${answer.more ? ' (more available)' : ''} · engine ${tm.engineMs.toFixed(0)} ms${tm.reflogMs > 0 ? ` · reflog ${tm.reflogMs.toFixed(0)} ms` : ''}${tm.datesMs > 0 ? ` · author dates ${tm.datesMs.toFixed(0)} ms` : ''} · layout ${tm.layoutMs.toFixed(1)} ms · request ${requestMs.toFixed(0)} ms · ${answer.layout.lanes} lanes`;
 			void log('graph: ' + status);
 			if (firstPaintMs === null) {
 				requestAnimationFrame(() => {

@@ -7,4 +7,8 @@ export type Timing = { engineMs: number, layoutMs: number,
 /**
  * Reading the author dates (`LoadOptions::author_dates`); 0 without.
  */
-datesMs: number, };
+datesMs: number, 
+/**
+ * Adding the commits only reflogs mention (`LoadOptions::include_reflog`); 0 without.
+ */
+reflogMs: number, };
