@@ -5,8 +5,8 @@
 	import { drawRows } from '../graph/draw';
 	import type { Layout } from '../api/client';
 
-	let { layout, width, height, rowHeight, scrollTop, head = -1, selected = -1 }: {
-		layout: Layout; width: number; height: number; rowHeight: number; scrollTop: number; head?: number; selected?: number;
+	let { layout, width, height, rowHeight, scrollTop, head = -1, selected = -1, palette }: {
+		layout: Layout; width: number; height: number; rowHeight: number; scrollTop: number; head?: number; selected?: number; palette?: string[];
 	} = $props();
 
 	let canvas: HTMLCanvasElement | undefined = $state();
@@ -26,7 +26,7 @@
 		ctx.clearRect(0, 0, width, height);
 		ctx.lineCap = 'round';
 		const first = Math.floor(scrollTop / rowHeight), last = Math.ceil((scrollTop + height) / rowHeight);
-		drawRows(ctx, layout, { first, last, yOf: (row) => row * rowHeight + rowHeight / 2 - scrollTop, rowHeight, head, selected });
+		drawRows(ctx, layout, { first, last, yOf: (row) => row * rowHeight + rowHeight / 2 - scrollTop, rowHeight, head, selected, palette });
 		drawn++;
 	});
 </script>

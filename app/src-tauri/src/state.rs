@@ -112,7 +112,7 @@ pub fn state_set(app: AppHandle, window: tauri::Window, state: tauri::State<'_, 
 
 /* ---------- settings.json ---------- */
 
-fn settings_file<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
+pub fn settings_file<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
     data_dir(app).map(|d| d.join("settings.json")).ok_or_else(|| "no application data directory".to_string())
 }
 
@@ -146,18 +146,6 @@ pub fn write_setting(file: &Path, key: &str, value: Option<Value>) -> Result<(),
 /// The settings as they are in settings.json now.
 pub fn settings<R: Runtime>(app: &AppHandle<R>) -> Result<Map<String, Value>, String> {
     read_settings(&settings_file(app)?)
-}
-
-#[tauri::command]
-pub fn settings_read(app: AppHandle) -> Result<Map<String, Value>, String> {
-    settings(&app)
-}
-
-#[tauri::command]
-pub fn settings_write(app: AppHandle, key: String, value: Option<Value>) -> Result<(), String> {
-    write_setting(&settings_file(&app)?, &key, value)?;
-    let _ = app.emit("settings-changed", ());
-    Ok(())
 }
 
 /// The settings file, created (empty) if missing - to open it in an editor.

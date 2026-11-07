@@ -7,8 +7,8 @@
 	import { formatDate } from '../dates';
 	import { UNCOMMITTED, type Commit, type Layout } from '../api/client';
 
-	let { commits, layout, head = null, more = false, rowHeight = 24, onLoadMore, onSelect, onCompare, onEscape, onTag }: {
-		commits: Commit[]; layout: Layout; head?: string | null; more?: boolean; rowHeight?: number;
+	let { commits, layout, head = null, more = false, rowHeight = 24, fontSize = 13, palette, loadMoreAutomatically = true, onLoadMore, onSelect, onCompare, onEscape, onTag }: {
+		commits: Commit[]; layout: Layout; head?: string | null; more?: boolean; rowHeight?: number; fontSize?: number; palette?: string[]; loadMoreAutomatically?: boolean;
 		onLoadMore?: () => void;
 		/** A row was selected (click, keys); `again` when it was the selected one already. */
 		onSelect?: (row: number, commit: Commit, again: boolean) => void;
@@ -53,7 +53,7 @@
 	function onScroll() {
 		if (!viewport) return;
 		scrollTop = viewport.scrollTop;
-		if (more && onLoadMore && viewport.scrollTop + viewport.clientHeight >= viewport.scrollHeight - rowHeight * 2) onLoadMore();
+		if (more && loadMoreAutomatically && onLoadMore && viewport.scrollTop + viewport.clientHeight >= viewport.scrollHeight - rowHeight * 2) onLoadMore();
 	}
 
 	export function select(row: number) {
@@ -98,7 +98,7 @@
 	const shortHash = (hash: string) => (hash === UNCOMMITTED ? '' : hash.slice(0, 8));
 </script>
 
-<div class="gg-table" style:--gg-graph-width="{width}px" style:--gg-row-height="{rowHeight}px">
+<div class="gg-table" style:--gg-graph-width="{width}px" style:--gg-row-height="{rowHeight}px" style:font-size="{fontSize}px">
 	<div class="gg-header" role="row">
 		<div class="gg-cell gg-col-graph">Graph</div>
 		<div class="gg-cell gg-col-desc">Description</div>
@@ -132,7 +132,7 @@
 	</div>
 	{#if viewHeight > 0}
 		<div class="gg-graph-layer" style:height="{viewHeight}px">
-			<GraphCanvas bind:this={graph} {layout} {width} height={viewHeight} {rowHeight} {scrollTop} head={headRow} {selected} />
+			<GraphCanvas bind:this={graph} {layout} {width} height={viewHeight} {rowHeight} {scrollTop} head={headRow} {selected} {palette} />
 		</div>
 	{/if}
 	</div>

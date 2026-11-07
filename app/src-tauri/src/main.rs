@@ -13,6 +13,7 @@ mod plantuml;
 mod remote;
 mod repo;
 mod repos;
+mod settings;
 mod state;
 mod system;
 
@@ -201,8 +202,8 @@ fn main() {
             repos::get_appearance,
             state::state_snapshot,
             state::state_set,
-            state::settings_read,
-            state::settings_write,
+            settings::settings_get,
+            settings::settings_set,
             state::settings_path,
             state::session_log_path
         ])

@@ -203,12 +203,29 @@ async function checkDetails(check: Check): Promise<void> {
 	check(closed, 'diff windows still open: ' + (await getAllWindows()).map((w) => w.label).join(', '));
 }
 
+/** 14 (the part M2 has): the settings are read; a value out of range is refused; a change is
+ * applied to the window (the row height) and announced; the default comes back. */
+async function checkSettings(check: Check): Promise<void> {
+	const s = (app().state() as unknown as { settings: { graph: { rowHeight: number } } }).settings;
+	check(s.graph.rowHeight === 24, 'the settings start at their defaults in a fresh data directory');
+	let refused = false;
+	await invoke('settings_set', { key: 'graph.rowHeight', value: 99 }).catch((e) => { refused = String(e).includes('16 to 48'); });
+	check(refused, 'a row height of 99 is refused with the range');
+	await invoke('settings_set', { key: 'graph.rowHeight', value: 32 });
+	const applied = await settles(() => (app().state() as unknown as { settings: { graph: { rowHeight: number } } }).settings.graph.rowHeight === 32
+		&& document.querySelector('.gg-row')?.getBoundingClientRect().height === 32);
+	check(applied, 'a changed row height reaches the window and its rows');
+	await invoke('settings_set', { key: 'graph.rowHeight', value: null });
+	check(await settles(() => (app().state() as unknown as { settings: { graph: { rowHeight: number } } }).settings.graph.rowHeight === 24), 'null brings the default back');
+}
+
 export async function selfTest(_config: Record<string, unknown>): Promise<void> {
 	const failures: string[] = [];
 	const check: Check = (ok, what) => { if (!ok) failures.push(what); };
 	try {
 		await checkGraph(check);
 		await checkDetails(check);
+		await checkSettings(check);
 	} catch (e) {
 		failures.push(errorText(e));
 	}

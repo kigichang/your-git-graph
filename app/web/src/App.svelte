@@ -12,6 +12,7 @@
 	import GraphTable from './lib/components/GraphTable.svelte';
 	import Toolbar from './lib/components/Toolbar.svelte';
 	import DetailsPanel, { type DetailsView } from './lib/components/DetailsPanel.svelte';
+	import { settings, watchSettings } from './lib/settings.svelte';
 
 	let repo = $state<string | null>(null);
 	let data = $state.raw<CommitsResponse | null>(null);
@@ -27,7 +28,13 @@
 	let detailsFor = ''; // what the panel shows, so a late answer for something else is dropped
 	let firstPaintMs = $state<number | null>(null);
 
-	const options = (max: number): LoadOptions => ({ ...defaultLoadOptions(max), branches, showRemoteBranches });
+	const options = (max: number): LoadOptions => {
+		const s = settings.current;
+		return {
+			...defaultLoadOptions(max), branches, showRemoteBranches, order: s.commits.order,
+			showRemoteHeads: s.repository.showRemoteHeads, showUncommitted: s.commits.showUncommitted, showUntracked: s.commits.showUntracked
+		};
+	};
 
 	async function load(max: number) {
 		if (repo === null || loading) return;
@@ -67,14 +74,27 @@
 
 	async function open(folder: string) {
 		repo = folder;
-		await load(300);
+		await load(settings.current.commits.initialLoad);
 		if (error === '') await invoke('repo_opened', { folder: repo, repos: [repo] }).catch(() => {});
 	}
 
-	invoke<string[]>('initial_repo').then((folders) => { if (folders[0] !== undefined) void open(folders[0]); }, () => {});
+	// The settings first (they decide what is loaded), then the folder from the command line.
+	// A later change of the settings reloads the graph with them.
+	let settingsSeen = '';
+	watchSettings().then((s) => {
+		settingsSeen = JSON.stringify(s);
+		showRemoteBranches = s.repository.showRemoteBranches;
+		settings.onChange((next) => {
+			const text = JSON.stringify(next);
+			if (text === settingsSeen) return;
+			settingsSeen = text;
+			void reload();
+		});
+		invoke<string[]>('initial_repo').then((folders) => { if (folders[0] !== undefined) void open(folders[0]); }, () => {});
+	});
 
 	const reload = () => load(maxCommits);
-	const loadMore = () => load(maxCommits + 100);
+	const loadMore = () => load(maxCommits + settings.current.commits.loadMore);
 
 	/* ---------- The details panel ---------- */
 
@@ -167,7 +187,7 @@
 	// What the self-test and the benchmark reach for.
 	(window as unknown as { __gg: unknown }).__gg = {
 		app: {
-			state: () => ({ repo, data, info, error, status, firstPaintMs, details, branches }),
+			state: () => ({ repo, data, info, error, status, firstPaintMs, details, branches, settings: settings.current }),
 			load,
 			table: () => table,
 			setBranches: (b: string[] | null) => { branches = b; return reload(); },
@@ -192,10 +212,13 @@
 			onRefresh={reload} />
 		{#if data}
 			<GraphTable bind:this={table} commits={data.commits} layout={data.layout} head={data.head} more={data.more}
+				rowHeight={settings.current.graph.rowHeight} fontSize={settings.current.graph.fontSize} palette={settings.current.graph.colours}
+				loadMoreAutomatically={settings.current.commits.loadMoreAutomatically}
 				onLoadMore={loadMore} {onSelect} {onCompare} onEscape={closeDetails} {onTag} />
 		{/if}
 		{#if details !== null}
-			<DetailsPanel view={details} onClose={closeDetails} onOpenFile={openFile} />
+			<DetailsPanel view={details} fileView={settings.current.details.fileView} compactFolders={settings.current.details.compactFolders}
+				onClose={closeDetails} onOpenFile={openFile} />
 		{/if}
 	{/if}
 </main>

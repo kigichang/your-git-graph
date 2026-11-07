@@ -8,6 +8,7 @@ pub mod files;
 pub mod git;
 pub mod graph;
 pub mod repo;
+pub mod settings;
 pub mod watch;
 pub mod wire;
 

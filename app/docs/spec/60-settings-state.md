@@ -38,7 +38,7 @@
 | `plantuml.jar` | 無 | Markdown 預覽的 PlantUML |
 | `log.enabled` | false | 寫 session.log |
 
-舊 key（Stage 1 沿用上游擴充套件的名稱）第一次讀到時搬過來並寫回（`settings.rs` 的 `LEGACY_KEYS`）；未知 key 記 log、不刪。
+舊 key（Stage 1 沿用上游擴充套件的名稱）第一次讀到時搬過來並寫回（`crates/backend/src/settings.rs` 的 `legacy_keys()`；對照表在那裡，含值的改寫：`date.type` 的 `Author Date` → `author`、`commitDetailsView.location` 的 `Docked to Bottom` → `bottom`、`dialog.*` → `dialogs.*` 等）；Stage 1 只能關閉的 `fetchAvatars`、`pullRequests.enabled`、`trackRemoteTags`、`mobileAdaptation` 直接刪除；未知 key 記 log、保留不刪；同名的 key 已經有值時舊 key 只刪不覆蓋。無效的值（超出範圍、不在列舉裡）用預設值，`settings_get` 回報 `ignored: [{ key, reason }]`。
 
 **同步全域作者**（`authors` 存檔時）：還沒有全域作者 → 設為第一位；全域作者原本是清單中的某一位而被改掉或刪除 → 跟著改（全刪則 unset）；不在清單裡的全域作者是使用者自己的，不動。
 
