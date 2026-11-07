@@ -70,7 +70,8 @@ fn opened(app: &tauri::AppHandle, urls: Vec<tauri::Url>) {
 /// in-band as `{"error": "Kind: message"}`. A remote repository's go to its machine. Runs off the main thread - a large repository's
 /// first graph page takes long enough to stall the UI otherwise.
 #[tauri::command]
-async fn engine_request(remotes: tauri::State<'_, std::sync::Arc<remote::Remotes>>, repo: String, request: String) -> Result<String, String> {
+async fn engine_request(state: tauri::State<'_, state::State>, remotes: tauri::State<'_, std::sync::Arc<remote::Remotes>>, repo: String, request: String) -> Result<String, String> {
+    state.listed(&repo)?;
     if let Some(remote) = remote::parse(&repo)? {
         let session = remotes.session(&remote)?;
         let body = serde_json::json!({ "op": "engine", "repo": remote.path, "request": request });
@@ -82,12 +83,16 @@ async fn engine_request(remotes: tauri::State<'_, std::sync::Arc<remote::Remotes
         .map_err(|e| e.to_string())
 }
 
-/// The host's log line, mirrored to stderr so it shows in the terminal; with `persist` (the
-/// `enableLog` setting) also appended to this launch's session log.
+/// The host's log line, mirrored to stderr so it shows in the terminal, and appended to this
+/// launch's session log when the `log.enabled` setting is on (read from the file each time, so
+/// turning it on in the panel or by hand takes effect at once); `persist` overrides the setting.
 #[tauri::command]
-fn host_log(log: tauri::State<'_, state::SessionLog>, line: String, persist: Option<bool>) {
+fn host_log(app: tauri::AppHandle, log: tauri::State<'_, state::SessionLog>, line: String, persist: Option<bool>) {
     eprintln!("[host] {line}");
-    if persist == Some(true) {
+    let keep = persist.unwrap_or_else(|| {
+        state::settings_file(&app).and_then(|f| settings::load(&f)).is_ok_and(|view| view.settings.log_enabled)
+    });
+    if keep {
         log.append(&line);
     }
 }

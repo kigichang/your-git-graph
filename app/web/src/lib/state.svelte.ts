@@ -13,12 +13,13 @@ const listeners: ((key: string) => void)[] = [];
 export const appState = {
 	get loaded() { return loaded; },
 	get<T = unknown>(key: string): T | undefined { return snapshot[key] as T | undefined; },
-	/** Set a key (`null` removes it): here at once, in the file shortly, in the other windows. */
-	set(key: string, value: unknown): void {
+	/** Set a key (`null` removes it): here at once, in the file shortly, in the other windows.
+	 * Settles when Rust has it (callers that need that, such as adding to the sidebar, wait). */
+	set(key: string, value: unknown): Promise<void> {
 		const next = { ...snapshot };
 		if (value === null || value === undefined) delete next[key]; else next[key] = value;
 		snapshot = next;
-		void invoke('state_set', { key, value: value ?? null });
+		return invoke<void>('state_set', { key, value: value ?? null }).catch(() => {});
 	},
 	get sidebar(): SidebarState { return sidebarFrom(snapshot['sidebar']); },
 	get lastActiveRepo(): string | null { const v = snapshot['lastActiveRepo']; return typeof v === 'string' ? v : null; },

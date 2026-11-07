@@ -29,7 +29,8 @@ pub fn open_diff_window(app: tauri::AppHandle, spec: String, title: String) -> R
 }
 
 #[tauri::command]
-pub async fn worktree_file(remotes: tauri::State<'_, std::sync::Arc<Remotes>>, repo: String, path: String) -> Result<Value, String> {
+pub async fn worktree_file(state: tauri::State<'_, crate::state::State>, remotes: tauri::State<'_, std::sync::Arc<Remotes>>, repo: String, path: String) -> Result<Value, String> {
+    state.listed(&repo)?;
     match remote::parse(&repo)? {
         Some(remote) => remote::ask(&remotes, &remote, json!({ "op": "worktreeFile", "path": path }), "repo").await,
         None => serde_json::to_value(read_worktree_file(Path::new(&repo), &path)?).map_err(|e| e.to_string()),

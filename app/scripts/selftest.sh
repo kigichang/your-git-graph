@@ -63,4 +63,12 @@ if [ -n "$authlog" ]; then
 	echo "askpass: the server saw the name and password $n time(s)"
 	[ "$n" -ge 1 ] || status=1
 fi
+# log.enabled: the line logged while it was on is in the session log, the others are not.
+if grep -q "selftest: PASS" "$log"; then
+	if grep -q "selftest: session log marker" "$data/session.log" 2>/dev/null && ! grep -q "selftest: graph:" "$data/session.log" 2>/dev/null; then
+		echo "session log: written only while log.enabled was on"
+	else
+		echo "session log: the marker is missing or other lines got in"; status=1
+	fi
+fi
 exit $status

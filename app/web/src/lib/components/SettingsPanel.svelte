@@ -9,9 +9,11 @@
 	import { errorText } from '../errors';
 	import { t, type Key } from '../i18n';
 
-	let { repo, remoteRepo, config, onClose, onOperate, onDialog }: {
+	let { repo, remoteRepo, config, onClose, onOperate, onDialog, onExport }: {
 		repo: string | null; remoteRepo: boolean; config: RepoConfig | null;
 		onClose: () => void;
+		/** Export Repository Configuration: the path written, or null when the file is there already. */
+		onExport: () => Promise<string | null>;
 		onOperate: (request: OpRequest) => Promise<boolean>;
 		onDialog: (spec: DialogSpec<unknown>, onDone: (built: unknown) => void) => void;
 	} = $props();
@@ -149,6 +151,20 @@
 		onDialog(spec as DialogSpec<unknown>, (built) => { void onOperate(built as OpRequest); });
 	}
 
+	let exportNote = $state('');
+	let exportFailed = $state(false);
+	async function exportConfig() {
+		exportNote = '';
+		try {
+			const path = await onExport();
+			exportFailed = path === null;
+			exportNote = path === null ? t('settings.repoConfig.exists') : t('settings.repoConfig.done', { path });
+		} catch (e) {
+			exportFailed = true;
+			exportNote = errorText(e);
+		}
+	}
+
 	const openFile = (command: 'settings_path' | 'session_log_path') => invoke<string>(command).then((path) => invoke('open_path', { path, text: true })).catch(() => {});
 
 	function onKey(e: KeyboardEvent) {
@@ -217,6 +233,13 @@
 			{/each}
 			<div class="gg-buttons"><button onclick={() => remoteDialog(null)}>{t('settings.remote.add')}</button></div>
 
+			<h3>{t('settings.repoConfig')}</h3>
+			<p class="gg-hint">{t('settings.repoConfig.hint')}</p>
+			<div class="gg-buttons">
+				<button class="gg-export" onclick={exportConfig}>{t('settings.repoConfig.export')}</button>
+				{#if exportNote}<span class={exportFailed ? 'gg-error' : 'gg-note'}>{exportNote}</span>{/if}
+			</div>
+
 			<h3>{t('settings.user')}</h3>
 			{#each [['local', config.userName.local, config.userEmail.local], ['global', config.userName.global, config.userEmail.global]] as [where, name, email] (where)}
 				<div class="gg-remote">
@@ -254,6 +277,7 @@
 	}
 	input:focus, select:focus { border-color: var(--gg-focusBorder); }
 	.gg-error { color: var(--gg-errorForeground) !important; font-size: 12px; }
+	.gg-note { color: var(--gg-descriptionForeground); font-size: 12px; overflow-wrap: anywhere; }
 	.gg-hint { margin: 4px 0 8px; }
 	.gg-author { display: flex; gap: 6px; margin: 4px 0; }
 	.gg-author input { flex: 1; min-width: 0; }

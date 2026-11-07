@@ -2,7 +2,7 @@
 //! Recent and the start page), scanning a folder for repositories, and the file watcher of each
 //! window.
 //!
-//! Every window has the repository sidebar (host/sidebar.js: the list is shared, kept in
+//! Every window has the repository sidebar (the list is shared, kept in
 //! state.json) and shows one of its repositories. A window starts on the start page (an empty
 //! list) or with `window.__GG_OPEN_REPO` set; its page reports `repo_opened` whenever the
 //! repository it shows or the list changes: that records it, remembers it as recent, and

@@ -1,10 +1,12 @@
 <script lang="ts">
 	// The commit table: Graph | Description | Date | Author | Commit, with only the rows in
 	// view in the DOM (a spacer gives the scrollbar its length), the graph column drawn on a
-	// canvas, a sticky header, keyboard selection, and "load more" at the bottom.
+	// canvas, a header that stays put or scrolls away (`graph.stickyHeader`), keyboard selection,
+	// and "load more" at the bottom.
 	import type { Snippet } from 'svelte';
 	import GraphCanvas from './GraphCanvas.svelte';
-	import { graphWidth, rowAt, rowTop, type Gap } from '../graph/draw';
+	import Message from './Message.svelte';
+	import { graphWidth, rowAt, rowTop, type Gap, type GraphStyle } from '../graph/draw';
 	import { formatDate, relative } from '../dates';
 	import { UNCOMMITTED, type Commit, type Layout } from '../api/client';
 	import type { DateFormat } from '../api/generated/DateFormat';
@@ -22,8 +24,15 @@
 	const combinedWith = (commit: Commit, head: string) => (combineLabels ? commit.remotes.filter((r) => r.name === (r.remote ?? '') + '/' + head).map((r) => r.remote ?? '').join(', ') : '');
 
 	let { commits, layout, head = null, currentBranch = null, more = false, rowHeight = 24, fontSize = 13, palette, loadMoreAutomatically = true, highlighted = null, dateFormat = 'date-time', combineLabels = true,
-		gapRow = -1, gapHeight = 0, gap, onLoadMore, onSelect, onCompare, onEscape, onTag, onContextMenu }: {
+		graphStyle = 'rounded', stickyHeader = true, markdown = true,
+		gapRow = -1, gapHeight = 0, gap, onLoadMore, onSelect, onOpen, onCompare, onEscape, onTag, onContextMenu }: {
 		commits: Commit[]; layout: Layout; head?: string | null; currentBranch?: string | null; more?: boolean; rowHeight?: number; fontSize?: number; palette?: string[]; loadMoreAutomatically?: boolean;
+		/** How the lines change lane (`graph.style`). */
+		graphStyle?: GraphStyle;
+		/** The column titles stay at the top (`graph.stickyHeader`); off, they scroll away with the rows. */
+		stickyHeader?: boolean;
+		/** The messages' light markup (`commits.markdown`). */
+		markdown?: boolean;
 		/** The details shown inline: `gap` is drawn in a space of `gapHeight` px below row `gapRow` (-1: none). */
 		gapRow?: number;
 		gapHeight?: number;
@@ -38,6 +47,8 @@
 		onContextMenu?: (e: MouseEvent, target: MenuTarget) => void;
 		/** A row was selected (click, keys); `again` when it was the selected one already. */
 		onSelect?: (row: number, commit: Commit, again: boolean) => void;
+		/** Enter: open the selected row's details (they may have been closed with Esc). */
+		onOpen?: (row: number, commit: Commit) => void;
 		/** ⇧-click: the selected row against another. */
 		onCompare?: (selected: Commit, other: Commit) => void;
 		onEscape?: () => void;
@@ -54,11 +65,15 @@
 	let graph: ReturnType<typeof GraphCanvas> | undefined = $state();
 
 	const rows = $derived(commits.length);
+	/** Where the rows start in the scrolled content: below the header when it scrolls with them. */
+	const headerOffset = $derived(stickyHeader ? 0 : rowHeight);
+	/** The scroll position within the rows (negative while the scrolling header is in view). */
+	const rowsScroll = $derived(scrollTop - headerOffset);
 	const headRow = $derived(head === null ? -1 : commits.findIndex((c) => c.hash === head));
 	const width = $derived(Math.max(64, Math.min(MAX_GRAPH_WIDTH, graphWidth(layout.lanes))));
 	const g: Gap = $derived(gap && gapRow >= 0 && gapRow < rows ? { row: gapRow, height: gapHeight } : { row: -1, height: 0 });
-	const first = $derived(Math.max(0, rowAt(scrollTop, rowHeight, g) - OVERSCAN));
-	const last = $derived(Math.min(rows - 1, rowAt(scrollTop + viewHeight, rowHeight, g) + 1 + OVERSCAN));
+	const first = $derived(Math.max(0, rowAt(Math.max(0, rowsScroll), rowHeight, g) - OVERSCAN));
+	const last = $derived(Math.min(rows - 1, rowAt(Math.max(0, rowsScroll + viewHeight), rowHeight, g) + 1 + OVERSCAN));
 	const visible = $derived.by(() => {
 		const out: { row: number; commit: Commit }[] = [];
 		for (let row = first; row <= last; row++) out.push({ row, commit: commits[row] as Commit });
@@ -93,7 +108,7 @@
 
 	function reveal(row: number) {
 		if (!viewport) return;
-		const top = rowTop(row, rowHeight, g), bottom = top + rowHeight;
+		const top = headerOffset + rowTop(row, rowHeight, g), bottom = top + rowHeight;
 		if (top < viewport.scrollTop) viewport.scrollTop = top;
 		else if (bottom > viewport.scrollTop + viewport.clientHeight) viewport.scrollTop = bottom - viewport.clientHeight;
 	}
@@ -103,7 +118,7 @@
 	 * view starts at its top. */
 	export function showRow(row: number, centre: boolean) {
 		if (!viewport || row < 0 || row >= rows) return;
-		const top = rowTop(row, rowHeight, g), block = rowHeight + (row === g.row ? g.height : 0), view = viewport.clientHeight;
+		const top = headerOffset + rowTop(row, rowHeight, g), block = rowHeight + (row === g.row ? g.height : 0), view = viewport.clientHeight;
 		if (block >= view) viewport.scrollTop = top;
 		else if (centre) viewport.scrollTop = top - (view - block) / 2;
 		else if (top < viewport.scrollTop) viewport.scrollTop = top;
@@ -123,6 +138,7 @@
 		else if (e.key === 'ArrowUp') { select(Math.max(0, selected - 1)); e.preventDefault(); }
 		else if (e.key === 'End') { if (more) onLoadMore?.(); else select(rows - 1); e.preventDefault(); }
 		else if (e.key === 'Home') { select(0); e.preventDefault(); }
+		else if (e.key === 'Enter' && !e.isComposing && selected >= 0 && selected < rows) { onOpen?.(selected, commits[selected] as Commit); e.preventDefault(); }
 		else if (e.key === 'Escape') { onEscape?.(); }
 		else if (e.key === 'j' && e.metaKey) { if (headRow >= 0) select(headRow); e.preventDefault(); }
 	}
@@ -157,7 +173,7 @@
 	const shortHash = (hash: string) => (hash === UNCOMMITTED ? '' : hash.slice(0, 8));
 </script>
 
-<div class="gg-table" style:--gg-graph-width="{width}px" style:--gg-row-height="{rowHeight}px" style:font-size="{fontSize}px">
+{#snippet header()}
 	<div class="gg-header" role="row">
 		<div class="gg-cell gg-col-graph">{t('column.graph')}</div>
 		<div class="gg-cell gg-col-desc">{t('column.description')}</div>
@@ -165,8 +181,13 @@
 		<div class="gg-cell gg-col-author">{t('column.author')}</div>
 		<div class="gg-cell gg-col-hash">{t('column.commit')}</div>
 	</div>
+{/snippet}
+
+<div class="gg-table" style:--gg-graph-width="{width}px" style:--gg-row-height="{rowHeight}px" style:font-size="{fontSize}px">
+	{#if stickyHeader}{@render header()}{/if}
 	<div class="gg-body">
 	<div class="gg-viewport" bind:this={viewport} onscroll={onScroll} onkeydown={onKeydown} oncontextmenu={onBackgroundMenu} tabindex="0" role="grid" aria-rowcount={rows}>
+		{#if !stickyHeader}{@render header()}{/if}
 		<div class="gg-spacer" style:height="{rows * rowHeight + g.height}px">
 			<div class="gg-rows" style:transform="translateY({rowTop(first, rowHeight, g)}px)">
 				{#each visible as { row, commit } (commit.hash)}
@@ -182,7 +203,7 @@
 							{#each commit.tags as t (t.name)}<button class="gg-ref gg-ref-tag" onclick={(e) => { e.stopPropagation(); onTag?.(t.name, commit); }}
 								oncontextmenu={(e) => menu(e, { kind: 'tag', name: t.name, annotated: t.annotated, commit })}>{t.name}</button>{/each}
 							{#if commit.stash}<span class="gg-ref gg-ref-stash">{commit.stash.selector}</span>{/if}
-							<span class="gg-message">{commit.message}</span>
+							<span class="gg-message"><Message text={commit.message} {markdown} /></span>
 						</div>
 						<div class="gg-cell gg-col-date">{commit.hash === UNCOMMITTED ? '' : dateText(commit.date)}</div>
 						<div class="gg-cell gg-col-author">{commit.author}</div>
@@ -200,7 +221,7 @@
 	</div>
 	{#if viewHeight > 0}
 		<div class="gg-graph-layer" style:height="{viewHeight}px">
-			<GraphCanvas bind:this={graph} {layout} {width} height={viewHeight} {rowHeight} {scrollTop} gap={g} head={headRow} {selected} {palette} />
+			<GraphCanvas bind:this={graph} {layout} {width} height={viewHeight} {rowHeight} scrollTop={rowsScroll} gap={g} head={headRow} {selected} {palette} style={graphStyle} />
 		</div>
 	{/if}
 	</div>

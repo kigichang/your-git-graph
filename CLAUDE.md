@@ -36,7 +36,7 @@ app/
     vite.config.ts、svelte.config.js、tsconfig.json
   diff/                   diff 視窗程式（Monaco ESM；main.js、mdview.js、markdown.js、preview.js、mermaid.js；沿用 Stage 1）
   docs/spec/              功能規格（README.md 是目錄）
-  scripts/                build-diff.mjs、build-app.sh、build-remote.sh、selftest.sh、preview.sh、check-cleanroom.sh、third-party.mjs（產生根目錄的 THIRD-PARTY.md：cargo metadata 的 crate、esbuild metafile 裡的 npm 套件、web/src import 的套件）
+  scripts/                build-diff.mjs、build-app.sh、build-remote.sh、selftest.sh、preview.sh、check-cleanroom.sh、third-party.mjs（產生根目錄的 THIRD-PARTY.md：cargo metadata 的 crate、esbuild metafile 裡的 npm 套件、web/src import 的套件，最後附上授權全文——各套件自己的授權檔，沒有的用標準條文加 manifest 的作者，相同的只印一次）
   tests/                  fake-ssh.sh、fake-java.sh、ssh-server.sh、real-ssh.sh、basic_auth_server.py（self-test 與 cargo 測試用）
   package.json            scripts：dev、build、build:diff、check（svelte-check）、test（check-cleanroom ＋ vitest）
   src-tauri/              Rust（獨立 Cargo workspace：App、crates/backend、crates/remote）
@@ -72,8 +72,8 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 ```
 
 - **改了 `app/web/`、`app/diff/` 要先 `npm run build` 再 `cargo build`**：前端是編譯時嵌入執行檔的。
-- `cd app && npm test`：check-cleanroom ＋ vitest（目前 58 個、14 個檔案：diffspec、errors、remote、theme、markdown、draw、filetree、menus、dialogs、sidebar、dates、find、repoconfig、i18n）。`npm run check`：svelte-check。
-- `cd app/src-tauri && cargo test --workspace`（目前 166 個：backend 93 ＋ `tests/ops.rs` 36、remote 8、App 29；App 的遠端測試用 `target/debug/gg-remote`，所以要 `--workspace`）。`tests/ops.rs` 對真的 git 測每個操作、data-loss 規則、CLI 讀取與全域作者同步，`GIT_CONFIG_GLOBAL` 指向臨時檔，不會動到你的全域設定。
+- `cd app && npm test`：check-cleanroom ＋ vitest（目前 62 個、15 個檔案：diffspec、errors、remote、theme、markdown、marks、draw、filetree、menus、dialogs、sidebar、dates、find、repoconfig、i18n）。`npm run check`：svelte-check。
+- `cd app/src-tauri && cargo test --workspace`（目前 167 個：backend 93 ＋ `tests/ops.rs` 36、remote 8、App 30；App 的遠端測試用 `target/debug/gg-remote`，所以要 `--workspace`）。`tests/ops.rs` 對真的 git 測每個操作、data-loss 規則、CLI 讀取與全域作者同步，`GIT_CONFIG_GLOBAL` 指向臨時檔，不會動到你的全域設定。
 - **self-test**：`app/scripts/selftest.sh <執行檔> <repo 或含多個 repo 的資料夾> [log]`（`GG_SELFTEST=1`，`GG_DATA_DIR` 指到臨時目錄）。檢查項目與狀態在 `docs/spec/99-acceptance.md`（除了第 13 項的監看之外全部自動）。它會寫入目標 repo（臨時分支、`gg-selftest/` 目錄、`gg-selftest-*` remote，都會清掉），對 scratch 的 clone 跑；單一 repo 與含多個 repo 的資料夾各跑一次。每次改動前端或 host 都要跑。遠端段落用假 ssh（`GG_REMOTE_SSH=tests/fake-ssh.sh`，helper 在本機跑）；真 ssh 是 Docker（`tests/ssh-server.sh`、`GG_SELFTEST_SSH=…`、`GG_REMOTE_SSH=tests/real-ssh.sh`）。帳密提示：腳本自己起 `tests/basic_auth_server.py`（401 → 記下帳密 → 403），結束時要看到 `auth: gg-selftest:secret` 兩次（本機 git 一次、helper 一次）；`GG_SELFTEST_HTTP` 可指定別的位址。PlantUML 用 `tests/fake-java.sh`（`GG_SELFTEST_PLANTUML_JAR` 換成真的 jar）。**腳本裡的 `pkill -f "$app"` 會殺掉命令列含執行檔路徑的任何 process**——從別的腳本呼叫時，不要把路徑放在自己的命令列上（把呼叫寫進檔案再執行）。`preview.sh` 找視窗時要接受 floating 的 layer（always-on-top 的視窗不在 layer 0）。**被蓋住的視窗**：打包成 `.app` 後 macOS 把它當一般 App 管理，視窗被終端機蓋住、App 不在前景時，WebKit 會把頁面凍住（timer、IPC、畫面全停；切換外觀時必定發生，否則過幾秒也會）——self-test 在最後一個 diff 視窗關掉後就停住、Rust 這邊全部閒置、截圖是空的，把 App 叫到前景才恢復；裸的 `target/debug` 執行檔不受管理，開發時看不到。所以 `GG_SELFTEST`／`GG_PREVIEW` 時（`main.rs` 的 `kept_in_front`）主視窗與 diff 視窗都 always-on-top，並以 `system::no_app_nap` 關掉 App Nap；關掉 App Nap 本身不夠。對 release 的 `.app` 也要跑一次 self-test。
 - **看畫面**：`app/scripts/preview.sh <執行檔> <repo> <場景> <light|dark|system> <輸出前綴>`（`GG_PREVIEW`；場景列在 `web/src/preview.ts` 開頭：details、inline、compare、branches、authors、menu、dialog、error、settings、find、reflog、worktrees、addmenu、addremote、addserver、diff、markdown、resize、zh，加 `contrast` 強制增強對比）。需要螢幕錄製權限。
 - **監看的手動檢查**：開著 App 閒置幾秒應該 0 次刷新；終端機 `git commit`、`git checkout -b` 各剛好刷新一次。
@@ -131,7 +131,8 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 - **引擎的錯誤放在回應內容裡**：回應只有 `{"error": "Kind: message"}` 時代表失敗（`errors.ts` 的 `engineAnswer()` 轉成 throw）；一般的成功回應也可能帶 `error: null` 欄位，不能把它當失敗。
 - **不要直接修改 `vendor/`**。引擎的方法和參數看 `native/core/src/dispatch.rs`（42 個方法，全部唯讀）。
 - **gix 不支援 push、fetch**：所有寫入一律走 `git` CLI。
-- **使用者輸入的值進 git 的 argv 前一律檢查**，以 `-` 開頭就拒絕（防止被當成選項，例如 `--upload-pack=…`）。路由只接受這個視窗側欄清單裡的 repo。
+- **使用者輸入的值進 git 的 argv 前一律檢查**，以 `-` 開頭就拒絕（防止被當成選項，例如 `--upload-pack=…`）。
+- **收 repo 的 command 只接受側欄清單裡的 repo**（`state.json` 的 `sidebar.repos`，所有視窗共用）：`repo_read`、`repo_op`、`engine_request`、`worktree_file`、`repo_operation_state`、`export_repo_config` 一開頭 `state.listed(&repo)?`（`state.rs`），否則回 `… is not in the sidebar`。新增收 repo 的 command 也要加。所以前端加入 repo 時要**等** `saveSidebar`（`appState.set` 回 Promise，`state_set` 完成後 Rust 才認得）再 `show`。
 - **data-loss 規則**（git 語意，自己寫的）：離開 detached HEAD 時 HEAD 上有不在任何分支、tag、remote-tracking 分支裡的 commit；reset 讓目前分支的 commit 不在其他 ref 上（hard reset 時已追蹤檔案有未 commit 的修改，`git status --porcelain --untracked-files=no`）；強制移動既有分支讓它的 commit 不在其他 ref 上（`rev-list <branch> --not <target> --exclude=<branch> --branches --tags --remotes`）；force／force-with-lease push 時 remote-tracking 分支上有本地分支沒有的 commit。檢查只讀；不安全的值不檢查、照原本的錯誤回應。
 - **git 一律 `GIT_EDITOR=true`**：沒有終端機可以編輯，`rebase --continue`、`commit --squash`、`merge --no-ff` 採用預設訊息。互動式 rebase 在 Terminal.app 執行（`system.rs` 的 `open_terminal`）。
 - **改寫歷史（drop commit、改舊訊息）**：自己產生 rebase todo，經環境變數 `GG_TODO` 給 `GIT_SEQUENCE_EDITOR`；新訊息與作者走 `GG_MESSAGE`、`GG_AUTHOR`，由 `exec git commit --amend` 讀取，所以不必跳脫。範圍內有 merge commit 就拒絕。
@@ -155,6 +156,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 - **Date 欄的日期**：引擎 `loadCommits` 的 `date` 是 committer 日期（`author_date` 只在它內部）。預設的作者日期由 `api::read` 另外向 git 要：一定走 `--stdin`——8.6 萬個 hash 當參數（分批）要 4.6 秒，stdin 0.5 秒；已讀過的 hash 從快取拿，同一頁重載不再呼叫 git。git/git：第一頁多 8ms，全部載入多 0.5 秒（只有第一次）。
 - **只剩 reflog 記得的 commit**（`crates/backend/src/reflogged.rs`）：`git log --reflog --date-order --not --branches --tags [--remotes] HEAD`；`--exclude` 對 `--reflog` 無效，所以 stash 自己的 commit（reflog 的每一筆與它的 index／untracked 父）用 hash 濾掉——不能用 `--not`，那會連它們底下的歷史一起排除。只取到這一頁最舊的 commit 為止（其餘隨下一頁），依日期插入、但一定在自己的父之前；加了就重算 layout。有分支篩選時不做（引擎照常回應）。作者日期在這之後才換，因為插入用的是 committer 日期。
 - **inline 的詳細資料**：`GraphTable` 的 `gapRow`／`gapHeight`／`gap`（snippet）。被它推下去的列在 `{#each}` 裡多一個空的 `.gg-gap-space`；面板本身是 spacer 裡絕對定位的 `.gg-gap`，捲出可視範圍也不卸載（不然檔案樹的展開狀態會丟）。canvas 的列位置一律經 `rowTop`／`rowAt`，換 lane 的曲線跨過 gap 時先直線穿過、最後一列的高度內才彎。打開時記下位置（`detailsWhere`），設定改了已開的不動。列不在已載入範圍時停靠底部。
+- **`graph.style`**：`draw.ts` 的 `style`，`angular` 時換 lane 是一條斜直線（跨 gap 時同樣先直線穿過）。**`graph.stickyHeader`** 關掉時表頭放進 viewport、隨列捲走：列的位置一律加 `headerOffset`（canvas 收到的 `scrollTop` 扣掉它，可能是負的）。**`commits.markdown`**：`lib/marks.ts` 把訊息切成 text／code／strong／em，`Message.svelte` 只產生文字節點與這三種元素，不用 `{@html}`；底線只在字的邊界算（snake_case 不變）。
 - `$effect` 裡不要讀寫同一個 `$state`（例如計數器 `n++`）：effect 會依賴它而重跑。只給測試看的計數器用普通變數。
 - 虛擬捲動（`GraphTable.svelte`）：spacer 撐出高度，只渲染可視範圍 ±8 列，列以 `translateY` 定位；canvas 放在 viewport 外的絕對定位層，捲動時只改它畫的內容。graph 欄最寬 360px（約 25 條 lane），更右的 lane 在淡出範圍外。git/git 以日期排序的第一頁就有 135 條 lane（很多 topic branch 的 commit 等著更深的父）——這是這種配置法的本性，要不要壓縮待 M2 之後看畫面決定。
 - 型別：`web/src/lib/api/generated/*.ts` 由 `cargo test -p gg-backend` 產生，不要手改；改了 Rust 的型別就重跑測試並一起 commit。
@@ -212,7 +214,8 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 
 - `state.json`：`store.set` 經 `state_set`，Rust 合併 300ms 後原子寫入，結束時 flush，發 `state-changed` 給其他視窗。`localStorage` 不受 `GG_DATA_DIR` 影響，所以設了 `GG_DATA_DIR` 時 Rust 先標記 `migratedFromLocalStorage`。
 - `settings.json`：每次重新讀檔、逐 key 改寫；無法解析時拒絕寫入、不覆蓋、以預設值執行。經 App 改動發 `settings-changed`；手動編輯在視窗取得焦點時生效。
-- `enableLog`（Stage 2：`log.enabled`）開啟時 `host_log` 也寫 `session.log`（每次啟動清空）。
+- `log.enabled` 開啟時 `host_log` 也寫 `session.log`（每次啟動清空）：`host_log` 每次讀設定檔（改了立即生效；`persist` 參數可覆蓋），前端不必傳。self-test 在開著時記一行，`selftest.sh` 檢查只有那一行進了檔案。
+- **設定改了不一定重載 graph**：`App.svelte` 只比對決定載入內容的設定（`commits.*` 除了 `markdown`、`dateFormat`、`loadMoreAutomatically`，加上 `repository.*`）；外觀、語言、log 等在顯示的地方即時套用。不然改一個無關的設定也會重載，self-test 接著呼叫的 `load()` 會因為「載入中」直接回 false。
 
 ### 簽章（個人使用，沒有 Apple Developer 帳號）
 

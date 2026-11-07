@@ -6,7 +6,7 @@ import { listen, emit } from '@tauri-apps/api/event';
 import { getAllWindows, getCurrentWindow } from '@tauri-apps/api/window';
 import { errorText } from './lib/errors';
 import { compareSpec, diffSpec, fileSpec, revisions, UNCOMMITTED, WORKTREE, type DiffSpec } from './lib/diffspec';
-import { loadRepoInfo, repoOp, type Commit, type CommitsResponse, type Details, type FileChange, type OpRequest, type RepoInfo } from './lib/api/client';
+import { loadRepoInfo, operationState, repoOp, type Commit, type CommitsResponse, type Details, type FileChange, type OpRequest, type RepoInfo } from './lib/api/client';
 import { t } from './lib/i18n';
 import type { SidebarState } from './lib/sidebar';
 
@@ -28,7 +28,7 @@ type AppHandle = {
 	openSettings: () => Promise<void>;
 	closeSettings: () => void;
 	showPanel: (p: 'reflog' | 'worktrees' | null) => void;
-	exportRepoState: () => Promise<boolean>;
+	exportRepoState: () => Promise<string | null>;
 	repoState: () => { order: string | null };
 	saveRepoState: (patch: Record<string, unknown>) => void;
 	addAndShow: (paths: string[]) => Promise<void>;
@@ -224,6 +224,15 @@ async function checkDetails(check: Check): Promise<void> {
 	// Esc closes the panel; the diff windows closed themselves (Esc): only this window is left.
 	document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
 	check(await settles(() => app().state().details === null), 'Esc closes the details');
+	// Enter brings the selected row's details back; Esc closes them again.
+	const selectedRow = app().table()?.stats().selected ?? -1;
+	document.querySelector('.gg-viewport')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+	await detailsReady();
+	const reopened = app().state().details;
+	check(selectedRow >= 0 && reopened !== null && reopened.kind === 'commit' && reopened.details.hash === app().state().data?.commits[selectedRow]?.hash,
+		'Enter opens the selected row\'s details again: ' + selectedRow + ' ' + reopened?.kind);
+	document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+	check(await settles(() => app().state().details === null), 'and Esc closes them');
 	const closed = await settles(async () => (await getAllWindows()).length === 1);
 	check(closed, 'diff windows still open: ' + (await getAllWindows()).map((w) => w.label).join(', '));
 }
@@ -249,8 +258,17 @@ async function checkPanelsAndMore(check: Check): Promise<void> {
 	check(await settles(() => document.querySelectorAll('.gg-panel .gg-row').length >= 1), 'the worktree panel lists the main worktree');
 	app().showPanel(null);
 	// The repository's config file: exported once; a newer one is taken in when the repository is shown.
-	check(await app().exportRepoState(), 'the config file is written');
-	check(!(await app().exportRepoState()), 'not written over an existing one');
+	// Exported from the settings' button once; a second time the file is left alone.
+	await app().openSettings();
+	const exportButton = await settles(() => document.querySelector('.gg-settings .gg-export') !== null);
+	check(exportButton, 'the settings have the Export Repository Configuration button');
+	document.querySelector<HTMLButtonElement>('.gg-settings .gg-export')?.click();
+	check(await settles(() => (document.querySelector('.gg-settings .gg-note')?.textContent ?? '').includes('.your-git-graph.json')), 'the config file is written and the panel says where');
+	check((await invoke<{ exists: boolean }>('worktree_file', { repo, path: '.your-git-graph.json' })).exists, 'the file is there');
+	document.querySelector<HTMLButtonElement>('.gg-settings .gg-export')?.click();
+	check(await settles(() => document.querySelector('.gg-settings .gg-error')?.textContent === t('settings.repoConfig.exists')), 'not written over an existing one, and the panel says so');
+	check((await app().exportRepoState()) === null, 'nor through the app');
+	app().closeSettings();
 	const newer = JSON.stringify({ version: 1, exportedAt: Math.floor(Date.now() / 1000) + 10, order: 'topo' });
 	await invoke('export_repo_config', { repo, contents: newer });
 	await app().show(repo);
@@ -334,6 +352,26 @@ async function checkSettings(check: Check): Promise<void> {
 	check((app().state().data?.commits.length ?? 0) >= shown, 'the reflog only adds rows');
 	await invoke('settings_set', { key: 'commits.includeReflog', value: null });
 	check(await settles(() => app().state().data?.timing.reflogMs === 0 && app().state().data?.commits.length === shown), 'and they go again');
+	// The header: at the top by default, scrolled away with the rows when not sticky.
+	const stuck = () => document.querySelector('.gg-table > .gg-header') !== null;
+	const scrolling = () => document.querySelector('.gg-viewport > .gg-header') !== null;
+	check(stuck() && !scrolling(), 'the header stays at the top by default');
+	await invoke('settings_set', { key: 'graph.stickyHeader', value: false });
+	check(await settles(() => !stuck() && scrolling()), 'not sticky, the header scrolls with the rows');
+	const firstRow = document.querySelector<HTMLElement>('.gg-viewport .gg-row');
+	const header = document.querySelector<HTMLElement>('.gg-viewport > .gg-header');
+	check(firstRow !== null && header !== null && Math.abs(firstRow.getBoundingClientRect().top - header.getBoundingClientRect().bottom) <= 1, 'the first row starts below the header');
+	await invoke('settings_set', { key: 'graph.stickyHeader', value: null });
+	check(await settles(() => stuck() && !scrolling()), 'sticky again');
+	// The line style: the graph is drawn again with straight lines.
+	const paints = app().table()?.stats().paints ?? 0;
+	await invoke('settings_set', { key: 'graph.style', value: 'angular' });
+	check(await settles(() => (app().table()?.stats().paints ?? 0) > paints), 'the angular graph is drawn');
+	await invoke('settings_set', { key: 'graph.style', value: null });
+	// The session log: written while log.enabled is on.
+	await invoke('settings_set', { key: 'log.enabled', value: true });
+	await log('session log marker');
+	await invoke('settings_set', { key: 'log.enabled', value: null });
 }
 
 /** 6 (the dialogs), 9: the context menu and the dialogs, driven as a person would: a branch is
@@ -403,6 +441,19 @@ async function checkOps(check: Check): Promise<void> {
 	const head = data.commits.find((c) => c.hash !== '*' && c.stash === null)?.hash;
 	if (head === undefined) return;
 	const run = (request: OpRequest, confirmed = false) => repoOp(repo, request, { confirmed }).result;
+	// Only the sidebar's repositories are served: another path is refused before git runs,
+	// for reads, operations, the engine and the working tree's files alike.
+	const other = repo.replace(/\/?$/, '/..');
+	const refusal = async (p: Promise<unknown>) => { try { await p; return ''; } catch (e) { return errorText(e); } };
+	for (const [what, p] of [
+		['read', operationState(other)],
+		['operation', repoOp(other, { kind: 'deleteBranch', branch: 'gg-selftest-none', force: false, deleteOnRemotes: [] }).result],
+		['engine', invoke('engine_request', { repo: other, request: '{"method":"close"}' })],
+		['file', invoke('worktree_file', { repo: other, path: 'README.md' })]
+	] as [string, Promise<unknown>][]) {
+		const said = await refusal(p);
+		check(said.includes('is not in the sidebar'), 'a repository not in the sidebar is refused (' + what + '): ' + said);
+	}
 	try {
 		check((await run({ kind: 'createBranch', branch, commit: head, checkout: true, force: false })).kind === 'done', 'create and check out the branch');
 		const revert = await run({ kind: 'revert', commit: head, parentIndex: 0 });

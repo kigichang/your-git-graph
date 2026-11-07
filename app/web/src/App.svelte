@@ -120,15 +120,16 @@
 		showRemoteBranches = st.showRemoteBranches;
 		firstParentOnly = st.firstParentOnly;
 	}
-	/** Write the repository's config file (Export Repository Configuration); false when it exists already. */
-	async function exportRepoState(): Promise<boolean> {
-		if (repo === null) return false;
+	/** Write the repository's config file (Export Repository Configuration, in the settings):
+	 * the path written, or null when the file exists already (it is never written over). */
+	async function exportRepoState(): Promise<string | null> {
+		if (repo === null) return null;
 		const existing = await invoke<{ exists: boolean }>('worktree_file', { repo, path: REPO_CONFIG_FILE }).catch(() => ({ exists: false }));
-		if (existing.exists) return false;
+		if (existing.exists) return null;
 		const now = Math.floor(Date.now() / 1000);
-		await invoke('export_repo_config', { repo, contents: exportRepoConfig(repoState(), now) });
+		const path = await invoke<string>('export_repo_config', { repo, contents: exportRepoConfig(repoState(), now) });
 		saveRepoState({ lastImportAt: now });
-		return true;
+		return path;
 	}
 
 	/* ---------- Loading the shown repository ---------- */
@@ -180,8 +181,9 @@
 
 	/* ---------- The sidebar's list ---------- */
 
-	function saveSidebar(next: SidebarState) {
-		appState.set('sidebar', next);
+	/** Settled once Rust has the new list: it serves only the sidebar's repositories. */
+	function saveSidebar(next: SidebarState): Promise<void> {
+		return appState.set('sidebar', next);
 	}
 
 	/** Show `r` in this window: connect (ssh) or mount (a share) when it is not reachable,
@@ -232,7 +234,7 @@
 			if (inside.length === 0) found.push(path); else found.push(...inside);
 		}
 		if (found.length === 0) return;
-		saveSidebar({ ...sidebar, repos: addRepos(sidebar.repos, found) });
+		await saveSidebar({ ...sidebar, repos: addRepos(sidebar.repos, found) });
 		await show(found[found.length - 1] as string);
 	}
 
@@ -269,12 +271,18 @@
 
 	async function boot() {
 		await Promise.all([loadState(), watchSettings()]);
-		let settingsSeen = JSON.stringify(settings.current);
+		// The graph is loaded again only when a setting that decides what is loaded changed; the
+		// others (the look, the language, the log, …) apply where they are shown.
+		const loadKey = (s: typeof settings.current) => {
+			const { markdown: _m, dateFormat: _f, loadMoreAutomatically: _a, ...commits } = s.commits;
+			return JSON.stringify({ commits, repository: s.repository });
+		};
+		let settingsSeen = loadKey(settings.current);
 		showRemoteBranches = settings.current.repository.showRemoteBranches;
 		setLanguage(languageFor(settings.current.language));
 		settings.onChange((next) => {
 			setLanguage(languageFor(next.language));
-			const text = JSON.stringify(next);
+			const text = loadKey(next);
 			if (text === settingsSeen) return;
 			settingsSeen = text;
 			void reload();
@@ -443,6 +451,11 @@
 		} catch (e) {
 			void log('line counts: ' + errorText(e));
 		}
+	}
+
+	/** Enter on the selected row: its details, unless they are what the panel shows already. */
+	function onOpen(row: number, commit: Commit) {
+		if (details === null || detailsFor !== (commit.hash === UNCOMMITTED ? '*' : commit.hash)) onSelect(row, commit, false);
 	}
 
 	function onSelect(_row: number, commit: Commit, again: boolean) {
@@ -767,7 +780,7 @@
 			{#snippet inlineDetails()}
 				{#if details !== null}
 					<DetailsPanel view={details} inline fileView={settings.current.details.fileView} compactFolders={settings.current.details.compactFolders} dateFormat={settings.current.commits.dateFormat}
-						bind:height={detailsHeight} onClose={closeDetails} onOpenFile={openFile} {onFileMenu} />
+						markdown={settings.current.commits.markdown} bind:height={detailsHeight} onClose={closeDetails} onOpenFile={openFile} {onFileMenu} />
 				{/if}
 			{/snippet}
 			{#if data}
@@ -775,8 +788,9 @@
 					gapRow={inlineRow} gapHeight={detailsHeight} gap={inlineDetails}
 					rowHeight={settings.current.graph.rowHeight} fontSize={settings.current.graph.fontSize} palette={settings.current.graph.colours}
 					loadMoreAutomatically={settings.current.commits.loadMoreAutomatically} {highlighted} dateFormat={settings.current.commits.dateFormat}
-					combineLabels={settings.current.graph.combineLocalAndRemoteLabels}
-					onLoadMore={loadMore} {onSelect} {onCompare} onEscape={() => { if (find.open) find = { ...find, open: false }; else closeDetails(); }} {onTag} {onContextMenu} />
+					combineLabels={settings.current.graph.combineLocalAndRemoteLabels} graphStyle={settings.current.graph.style}
+					stickyHeader={settings.current.graph.stickyHeader} markdown={settings.current.commits.markdown}
+					onLoadMore={loadMore} {onSelect} {onOpen} {onCompare} onEscape={() => { if (find.open) find = { ...find, open: false }; else closeDetails(); }} {onTag} {onContextMenu} />
 			{:else if error}
 				<p class="gg-error">{error}</p>
 			{/if}
@@ -793,12 +807,12 @@
 			{/if}
 			{#if details !== null && inlineRow < 0}
 				<DetailsPanel view={details} fileView={settings.current.details.fileView} compactFolders={settings.current.details.compactFolders} dateFormat={settings.current.commits.dateFormat}
-					bind:height={detailsHeight} onClose={closeDetails} onOpenFile={openFile} {onFileMenu} />
+					markdown={settings.current.commits.markdown} bind:height={detailsHeight} onClose={closeDetails} onOpenFile={openFile} {onFileMenu} />
 			{/if}
 		{/if}
 	</div>
 	{#if settingsOpen}
-		<SettingsPanel {repo} remoteRepo={repo !== null && isRemote(repo)} config={repoConfig} onClose={() => { settingsOpen = false; }} onOperate={operate}
+		<SettingsPanel {repo} remoteRepo={repo !== null && isRemote(repo)} config={repoConfig} onClose={() => { settingsOpen = false; }} onOperate={operate} onExport={exportRepoState}
 			onDialog={(spec, onDone) => { dialog = { spec, onDone }; }} />
 	{/if}
 	{#if menu}

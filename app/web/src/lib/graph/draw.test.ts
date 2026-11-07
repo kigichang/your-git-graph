@@ -92,3 +92,20 @@ test('a gap below a row (the details inline): rows below it move down, lines run
 	expect(calls).toContain('curve 10,124,24,124,24,136');
 	expect(calls).toContain('line 10,160'); // m → d: straight, through the gap, to row 2
 });
+
+test('the style: rounded lines curve from lane to lane, angular ones slant straight', () => {
+	const rounded = recorder();
+	drawRows(rounded.ctx, layout, { first: 0, last: 1, yOf: y, rowHeight: 24, style: 'rounded' });
+	expect(rounded.calls).toContain('curve 10,24,24,24,24,36');
+	const angular = recorder();
+	drawRows(angular.ctx, layout, { first: 0, last: 1, yOf: y, rowHeight: 24, style: 'angular' });
+	expect(angular.calls.some((c) => c.startsWith('curve'))).toBe(false);
+	// m → f: from m's node (lane 0, row 0) straight to f's (lane 1, row 1).
+	const m = angular.calls.indexOf('move 10,12');
+	expect(angular.calls[m + 1]).toBe('line 24,36');
+	// Across a gap: straight down, then the slant over the last row's height.
+	const gapped = recorder();
+	drawRows(gapped.ctx, layout, { first: 0, last: 1, yOf: (r) => rowTop(r, 24, { row: 0, height: 100 }) + 12, rowHeight: 24, style: 'angular' });
+	expect(gapped.calls).toContain('line 10,112');
+	expect(gapped.calls).toContain('line 24,136');
+});

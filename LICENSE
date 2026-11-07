@@ -24,16 +24,19 @@ SOFTWARE.
 
 Scope
 
-This license covers the files in this repository. It does not cover:
+This license covers the files in this repository except vendor/.
 
-- vendor/vscode-git-graph-rs (a git submodule pointing at
-  https://github.com/neophack/vscode-git-graph-rs), which is under its own
-  licenses: its Rust engine (native/) is MIT, while its webview and extension
-  host layers (web/, src/ and the compiled out/, media/) derive from Git Graph
-  by mhutchie and are under the Git Graph license, which does not permit
-  publishing, distributing, sublicensing or selling derivative works.
+- vendor/vscode-git-graph-rs is a git submodule pointing at
+  https://github.com/neophack/vscode-git-graph-rs, under its own licenses. Only its
+  Rust engine (native/, MIT, "Copyright (c) 2026 penghongxia") is built into the app
+  and the remote helper. Its other parts - the webview and extension host layers
+  (web/, src/ and the compiled out/, media/), which derive from Git Graph by mhutchie
+  and are under the Git Graph license - are neither used by this project nor part of
+  any build of it.
 
-- Builds of the app. A build bundles that webview (media/out.min.js and its
-  stylesheet, copied in by app/scripts/prepare-ui.mjs), so a built app may be
-  used by whoever built it but must not be distributed (no .app, .dmg or other
-  binary releases).
+- Builds of the app (.app, .dmg) and of its remote helper (gg-remote) consist of this
+  project's own code, that engine, and the open-source packages listed in
+  THIRD-PARTY.md, each under the license given there. They may be distributed under
+  this license and those packages' licenses. THIRD-PARTY.md carries the copyright and
+  license notices those licenses ask for, and every build includes it (with this file)
+  in the app's Contents/Resources.

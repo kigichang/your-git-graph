@@ -47,7 +47,15 @@ fn local_runtime(repo: &str, window: &str, askpass: &crate::askpass::Askpass, pr
 }
 
 #[tauri::command]
-pub async fn repo_read(window: tauri::Window, askpass: tauri::State<'_, Arc<crate::askpass::Askpass>>, remotes: tauri::State<'_, Arc<Remotes>>, repo: String, request: ReadRequest) -> Result<ReadResponse, String> {
+pub async fn repo_read(
+    window: tauri::Window,
+    state: tauri::State<'_, crate::state::State>,
+    askpass: tauri::State<'_, Arc<crate::askpass::Askpass>>,
+    remotes: tauri::State<'_, Arc<Remotes>>,
+    repo: String,
+    request: ReadRequest,
+) -> Result<ReadResponse, String> {
+    state.listed(&repo)?;
     if let Some(remote) = remote::parse(&repo)? {
         let answer = remote::ask(&remotes, &remote, json!({ "op": "read", "request": request }), "repo").await?;
         return serde_json::from_value(answer).map_err(|e| e.to_string());
@@ -63,6 +71,7 @@ pub async fn repo_read(window: tauri::Window, askpass: tauri::State<'_, Arc<crat
 #[tauri::command]
 pub async fn repo_op(
     window: tauri::Window,
+    state: tauri::State<'_, crate::state::State>,
     jobs: tauri::State<'_, Jobs>,
     askpass: tauri::State<'_, Arc<crate::askpass::Askpass>>,
     remotes: tauri::State<'_, Arc<Remotes>>,
@@ -72,6 +81,7 @@ pub async fn repo_op(
     id: String,
     on_progress: tauri::ipc::Channel<OpProgress>,
 ) -> Result<OpResult, String> {
+    state.listed(&repo)?;
     if let Some(remote) = remote::parse(&repo)? {
         let session = remotes.session(&remote)?;
         let call = session.next_id();

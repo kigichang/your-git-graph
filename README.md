@@ -67,7 +67,7 @@ repository shown last, or the start page with the recent ones.
 - **Settings** (⌘,): the language (English, Traditional Chinese), the date format, the graph's
   look, how many commits load, the order, what to show, the author identity (synced with
   git's global config), the shown repository's remotes and user details, the defaults of the
-  dialogs. Each repository remembers its filters; Export Repository Config writes them to
+  dialogs. Each repository remembers its filters; Export Repository Configuration (in the settings) writes them to
   `<repo>/.your-git-graph.json` for a clone elsewhere to pick up. View > Appearance picks
   light or dark.
 

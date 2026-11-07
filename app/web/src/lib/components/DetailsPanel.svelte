@@ -3,6 +3,7 @@
 	// a tag: docked below the graph, or inline below the row (`inline`, inside the table). Its
 	// height can be dragged (at the top when docked, at the bottom when inline).
 	import FileList from './FileList.svelte';
+	import Message from './Message.svelte';
 	import { formatDate } from '../dates';
 	import { UNCOMMITTED, type Details, type FileChange, type TagDetails } from '../api/client';
 	import type { DateFormat } from '../api/generated/DateFormat';
@@ -15,8 +16,10 @@
 		| { kind: 'compare'; from: string; to: string; files: FileChange[] }
 		| { kind: 'tag'; name: string; details: TagDetails };
 
-	let { view, fileView = 'tree', compactFolders = true, dateFormat = 'date-time', inline = false, height = $bindable(280), onClose, onOpenFile, onFileMenu }: {
+	let { view, fileView = 'tree', compactFolders = true, dateFormat = 'date-time', markdown = true, inline = false, height = $bindable(280), onClose, onOpenFile, onFileMenu }: {
 		view: DetailsView; fileView?: 'tree' | 'list'; compactFolders?: boolean; dateFormat?: DateFormat;
+		/** The message's light markup (`commits.markdown`). */
+		markdown?: boolean;
 		inline?: boolean; height?: number;
 		onClose: () => void; onOpenFile: (change: FileChange, fileOnly: boolean) => void; onFileMenu?: (e: MouseEvent, change: FileChange) => void;
 	} = $props();
@@ -93,7 +96,7 @@
 							<dt>{t('details.committer')}</dt><dd>{view.details.committer} &lt;{view.details.committerEmail}&gt; · {date(view.details.committerDate)}</dd>
 						{/if}
 					</dl>
-					<pre class="gg-body">{view.details.body}</pre>
+					<pre class="gg-body"><Message text={view.details.body} {markdown} /></pre>
 				{/if}
 			</div>
 			<div class="gg-filecol">

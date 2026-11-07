@@ -65,6 +65,22 @@ impl State {
         self.values.lock().unwrap().clone()
     }
 
+    /// Whether `repo` is one of the sidebar's repositories (`sidebar.repos`, the list every
+    /// window shares). The commands that take a repository serve only these.
+    pub fn lists_repo(&self, repo: &str) -> bool {
+        let values = self.values.lock().unwrap();
+        values.get("sidebar").and_then(|s| s.get("repos")).and_then(Value::as_array).is_some_and(|repos| repos.iter().any(|r| r.as_str() == Some(repo)))
+    }
+
+    /// Only a repository of the sidebar: any other path a page names is refused.
+    pub fn listed(&self, repo: &str) -> Result<(), String> {
+        if self.lists_repo(repo) {
+            Ok(())
+        } else {
+            Err(format!("{repo} is not in the sidebar"))
+        }
+    }
+
     /// Set (`Some`) or remove (`None`) one key; the file follows shortly.
     pub fn set(&self, key: String, value: Option<Value>) {
         {
@@ -251,6 +267,19 @@ mod tests {
         assert_eq!(state.migrate_v2(), 0, "done once");
         state.set("repoState:/b".into(), Some(json!(1)));
         assert_eq!(state.migrate_v2(), 0, "a version-2 file is left alone");
+    }
+
+    #[test]
+    fn only_the_sidebars_repositories_are_served() {
+        let state = State::open(None);
+        assert!(state.listed("/a").is_err(), "nothing listed yet");
+        state.set("sidebar".into(), Some(json!({ "repos": ["/a", "ssh://h/b"], "groups": {} })));
+        assert!(state.listed("/a").is_ok());
+        assert!(state.listed("ssh://h/b").is_ok());
+        assert_eq!(state.listed("/a/../etc").unwrap_err(), "/a/../etc is not in the sidebar");
+        assert!(state.listed("/").is_err());
+        state.set("sidebar".into(), Some(json!({ "repos": [] })));
+        assert!(state.listed("/a").is_err(), "removed from the list");
     }
 
     #[test]

@@ -33,7 +33,12 @@ export type DrawOptions = {
 	head?: number;
 	/** The selected row (a larger node). */
 	selected?: number;
+	/** How a line changes lane between two rows (`graph.style`): a curve (`rounded`, the
+	 * default) or one straight slanted segment (`angular`). */
+	style?: GraphStyle;
 };
+
+export type GraphStyle = 'rounded' | 'angular';
 
 const colourOf = (palette: string[], c: number): string => palette[c % palette.length] as string;
 
@@ -94,10 +99,11 @@ export function drawRows(ctx: Ctx, layout: Layout, o: DrawOptions): void {
 				row = run;
 			} else {
 				// Across a gap (more than a row apart): straight down through it, then the curve
-				// over the last row's height, as between any two rows.
+				// over the last row's height, as between any two rows (or a slanted line, angular).
 				const y1 = o.yOf(row + 1), y0 = Math.max(o.yOf(row), y1 - o.rowHeight);
 				if (y0 > o.yOf(row)) ctx.lineTo(x0, y0);
-				ctx.bezierCurveTo(x0, y0 + (y1 - y0) / 2, x1, y1 - (y1 - y0) / 2, x1, y1);
+				if (o.style === 'angular') ctx.lineTo(x1, y1);
+				else ctx.bezierCurveTo(x0, y0 + (y1 - y0) / 2, x1, y1 - (y1 - y0) / 2, x1, y1);
 				row++;
 			}
 		}
