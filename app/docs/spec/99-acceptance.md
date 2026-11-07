@@ -10,10 +10,11 @@
 | 3 | 載入 repo：graph 有列、點一列打開詳細資料（列被選取、訊息、檔案清單、行數）、分支篩選（選一個分支後列數不多於全部、Show All 回來）、Esc 關閉面板 | M2 | ✅ |
 | 4 | 讀取：repo info、commits、details（commit／stash／未 commit／比較）、line counts、tag details（annotated 與否）；reflog、worktree list 隨 M3 | M2 | ✅（reflog／worktree 待 M3） |
 | 5 | 寫入（`repo_op`）：建立並 checkout `gg-selftest-*` 分支、repo info 列出它、切回原分支、最後刪掉；拒絕其他視窗沒有的 repo 路徑（M5） | M3 | ✅ |
-| 6 | data-loss：在臨時分支上 revert 一個 commit（只有它才有的 commit），強制移動該分支 → `needsConfirmation`（`branchMoveDropsCommits`，1 個）→ 帶 `confirmed` 重送 → 分支真的移動；對話框顯示原因（M4） | M3／M4 | ✅（M3 的部分） |
+| 6 | data-loss：在臨時分支上 revert 一個 commit（只有它才有的 commit），強制移動該分支 → `needsConfirmation`（`branchMoveDropsCommits`，1 個）→ 帶 `confirmed` 重送 → 分支真的移動；經視窗執行時對話框列出原因的句子，按 Continue 才執行 | M3／M4 | ✅ |
 | 7 | 進度與取消：加入指向自己的 remote 並 fetch，串流輸出含 `From `；fetch 一個不會回應的位址（10.255.255.1，需要網路）後取消，5 秒內回 `Cancelled.` | M3 | ✅ |
 | 8 | askpass：回答並遮罩、取消、git 逾時後對話框自動關閉、ssh-keygen 的 passphrase | M5 | |
 | 9 | 詳細資料裡的檔案：點一次開 diff、⌘-click 開檔案內容；⇧-click 兩列的比較（較舊的在前）與比較視窗 | M2 | ✅ |
+| 9b | 選單與對話框：右鍵一列打開選單（列出 commit 的動作）→ Create Branch… → 對話框打開、輸入名稱、Enter → 分支出現在 graph、對話框關閉；右鍵分支標籤 → Delete… → Enter → 分支消失；建立已存在的分支 → 錯誤對話框顯示 git 的訊息、Close 關掉；Esc 關閉選單 | M4 | ✅ |
 | 10 | Markdown 預覽：表格、程式碼上色、數學式、repo 裡的圖片、Mermaid、PlantUML（假 java）、`<script>` 是文字、捲動同步 | M0（沿用） | |
 | 11 | 圖片 diff（commit 同時改文字檔與 PNG 時） | M0（沿用） | |
 | 12 | 子 repo 掃描、最近清單、多 repo 視窗切換 | M5 | |
