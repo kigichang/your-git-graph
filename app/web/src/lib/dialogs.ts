@@ -16,14 +16,14 @@ export type Field =
 
 export type Values = Record<string, string | boolean>;
 
-export type DialogSpec = {
+export type DialogSpec<T = OpRequest> = {
 	title: string;
 	/** The primary button. */
 	action: string;
 	danger?: boolean;
 	fields: Field[];
-	/** The request for the answers, or what is wrong with them. */
-	build: (values: Values) => OpRequest | { error: string };
+	/** The request (or whatever the dialog is for) from the answers, or what is wrong with them. */
+	build: (values: Values) => T | { error: string };
 };
 
 export type DialogContext = {

@@ -32,7 +32,7 @@
 
 	const rows = $derived(commits.length);
 	const headRow = $derived(head === null ? -1 : commits.findIndex((c) => c.hash === head));
-	const width = $derived(Math.min(MAX_GRAPH_WIDTH, graphWidth(layout.lanes)));
+	const width = $derived(Math.max(64, Math.min(MAX_GRAPH_WIDTH, graphWidth(layout.lanes))));
 	const first = $derived(Math.max(0, Math.floor(scrollTop / rowHeight) - OVERSCAN));
 	const last = $derived(Math.min(rows - 1, Math.ceil((scrollTop + viewHeight) / rowHeight) + OVERSCAN));
 	const visible = $derived.by(() => {

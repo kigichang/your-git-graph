@@ -12,17 +12,17 @@
 | 5 | 寫入（`repo_op`）：建立並 checkout `gg-selftest-*` 分支、repo info 列出它、切回原分支、最後刪掉；拒絕其他視窗沒有的 repo 路徑（M5） | M3 | ✅ |
 | 6 | data-loss：在臨時分支上 revert 一個 commit（只有它才有的 commit），強制移動該分支 → `needsConfirmation`（`branchMoveDropsCommits`，1 個）→ 帶 `confirmed` 重送 → 分支真的移動；經視窗執行時對話框列出原因的句子，按 Continue 才執行 | M3／M4 | ✅ |
 | 7 | 進度與取消：加入指向自己的 remote 並 fetch，串流輸出含 `From `；fetch 一個不會回應的位址（10.255.255.1，需要網路）後取消，5 秒內回 `Cancelled.` | M3 | ✅ |
-| 8 | askpass：回答並遮罩、取消、git 逾時後對話框自動關閉、ssh-keygen 的 passphrase | M5 | |
+| 8 | askpass：回答並遮罩、取消、git 逾時後對話框自動關閉、ssh-keygen 的 passphrase（`AskpassDialog.svelte` 已實作；自動測試要 HTTP 帳密伺服器） | M5／M7 | 待 M7 |
 | 9 | 詳細資料裡的檔案：點一次開 diff、⌘-click 開檔案內容；⇧-click 兩列的比較（較舊的在前）與比較視窗 | M2 | ✅ |
 | 9b | 選單與對話框：右鍵一列打開選單（列出 commit 的動作）→ Create Branch… → 對話框打開、輸入名稱、Enter → 分支出現在 graph、對話框關閉；右鍵分支標籤 → Delete… → Enter → 分支消失；建立已存在的分支 → 錯誤對話框顯示 git 的訊息、Close 關掉；Esc 關閉選單 | M4 | ✅ |
 | 10 | Markdown 預覽：表格、程式碼上色、數學式、repo 裡的圖片、Mermaid、PlantUML（假 java）、`<script>` 是文字、捲動同步 | M0（沿用） | |
 | 11 | 圖片 diff（commit 同時改文字檔與 PNG 時） | M0（沿用） | |
-| 12 | 子 repo 掃描、最近清單、多 repo 視窗切換 | M5 | |
-| 13 | 檔案監看：工作目錄建立與刪除檔案各刷新一次 | M5 | |
+| 12 | 子 repo 掃描（含多個 repo 的資料夾全部加入）、最近清單、多 repo 視窗切換 | M5 | ✅ |
+| 13 | 檔案監看：工作目錄建立與刪除檔案各刷新一次（`repo-changed` → 150ms 合併 → reload；操作中與結束後 1 秒忽略）；自動測試不能寫檔，手動驗證 | M5 | 手動 |
 | 14 | 設定：讀到預設值、超出範圍的值被拒絕（訊息含範圍）、改列高後視窗的列跟著變、`null` 回預設（M2）；對話框預設值、details 位置、設定面板（M6） | M2／M6 | ✅（M2 的部分） |
 | 15 | state 經 Rust 寫入 `state.json`，不留在 `localStorage` | M6 | |
 | 16 | 匯出 repo 設定再讀回；已有該檔時不覆寫 | M6 | |
 | 17 | Find：⌘F 打開、符合數、上下一筆、Esc 關閉 | M6 | |
-| 18 | 側欄：清單與目前的 repo、收合／展開、右鍵選單位置、Open 另一個 repo、切回、Open in New Window（askpass 只在新視窗）、拖拉排序、群組（建立、拖進、排序、收合、改名、多選整批移動、刪除）、Remove、拖資料夾到視窗 | M5 | |
+| 18 | 側欄：清單與目前的 repo、收合／展開、切到另一個 repo 與切回、群組（建立、移入、改名、收合計數、刪除）、Remove（改顯示另一個）後加回、拖資料夾到視窗（`tauri://drag-drop`）、Open in New Window 開出再關掉；拖拉排序與多選只有手動 | M5 | ✅ |
 | 19 | 主題：AccentColor 可解析、強調色上的文字是白色、切淺色／深色後 WebKit 跟著變、增強對比的 class 與顏色、diff 視窗的 Monaco 主題一致 | M6 | |
-| 20 | 遠端 repo（假 ssh）：加入、標題與側欄顯示主機、git 與引擎在遠端路徑執行、讀工作目錄檔案、拒絕 archive、遠端 git 的帳密提示、背後建立與刪除分支各刷新一次、斷線變淡且請求失敗、點一下重連、移除 | M5 | |
+| 20 | 遠端 repo（假 ssh）：加入、側欄顯示主機、graph 與詳細資料經 helper、建立與刪除分支、拒絕 archive、斷線後請求失敗、再顯示即重連、移除；遠端 git 的帳密提示與背後變動的刷新待 M7 | M5 | ✅ |

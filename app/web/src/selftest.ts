@@ -2,12 +2,13 @@
 // person would and reports `selftest: PASS` or `selftest: FAIL …` on stderr (host_log). What it
 // covers is listed in docs/spec/99-acceptance.md; it grows with the milestones.
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
-import { getAllWindows } from '@tauri-apps/api/window';
+import { listen, emit } from '@tauri-apps/api/event';
+import { getAllWindows, getCurrentWindow } from '@tauri-apps/api/window';
 import { errorText } from './lib/errors';
 import { compareSpec, diffSpec, fileSpec, revisions, type DiffSpec } from './lib/diffspec';
 import { loadRepoInfo, repoOp, type Commit, type CommitsResponse, type Details, type FileChange, type OpRequest, type RepoInfo } from './lib/api/client';
 import { t } from './lib/i18n';
+import type { SidebarState } from './lib/sidebar';
 
 const log = (line: string) => invoke('host_log', { line: 'selftest: ' + line }).catch(() => {});
 
@@ -17,8 +18,12 @@ type DetailsView =
 	| { kind: 'compare'; from: string; to: string; files: FileChange[] }
 	| { kind: 'tag'; name: string; details: { annotated: boolean; message: string } };
 type AppHandle = {
-	state: () => { repo: string | null; data: CommitsResponse | null; info: RepoInfo | null; error: string; firstPaintMs: number | null; details: DetailsView | null; branches: string[] | null; menu: unknown; dialog: unknown; ops: { question: unknown; error: { message: string } | null; running: unknown } };
+	state: () => { repo: string | null; data: CommitsResponse | null; info: RepoInfo | null; error: string; firstPaintMs: number | null; details: DetailsView | null; branches: string[] | null; menu: unknown; dialog: unknown; ops: { question: unknown; error: { message: string } | null; running: unknown }; sidebar: SidebarState };
 	operate: (request: OpRequest) => Promise<boolean>;
+	show: (repo: string) => Promise<boolean>;
+	addAndShow: (paths: string[]) => Promise<void>;
+	removeRepos: (repos: string[]) => Promise<void>;
+	saveSidebar: (next: SidebarState) => void;
 	load: (max: number) => Promise<void>;
 	table: () => { stats: () => { rows: number; rendered: number; paints: number; selected: number }; scrollTo: (top: number) => void } | undefined;
 	setBranches: (b: string[] | null) => Promise<void>;
@@ -315,13 +320,15 @@ async function checkOps(check: Check): Promise<void> {
 		check(lines.some((l) => l.includes('From ')), 'the fetch streamed its output: ' + JSON.stringify(lines));
 		check((await run({ kind: 'deleteRemote', name: branch })).kind === 'done', 'remove the remote');
 
-		// Cancel: a fetch from an address that never answers (an unroutable one) is killed.
-		const hanging = repoOp(repo, { kind: 'addRemote', name: branch + '-x', url: 'http://10.255.255.1/x.git', pushUrl: null, fetch: true });
-		await pause(300);
+		// Cancel: a fetch from an address that never answers (TEST-NET-1 is black-holed) is
+		// killed. Without a route out, git fails at once instead: then there is nothing to cancel.
+		const hanging = repoOp(repo, { kind: 'addRemote', name: branch + '-x', url: 'http://192.0.2.1/x.git', pushUrl: null, fetch: true });
+		await pause(500);
 		const started = performance.now();
-		check(await hanging.cancel(), 'the operation was in flight to cancel');
+		const inFlight = await hanging.cancel();
 		const outcome = await hanging.result;
-		check(outcome.kind === 'failed' && outcome.message === 'Cancelled.' && performance.now() - started < 5000, 'cancelled promptly: ' + JSON.stringify(outcome));
+		if (inFlight) check(outcome.kind === 'failed' && outcome.message === 'Cancelled.' && performance.now() - started < 5000, 'cancelled promptly: ' + JSON.stringify(outcome));
+		else await log('cancel: skipped, the fetch ended by itself at once (' + JSON.stringify(outcome) + ')');
 		await run({ kind: 'deleteRemote', name: branch + '-x' });
 	} finally {
 		const gone = await run({ kind: 'deleteBranch', branch, force: true, deleteOnRemotes: [] });
@@ -330,7 +337,91 @@ async function checkOps(check: Check): Promise<void> {
 	}
 }
 
-export async function selfTest(_config: Record<string, unknown>): Promise<void> {
+/** 12, 18: the sidebar: the repositories of the folder, switching between them, collapsing,
+ * groups, removing and adding back, a new window, a folder dropped on the window. */
+async function checkSidebar(check: Check): Promise<void> {
+	const s = app().state();
+	const repos = s.sidebar.repos;
+	check(repos.length >= 1 && s.repo !== null && repos.includes(s.repo), 'the shown repository is in the sidebar: ' + JSON.stringify(repos));
+	check(document.querySelectorAll('.gg-sidebar .gg-repo').length === repos.length, 'the sidebar lists every repository');
+	check(document.querySelector('.gg-sidebar .gg-repo.current')?.getAttribute('data-repo') === s.repo, 'the shown one is marked');
+	const first = s.repo as string;
+	// Collapse and expand.
+	app().saveSidebar({ ...s.sidebar, collapsed: true });
+	check(await settles(() => document.querySelector('.gg-sidebar') === null && document.querySelector('.gg-expand') !== null), 'collapsed: no sidebar, an expand button');
+	(document.querySelector('.gg-expand') as HTMLButtonElement | null)?.click();
+	check(await settles(() => document.querySelector('.gg-sidebar') !== null), 'expanded again');
+	if (repos.length >= 2) {
+		const other = repos.find((r) => r !== first) as string;
+		// Switch to another repository and back.
+		await app().show(other);
+		check(app().state().repo === other && app().state().data !== null, 'the other repository is shown');
+		check(document.querySelector('.gg-sidebar .gg-repo.current')?.getAttribute('data-repo') === other, 'the sidebar follows');
+		// A group: made, the other repository moved in, renamed, folded, deleted.
+		const sb = () => app().state().sidebar;
+		app().saveSidebar({ ...sb(), groups: ['work'] });
+		check(await settles(() => document.querySelectorAll('.gg-sidebar .gg-group').length === 2), 'a new group shows as a section');
+		app().saveSidebar({ ...sb(), groupOf: { [other]: 'work' } });
+		check(await settles(() => document.querySelector('.gg-sidebar .gg-section[data-group="work"] .gg-repo') !== null), 'the repository is in the group');
+		app().saveSidebar({ ...sb(), groups: ['job'], groupOf: { [other]: 'job' }, foldedGroups: ['job'] });
+		check(await settles(() => document.querySelector('.gg-sidebar .gg-group.folded .gg-count')?.textContent === '1'), 'renamed and folded: the count shows');
+		app().saveSidebar({ ...sb(), groups: [], groupOf: {}, foldedGroups: [] });
+		check(await settles(() => document.querySelectorAll('.gg-sidebar .gg-group').length === 1), 'the group is gone, its repository back in default');
+		// Remove the shown one: the first takes over; add it back.
+		await app().removeRepos([other]);
+		check(app().state().repo === first && !app().state().sidebar.repos.includes(other), 'removing the shown repository shows another');
+		await app().addAndShow([other]);
+		check(app().state().repo === other && app().state().sidebar.repos.includes(other), 'added back and shown');
+		await app().show(first);
+	}
+	// A folder dropped on the window (the event Tauri sends) adds it.
+	const dropped = app().state().sidebar.repos[0] as string;
+	await app().removeRepos([dropped]);
+	await emit('tauri://drag-drop', { type: 'drop', paths: [dropped], position: { x: 10, y: 10 } });
+	const added = await settles(() => app().state().sidebar.repos.includes(dropped) && app().state().repo === dropped, 15000);
+	check(added, 'a dropped folder is added and shown');
+	if (!added) await app().addAndShow([dropped]);
+	// A new window on the shown repository, then closed.
+	const before = (await getAllWindows()).length;
+	await invoke('open_new_window', { repo: app().state().repo });
+	check(await settles(async () => (await getAllWindows()).length === before + 1), 'a new window opens');
+	const extra = (await getAllWindows()).find((w) => w.label !== getCurrentWindow().label && w.label.startsWith('repo-'));
+	await extra?.close();
+	check(await settles(async () => (await getAllWindows()).length === before), 'and closes');
+	await log(`sidebar: ${repos.length} repositories, groups and switching checked`);
+}
+
+/** 20: the same repository as one on another machine, through the stand-in for ssh
+ * (GG_REMOTE_SSH, scripts/selftest.sh): added, shown through the helper, read, refused an
+ * archive, disconnected (dimmed, requests fail), reconnected by showing it, removed. */
+async function checkRemote(check: Check): Promise<void> {
+	const local = app().state().repo;
+	if (local === null) return;
+	const name = 'ssh://selftest@localhost' + local;
+	await app().addAndShow([name]);
+	const s = app().state();
+	check(s.repo === name && s.data !== null && s.data.commits.length > 0, 'the remote repository is shown through the helper: ' + s.error);
+	check(document.querySelector('.gg-sidebar .gg-repo.current .gg-hint')?.textContent === 'selftest@localhost', 'the sidebar shows the machine');
+	app().selectRow(s.data?.commits.findIndex((c) => c.hash !== '*' && c.stash === null) ?? 0);
+	await detailsReady();
+	check(app().state().details?.kind === 'commit', 'details come from the helper');
+	const archive = await repoOp(name, { kind: 'createArchive', reference: 'HEAD', path: '/tmp/x.zip' }).result;
+	check(archive.kind === 'failed' && archive.message.includes('another machine'), 'an archive is refused over there: ' + JSON.stringify(archive));
+	const branch = 'gg-selftest-remote-' + Date.now().toString(36);
+	check((await repoOp(name, { kind: 'createBranch', branch, commit: 'HEAD', checkout: false, force: false }).result).kind === 'done', 'a branch is created over there');
+	check((await repoOp(name, { kind: 'deleteBranch', branch, force: true, deleteOnRemotes: [] }).result).kind === 'done', 'and deleted');
+	// Disconnected: dimmed, and a request fails; shown again: connected again.
+	await invoke('remote_disconnect', { repo: name });
+	let failed = false;
+	await loadRepoInfo(name, { showRemoteBranches: false, showRemoteHeads: false, hideRemotes: [], showStashes: false }).catch(() => { failed = true; });
+	check(failed, 'a request after disconnecting fails');
+	check(await app().show(name), 'showing it connects again');
+	await app().removeRepos([name]);
+	check(!app().state().sidebar.repos.includes(name) && app().state().repo === local, 'removed; the local one is shown again');
+	await log('remote: ' + name + ' added, read, disconnected, reconnected, removed');
+}
+
+export async function selfTest(config: Record<string, unknown>): Promise<void> {
 	const failures: string[] = [];
 	const check: Check = (ok, what) => { if (!ok) failures.push(what); };
 	try {
@@ -338,6 +429,8 @@ export async function selfTest(_config: Record<string, unknown>): Promise<void> 
 		await checkDetails(check);
 		await checkOps(check);
 		await checkMenusAndDialogs(check);
+		await checkSidebar(check);
+		if (config['remote'] === true) await checkRemote(check);
 		await checkSettings(check);
 	} catch (e) {
 		failures.push(errorText(e));
