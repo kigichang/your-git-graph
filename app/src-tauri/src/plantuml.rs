@@ -1,6 +1,6 @@
 //! PlantUML diagrams of the Markdown preview (diff/main.js). PlantUML is a Java program: the
-//! diagram's source is piped through the `plantuml.jar` named in settings.json
-//! (`markdownPreview.plantumlJar`) on this Mac, also for a repository on another machine.
+//! diagram's source is piped through the `plantuml.jar` named in settings.json (the setting
+//! `plantuml.jar`) on this Mac, also for a repository on another machine.
 //! Nothing is sent to a PlantUML server. Without the setting nothing is rendered.
 
 use std::collections::HashMap;
@@ -14,7 +14,7 @@ use tauri::AppHandle;
 use tokio::io::AsyncWriteExt;
 
 /// The setting holding the path of plantuml.jar.
-pub const JAR_SETTING: &str = "markdownPreview.plantumlJar";
+pub const JAR_SETTING: &str = "plantuml.jar";
 const TIMEOUT: Duration = Duration::from_secs(30);
 const CACHE_LIMIT: usize = 64;
 
@@ -120,8 +120,8 @@ async fn render(java: &Path, jar: &Path, code: &str, timeout: Duration) -> Resul
 }
 
 /// The jar the settings name, or why there is none.
-fn jar_of(settings: &serde_json::Map<String, serde_json::Value>) -> Result<PathBuf, String> {
-    match settings.get(JAR_SETTING).and_then(|v| v.as_str()).map(str::trim) {
+fn jar_of(setting: Option<&str>) -> Result<PathBuf, String> {
+    match setting.map(str::trim) {
         Some(path) if !path.is_empty() => Ok(PathBuf::from(path)),
         _ => Err(format!("PlantUML is not set up: set \"{JAR_SETTING}\" in settings.json to the path of plantuml.jar.")),
     }
@@ -130,7 +130,7 @@ fn jar_of(settings: &serde_json::Map<String, serde_json::Value>) -> Result<PathB
 /// The SVG of a PlantUML diagram of the Markdown preview.
 #[tauri::command]
 pub async fn render_plantuml(app: AppHandle, cache: tauri::State<'_, Cache>, code: String) -> Result<String, String> {
-    let jar = jar_of(&crate::state::settings(&app)?)?;
+    let jar = jar_of(crate::settings::load(&crate::state::settings_file(&app)?)?.settings.plantuml_jar.as_deref())?;
     let key = {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         (&jar, &code).hash(&mut hasher);
@@ -152,21 +152,16 @@ pub async fn render_plantuml(app: AppHandle, cache: tauri::State<'_, Cache>, cod
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     fn fake_java() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fake-java.sh")
     }
 
-    fn settings(value: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
-        value.as_object().unwrap().clone()
-    }
-
     #[test]
     fn the_jar_comes_from_the_settings() {
-        assert_eq!(jar_of(&settings(json!({ JAR_SETTING: " /opt/plantuml.jar " }))).unwrap(), PathBuf::from("/opt/plantuml.jar"));
-        for none in [json!({}), json!({ JAR_SETTING: "" }), json!({ JAR_SETTING: 3 })] {
-            assert!(jar_of(&settings(none)).unwrap_err().contains(JAR_SETTING));
+        assert_eq!(jar_of(Some(" /opt/plantuml.jar ")).unwrap(), PathBuf::from("/opt/plantuml.jar"));
+        for none in [None, Some(""), Some("  ")] {
+            assert!(jar_of(none).unwrap_err().contains(JAR_SETTING));
         }
     }
 

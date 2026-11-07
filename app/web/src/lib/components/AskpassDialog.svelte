@@ -58,7 +58,7 @@
 {#if current}
 	<div class="gg-backdrop" role="dialog" aria-modal="true" aria-label={t('askpass.title')}>
 		<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-		<form class="gg-box" autocomplete="off" onsubmit={(e) => { e.preventDefault(); finish(answer); }} onkeydown={onKey}>
+		<form class="gg-box gg-askpass" autocomplete="off" onsubmit={(e) => { e.preventDefault(); finish(answer); }} onkeydown={onKey}>
 			<h2>{t('askpass.title')}</h2>
 			<label class="gg-prompt" for="gg-askpass-input">{current.prompt.trim()}</label>
 			<input id="gg-askpass-input" bind:this={input} bind:value={answer} type={secret ? 'password' : 'text'} autocapitalize="off" autocorrect="off" spellcheck="false" />

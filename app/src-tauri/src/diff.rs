@@ -21,6 +21,7 @@ pub fn open_diff_window(app: tauri::AppHandle, spec: String, title: String) -> R
         .title(title)
         .inner_size(1100.0, 760.0)
         .min_inner_size(480.0, 320.0)
+        .always_on_top(crate::kept_in_front()) // above the main window, which is in front too
         .initialization_script(format!("window.__GG_DIFF_SPEC = {spec};"))
         .build()
         .map(|_| ())

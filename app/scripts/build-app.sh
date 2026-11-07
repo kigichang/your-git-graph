@@ -1,6 +1,7 @@
 #!/bin/bash
-# Build "Your Git Graph.app" for personal use: ad-hoc signed (no Apple Developer account, no
-# notarization), checked, and optionally a dmg and an install into /Applications.
+# Build "Your Git Graph.app": the clean-room check, the front end, the remote helpers, the
+# third-party notices, the bundle, its signature checked; optionally a dmg and an install into
+# /Applications.
 #
 #   app/scripts/build-app.sh [--universal] [--dmg] [--install]
 #
@@ -14,8 +15,17 @@
 # rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl, and
 # brew install filosottile/musl-cross/musl-cross.
 #
-# APPLE_SIGNING_IDENTITY=<name of a code signing certificate in your keychain> signs with that
-# certificate instead of ad hoc (see CLAUDE.md, Stage 1 item 8).
+# Signing. Without anything set the app is ad-hoc signed (tauri.conf.json, signingIdentity "-"):
+# fine on your own Mac; on another one it needs `xattr -dr com.apple.quarantine`. For a build
+# others can open, set, in the environment:
+#   APPLE_SIGNING_IDENTITY  the name of a code signing certificate in your keychain, for example
+#                           "Developer ID Application: Your Name (TEAMID)" - or a self-signed one
+#                           just to keep the signature stable between builds
+#   APPLE_ID, APPLE_PASSWORD (an app-specific password), APPLE_TEAM_ID
+#                           with a Developer ID certificate: the bundle is notarized and stapled
+#                           (cargo tauri build does it when these are set); or
+#   APPLE_API_ISSUER, APPLE_API_KEY, APPLE_API_KEY_PATH
+#                           the same through an App Store Connect API key
 set -euo pipefail
 
 universal=0; dmg=0; install=0
@@ -53,6 +63,12 @@ echo "==> front end"
 echo "==> remote helpers (repositories over ssh)"
 "$app_dir/scripts/build-remote.sh"
 
+echo "==> third-party notices"
+(cd "$app_dir" && npm run --silent third-party)
+if ! git -C "$app_dir" diff --quiet -- ../THIRD-PARTY.md; then
+	echo "THIRD-PARTY.md changed with the dependencies: commit it" >&2
+fi
+
 echo "==> build ($bundles${target_args:+, universal})"
 (cd "$tauri_dir" && cargo tauri build --bundles "$bundles" ${target_args[@]+"${target_args[@]}"})
 
@@ -62,6 +78,7 @@ codesign --verify --deep --strict "$bundle"
 identifier="$(codesign -dv "$bundle" 2>&1 | sed -n 's/^Identifier=//p')"
 [ "$identifier" = dev.kigi.gitgraph ] || { echo "unexpected signing identifier: $identifier" >&2; exit 1; }
 archs="$(lipo -archs "$bundle/Contents/MacOS/git-graph-app")"
+[ -f "$bundle/Contents/Resources/THIRD-PARTY.md" ] || { echo "THIRD-PARTY.md is not in the bundle" >&2; exit 1; }
 echo "signed ($(codesign -dv "$bundle" 2>&1 | sed -n 's/^Signature=//p')), $archs, $(du -sh "$bundle" | cut -f1)"
 [ "$dmg" = 1 ] && ls -1 "$out"/dmg/*.dmg
 

@@ -26,6 +26,8 @@ serde_json = "1"
 ts-rs = "12"
 libc = "0.2"
 notify = "=8.2.0"
+# NSProcessInfo's activities: no App Nap while the self-test or a preview runs behind other windows.
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSProcessInfo", "NSString"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread"] }

@@ -1206,6 +1206,7 @@ dependencies = [
  "gg-backend",
  "libc",
  "notify",
+ "objc2-foundation",
  "serde",
  "serde_json",
  "tauri",

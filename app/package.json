@@ -7,6 +7,7 @@
     "dev": "vite web",
     "build": "node scripts/build-diff.mjs && vite build web",
     "build:diff": "node scripts/build-diff.mjs",
+    "third-party": "node scripts/third-party.mjs",
     "check": "svelte-check --tsconfig web/tsconfig.json",
     "test": "scripts/check-cleanroom.sh && vitest run --config web/vite.config.ts"
   },

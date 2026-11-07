@@ -5,7 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, emit } from '@tauri-apps/api/event';
 import { getAllWindows, getCurrentWindow } from '@tauri-apps/api/window';
 import { errorText } from './lib/errors';
-import { compareSpec, diffSpec, fileSpec, revisions, type DiffSpec } from './lib/diffspec';
+import { compareSpec, diffSpec, fileSpec, revisions, UNCOMMITTED, WORKTREE, type DiffSpec } from './lib/diffspec';
 import { loadRepoInfo, repoOp, type Commit, type CommitsResponse, type Details, type FileChange, type OpRequest, type RepoInfo } from './lib/api/client';
 import { t } from './lib/i18n';
 import type { SidebarState } from './lib/sidebar';
@@ -44,10 +44,18 @@ type AppHandle = {
 };
 const app = (): AppHandle => (window as unknown as { __gg: { app: AppHandle } }).__gg.app;
 
+type PreviewReport = {
+	shown: boolean; error?: string; blocks?: number; coloured?: number; images?: number; katex?: number; mermaid?: number;
+	plantuml?: number; notes?: string[]; scripts?: number; synced?: boolean | null;
+};
 type DiffReport = {
-	mode: string; title: string; result: { kind: string; error?: string; files?: number };
+	mode: string; title: string; result: { kind: string; error?: string; files?: number; dimensions?: string[]; preview?: PreviewReport };
 	workerProblems: string[]; theme: string | null; escape: { findFirst: boolean | null; closes: boolean };
 };
+
+/** A 1×1 PNG, for the image checks. */
+const PNG_1X1 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+const bytesOf = (base64: string): number[] => Array.from(atob(base64), (c) => c.charCodeAt(0));
 
 type Check = (ok: boolean, what: string) => void;
 
@@ -452,10 +460,163 @@ async function checkSidebar(check: Check): Promise<void> {
 	await log(`sidebar: ${repos.length} repositories, groups and switching checked`);
 }
 
+/** 8 (and 20, for a repository on another machine): git's questions. A fetch from an address
+ * that wants a name and a password (GG_SELFTEST_HTTP: tests/basic_auth_server.py, which logs
+ * what it gets and refuses it) brings the dialog up twice - the name in clear, the password
+ * masked - and the fetch fails, refused. Cancelled in the dialog, it fails too. Cancelled as an
+ * operation while the question is up, the dialog is taken down. */
+async function checkAskpass(check: Check, config: Record<string, unknown>, repo: string): Promise<void> {
+	const url = config['httpUrl'];
+	if (typeof url !== 'string') { await log('askpass: skipped (GG_SELFTEST_HTTP not set)'); return; }
+	const where = repo.startsWith('ssh://') ? 'over there' : 'here';
+	const input = () => document.querySelector<HTMLInputElement>('.gg-askpass input');
+	const prompt = () => document.querySelector('.gg-askpass .gg-prompt')?.textContent ?? '';
+	const answer = (text: string) => { const el = input(); if (!el) return; el.value = text; el.dispatchEvent(new Event('input', { bubbles: true })); el.form?.requestSubmit(); };
+	const asked = () => settles(() => input() !== null, 30000);
+	const name = 'gg-selftest-' + Date.now().toString(36);
+	const fetch = (): OpRequest => ({ kind: 'fetch', remote: name, prune: false, pruneTags: false });
+	try {
+		check((await repoOp(repo, { kind: 'addRemote', name, url, pushUrl: null, fetch: false }).result).kind === 'done', 'a remote at the address is added ' + where);
+		// Answered: the name in clear, the password masked; refused by the server.
+		const first = repoOp(repo, fetch());
+		check(await asked(), 'the question comes up ' + where);
+		check(input()?.type === 'text' && /username/i.test(prompt()), 'the name is asked in clear: ' + prompt());
+		answer('gg-selftest');
+		check(await settles(() => input()?.type === 'password'), 'then the password, masked: ' + prompt());
+		answer('secret');
+		const refused = await first.result;
+		check(refused.kind === 'failed' && /403/.test(refused.message), 'refused by the server, the fetch fails: ' + JSON.stringify(refused));
+		check(await settles(() => input() === null), 'no question is left');
+		// Cancelled in the dialog.
+		const second = repoOp(repo, fetch());
+		check(await asked(), 'asked again');
+		document.querySelector<HTMLButtonElement>('.gg-askpass button[type=button]')?.click();
+		const cancelled = await second.result;
+		check(cancelled.kind === 'failed', 'cancelled in the dialog, the fetch fails: ' + JSON.stringify(cancelled));
+		// Cancelled as an operation while the question is up: the dialog goes away.
+		const third = repoOp(repo, fetch());
+		check(await asked(), 'asked a third time');
+		await third.cancel();
+		check(await settles(() => input() === null), 'the dialog is taken down once git is gone');
+		await third.result;
+		await log('askpass ' + where + ': answered, cancelled in the dialog, taken down with git');
+	} finally {
+		await repoOp(repo, { kind: 'deleteRemote', name }).result;
+	}
+}
+
+/** 10, 11: a Markdown document and an image of the test's own in the working tree: the
+ * uncommitted row lists them; the document's file view renders its preview - a table, coloured
+ * code, maths, the image beside it, a Mermaid diagram, a PlantUML one (through the stand-in for
+ * java, or the jar given), a <script> as text - and the two panes scroll together; the image
+ * opens as an image. Both are removed again. */
+async function checkPreview(check: Check, config: Record<string, unknown>): Promise<void> {
+	const repo = app().state().repo;
+	if (repo === null) return;
+	const dir = 'gg-selftest';
+	const doc = '# Self-test\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```js\nconst answer = 42;\n```\n\n$E = mc^2$\n\n![a pixel](pic.png)\n\n```mermaid\ngraph TD; A-->B;\n```\n\n```plantuml\nA -> B\n```\n\n<script>alert(1)</script>\n\n'
+		+ Array.from({ length: 80 }, (_, i) => `Paragraph ${i + 1} of the self-test document, long enough for both panes to scroll.\n`).join('\n');
+	const jar = config['plantumlJava'] === true ? repo + '/' + dir + '/plantuml.jar' : typeof config['plantumlJar'] === 'string' ? config['plantumlJar'] : null;
+	const write = (path: string, contents: number[]) => invoke('selftest_write', { repo, path: dir + '/' + path, contents });
+	await write('doc.md', Array.from(new TextEncoder().encode(doc)));
+	await write('pic.png', bytesOf(PNG_1X1));
+	if (config['plantumlJava'] === true) await write('plantuml.jar', [0]); // the stand-in for java needs a jar to be named
+	if (jar !== null) await invoke('settings_set', { key: 'plantuml.jar', value: jar });
+	try {
+		await app().load(300);
+		const data = app().state().data;
+		const row = data?.commits.findIndex((c) => c.hash === UNCOMMITTED) ?? -1;
+		check(row >= 0, 'the uncommitted row shows up with the new files');
+		if (row < 0) return;
+		app().closeDetails(); // selecting the selected row again would close them instead
+		app().selectRow(row);
+		await detailsReady();
+		const d = app().state().details;
+		const files = d?.kind === 'commit' ? d.details.files : [];
+		const md = files.find((f) => f.newPath === dir + '/doc.md'), png = files.find((f) => f.newPath === dir + '/pic.png');
+		check(md !== undefined && png !== undefined, 'the uncommitted details list both files: ' + JSON.stringify(files.map((f) => f.newPath)));
+		if (md === undefined || png === undefined) return;
+		const buttonFor = (path: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.gg-details .gg-file')).find((b) => b.title === path);
+		const shown = await reportOf(fileSpec(repo, WORKTREE, md.newPath).title,
+			() => buttonFor(md.newPath)?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true })));
+		checkReport(check, shown, ['file']);
+		const p = shown.result.preview;
+		check(p !== undefined && p.shown && !p.error, 'the preview is shown: ' + JSON.stringify(p));
+		if (p !== undefined && p.shown && !p.error) {
+			check((p.blocks ?? 0) > 5, 'the blocks carry their source lines: ' + p.blocks);
+			check((p.coloured ?? 0) > 0, 'the code is coloured');
+			check(p.katex === 1, 'the maths is typeset: ' + p.katex);
+			check(p.images === 1, 'the image of the repository is shown: ' + p.images);
+			check(p.mermaid === 1, 'the Mermaid diagram is drawn: ' + p.mermaid);
+			if (jar !== null) check(p.plantuml === 1, 'the PlantUML diagram is drawn: ' + p.plantuml + ' ' + JSON.stringify(p.notes));
+			else check(p.notes?.length === 1, 'without a jar, the PlantUML block says so: ' + JSON.stringify(p.notes));
+			check(p.scripts === 0, 'a <script> stays text');
+			check(p.synced !== false, 'the panes scroll together: ' + p.synced);
+		}
+		await log('preview ' + JSON.stringify(p));
+		const image = await reportOf(diffSpec(repo, UNCOMMITTED, UNCOMMITTED, png.oldPath, png.newPath, png.status).title, () => buttonFor(png.newPath)?.click());
+		checkReport(check, image, ['image']);
+		check(JSON.stringify(image.result.dimensions) === '["1x1"]', 'the image is decoded: ' + JSON.stringify(image.result));
+		await log('image ' + JSON.stringify(image.result));
+	} finally {
+		if (jar !== null) await invoke('settings_set', { key: 'plantuml.jar', value: null });
+		app().closeDetails();
+		check(await app().operate({ kind: 'cleanUntracked', directories: true }), 'the files are removed again');
+		check(await settles(async () => (await getAllWindows()).length === 1), 'the diff windows closed');
+	}
+}
+
+/** 19: the appearance. The accent colour resolves and the text on it is white; View >
+ * Appearance (light, dark) reaches the page and a diff window's Monaco; Increase Contrast has
+ * colours of its own. */
+async function checkTheme(check: Check): Promise<void> {
+	// In front: a bundled app whose window is covered (by the terminal that started the test)
+	// has its page frozen by WebKit when the appearance changes, until it is brought forward.
+	await getCurrentWindow().setFocus().catch(() => {});
+	const root = document.documentElement;
+	const token = (name: string) => getComputedStyle(root).getPropertyValue(name).trim();
+	const probe = document.createElement('button');
+	probe.style.cssText = 'background: var(--gg-button-background); color: var(--gg-button-foreground); position: fixed; left: -100px';
+	document.body.appendChild(probe);
+	const { backgroundColor, color } = getComputedStyle(probe);
+	probe.remove();
+	check(/^rgb\(/.test(backgroundColor) && backgroundColor !== 'rgb(0, 0, 0)', 'AccentColor resolves to a colour: ' + backgroundColor);
+	check(color === 'rgb(255, 255, 255)', 'the text on the accent is white: ' + color);
+	const theme = (window as unknown as { __ggTheme: { force: (o: { dark?: boolean; contrast?: boolean } | null) => void } }).__ggTheme;
+	const wasDark = root.classList.contains('gg-dark');
+	const foreground = token('--gg-foreground');
+	const other = wasDark ? 'light' : 'dark';
+	await invoke('set_appearance', { appearance: other });
+	check(await settles(() => root.classList.contains('gg-dark') === !wasDark), 'View > Appearance > ' + other + ' reaches the page');
+	check(token('--gg-foreground') !== foreground, 'the colours follow');
+	await log('theme: ' + other + ' applied');
+	// A diff window drawn now has Monaco's theme for it.
+	const { repo, data } = app().state();
+	const commits = data?.commits.filter((c) => c.hash !== UNCOMMITTED && c.stash === null) ?? [];
+	if (repo !== null && commits.length > 2) {
+		const spec = compareSpec(repo, (commits[2] as Commit).hash, (commits[0] as Commit).hash);
+		const report = await reportOf(spec.title, () => { void invoke('open_diff_window', { spec: JSON.stringify(spec), title: spec.title }); });
+		check(report.theme === (wasDark ? 'vs' : 'vs-dark'), 'the diff window\'s Monaco theme follows: ' + report.theme);
+		await log('theme: the diff window reported ' + report.theme);
+	}
+	// Increase Contrast cannot be switched for one app: forced in the page.
+	const border = token('--gg-panel-border');
+	theme.force({ contrast: true });
+	check(root.classList.contains('gg-contrast') && token('--gg-panel-border') !== border, 'Increase Contrast: the class and colours of its own');
+	theme.force(null);
+	await log('theme: contrast checked, back to system');
+	await invoke('set_appearance', { appearance: 'system' });
+	await log('theme: system applied');
+	check(await settles(() => root.classList.contains('gg-dark') === wasDark), 'back to the system\'s appearance');
+	check(await settles(async () => (await getAllWindows()).length === 1), 'the diff window closed: ' + (await getAllWindows()).map((w) => w.label).join(', '));
+	await log(`theme: accent ${backgroundColor}, ${other} and contrast checked`);
+}
+
 /** 20: the same repository as one on another machine, through the stand-in for ssh
  * (GG_REMOTE_SSH, scripts/selftest.sh): added, shown through the helper, read, refused an
- * archive, disconnected (dimmed, requests fail), reconnected by showing it, removed. */
-async function checkRemote(check: Check): Promise<void> {
+ * archive, asked git's questions there, disconnected (dimmed, requests fail), reconnected by
+ * showing it, removed. */
+async function checkRemote(check: Check, config: Record<string, unknown>): Promise<void> {
 	const local = app().state().repo;
 	if (local === null) return;
 	const name = 'ssh://selftest@localhost' + local;
@@ -471,6 +632,7 @@ async function checkRemote(check: Check): Promise<void> {
 	const branch = 'gg-selftest-remote-' + Date.now().toString(36);
 	check((await repoOp(name, { kind: 'createBranch', branch, commit: 'HEAD', checkout: false, force: false }).result).kind === 'done', 'a branch is created over there');
 	check((await repoOp(name, { kind: 'deleteBranch', branch, force: true, deleteOnRemotes: [] }).result).kind === 'done', 'and deleted');
+	await checkAskpass(check, config, name);
 	// Disconnected: dimmed, and a request fails; shown again: connected again.
 	await invoke('remote_disconnect', { repo: name });
 	let failed = false;
@@ -486,14 +648,18 @@ export async function selfTest(config: Record<string, unknown>): Promise<void> {
 	const failures: string[] = [];
 	const check: Check = (ok, what) => { if (!ok) failures.push(what); };
 	try {
+		await getCurrentWindow().setFocus().catch(() => {});
 		await checkGraph(check);
 		await checkDetails(check);
 		await checkOps(check);
+		if (app().state().repo !== null) await checkAskpass(check, config, app().state().repo as string);
 		await checkMenusAndDialogs(check);
 		await checkSidebar(check);
-		if (config['remote'] === true) await checkRemote(check);
+		if (config['remote'] === true) await checkRemote(check, config);
 		await checkPanelsAndMore(check);
 		await checkSettings(check);
+		await checkPreview(check, config);
+		await checkTheme(check);
 	} catch (e) {
 		failures.push(errorText(e));
 	}

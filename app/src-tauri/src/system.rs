@@ -15,6 +15,16 @@ fn run(command: &mut Command) -> Result<(), String> {
     }
 }
 
+/// Keep the process out of App Nap for the rest of its life. Under GG_SELFTEST and GG_PREVIEW
+/// the window usually sits behind the terminal; once macOS naps the app, WebKit stops the
+/// page's timers (the self-test stalls after its last diff window closes) and drops its drawing
+/// (a screenshot shows an empty window).
+pub fn no_app_nap(reason: &str) {
+    use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
+    let activity = NSProcessInfo::processInfo().beginActivityWithOptions_reason(NSActivityOptions::UserInitiatedAllowingIdleSystemSleep, &NSString::from_str(reason));
+    std::mem::forget(activity); // ended only when the process ends
+}
+
 #[tauri::command]
 pub fn clipboard_write(text: String) -> Result<(), String> {
     let mut child = Command::new("/usr/bin/pbcopy")

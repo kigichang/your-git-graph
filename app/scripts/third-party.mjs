@@ -1,0 +1,139 @@
+/* Write THIRD-PARTY.md (repository root): what the app bundles besides its own code, with each
+ * part's licence - the engine, the Rust crates linked into the app and the remote helper
+ * (cargo metadata), the npm packages bundled into the diff window (esbuild's metafile) and into
+ * the graph window (what web/src imports). Run after changing a dependency; build-app.sh runs it
+ * and reports when the file changed.
+ *   node app/scripts/third-party.mjs */
+import { spawnSync } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { buildDiff } from './build-diff.mjs';
+
+const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const rootDir = path.dirname(appDir);
+const ENGINE = 'git-graph-core';
+
+/** The crates linked into the workspace's binaries (normal dependencies, transitively). */
+function crates() {
+	const out = spawnSync('cargo', ['metadata', '--format-version', '1'], { cwd: path.join(appDir, 'src-tauri'), encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+	if (out.status !== 0) throw new Error('cargo metadata failed: ' + out.stderr);
+	const meta = JSON.parse(out.stdout);
+	const members = new Set(meta.workspace_members);
+	const byId = new Map(meta.packages.map((p) => [p.id, p]));
+	const nodes = new Map(meta.resolve.nodes.map((n) => [n.id, n]));
+	const seen = new Set();
+	const stack = [...members];
+	while (stack.length > 0) {
+		const id = stack.pop();
+		if (seen.has(id)) continue;
+		seen.add(id);
+		for (const dep of nodes.get(id).deps) {
+			if (dep.dep_kinds.some((k) => k.kind === null || k.kind === 'normal')) stack.push(dep.pkg);
+		}
+	}
+	return Array.from(seen)
+		.filter((id) => !members.has(id))
+		.map((id) => byId.get(id))
+		.map((p) => ({ name: p.name, version: p.version, license: p.license ?? (p.license_file ? 'see ' + p.license_file : '?'), repository: p.repository ?? '' }))
+		.sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version));
+}
+
+/** The packages web/src imports (the graph window's bundle, built by Vite). */
+function webPackages() {
+	const names = new Set();
+	const walk = (dir) => {
+		for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+			const file = path.join(dir, entry.name);
+			if (entry.isDirectory()) walk(file);
+			else if (/\.(ts|svelte)$/.test(entry.name) && !/\.test\.ts$/.test(entry.name)) {
+				for (const m of fs.readFileSync(file, 'utf8').matchAll(/from\s+'((?:@[^/']+\/)?[^./'][^/']*)/g)) names.add(m[1]);
+			}
+		}
+	};
+	walk(path.join(appDir, 'web', 'src'));
+	names.add('svelte'); // the compiled components run on its runtime
+	return Array.from(names).filter((n) => fs.existsSync(path.join(appDir, 'node_modules', n, 'package.json'))).sort();
+}
+
+/** Packages whose package.json names no licence: what their licence file says. */
+const LICENCE_FILES = { khroma: 'MIT' };
+
+function npmPackage(name) {
+	const p = JSON.parse(fs.readFileSync(path.join(appDir, 'node_modules', name, 'package.json'), 'utf8'));
+	let repository = typeof p.repository === 'string' ? p.repository : p.repository?.url ?? '';
+	repository = repository.replace(/^git\+/, '').replace(/^git:\/\//, 'https://').replace(/^git@github\.com:/, 'https://github.com/').replace(/^github:/, 'https://github.com/').replace(/\.git$/, '');
+	if (/^[\w.-]+\/[\w.-]+$/.test(repository)) repository = 'https://github.com/' + repository;
+	const license = typeof p.license === 'string' ? p.license : p.licenses?.map((l) => l.type).join(' OR ') ?? LICENCE_FILES[name] ?? '?';
+	return { name, version: p.version, license, repository };
+}
+
+const link = (url) => (url ? `[${url.replace(/^https?:\/\//, '')}](${url})` : '');
+const table = (rows) => ['| Package | Version | Licence | Source |', '|---|---|---|---|', ...rows.map((r) => `| ${r.name} | ${r.version} | ${r.license} | ${link(r.repository)} |`)].join('\n');
+
+const allCrates = crates();
+const engine = allCrates.find((c) => c.name === ENGINE);
+const rustCrates = allCrates.filter((c) => c.name !== ENGINE);
+const diffPackages = (await buildDiff()).map(npmPackage);
+const graphPackages = webPackages().map(npmPackage);
+const licences = new Set();
+for (const r of [...rustCrates, ...diffPackages, ...graphPackages]) for (const l of r.license.split(/\s+(?:OR|AND|\/)\s+|\//).map((s) => s.replace(/[()]/g, '').trim())) if (l) licences.add(l);
+
+const text = `# Third-party notices
+
+Your Git Graph bundles the software below besides its own code (MIT, see [LICENSE](LICENSE)).
+Each part keeps its own licence; the identifiers are [SPDX](https://spdx.org/licenses/) ones,
+and "A OR B" means the part is offered under either, of which this app takes the first that is
+MIT or Apache-2.0. The licence text of each part is in its source repository. Nothing of
+mhutchie's Git Graph or of the vscode-git-graph-rs extension's own code is in the app: only the
+engine below.
+
+This file is generated by \`app/scripts/third-party.mjs\` from the dependency manifests; it is
+also copied into the app bundle (\`Contents/Resources\`).
+
+## The engine
+
+| Package | Version | Licence | Source |
+|---|---|---|---|
+| ${ENGINE} (\`vendor/vscode-git-graph-rs/native/core\`, git submodule) | ${engine?.version ?? '?'} | ${engine?.license ?? 'MIT'} | [github.com/neophack/vscode-git-graph-rs](https://github.com/neophack/vscode-git-graph-rs) |
+
+Copyright (c) 2026 neophack. The engine reads repositories (through gitoxide); the app links it
+in-process, and the helper for repositories on other machines does the same there.
+
+## Rust crates
+
+Linked into the app (\`git-graph-app\`), the shared core (\`gg-backend\`) and the remote helper
+(\`gg-remote\`), as resolved by \`app/src-tauri/Cargo.lock\` (${rustCrates.length} crates, normal
+dependencies, all targets).
+
+${table(rustCrates)}
+
+## JavaScript packages: the diff window
+
+Bundled by esbuild into \`diff-dist/\` (\`app/scripts/build-diff.mjs\`): the editor, the Markdown
+preview and the diagrams.
+
+${table(diffPackages)}
+
+## JavaScript packages: the graph window
+
+Bundled by Vite from \`app/web/src\`.
+
+${table(graphPackages)}
+
+## Fonts and icons
+
+KaTeX's fonts (part of the katex package above, SIL Open Font License 1.1) are bundled with the
+Markdown preview. The app icon is the project's own. Monaco's codicon font is part of
+monaco-editor (MIT).
+
+## Not bundled
+
+git, ssh and the macOS frameworks the app runs on are the user's; so is the PlantUML jar named in
+the settings (GPL/LGPL/MIT editions exist; the app only runs it in a separate process).
+
+Licences seen above: ${Array.from(licences).sort().join(', ')}.
+`;
+
+fs.writeFileSync(path.join(rootDir, 'THIRD-PARTY.md'), text);
+console.log(`THIRD-PARTY.md: ${rustCrates.length} crates, ${diffPackages.length} + ${graphPackages.length} npm packages`);

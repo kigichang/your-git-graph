@@ -9,10 +9,11 @@ import { fileURLToPath } from 'node:url';
 
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+/** Builds the bundles; returns the npm packages bundled into them (scripts/third-party.mjs). */
 export async function buildDiff() {
 	const outdir = path.join(appDir, 'web', 'public', 'diff-dist');
 	fs.rmSync(outdir, { recursive: true, force: true });
-	await esbuild.build({
+	const result = await esbuild.build({
 		absWorkingDir: appDir,
 		entryPoints: {
 			diff: 'diff/main.js',
@@ -30,10 +31,17 @@ export async function buildDiff() {
 		loader: { '.ttf': 'file', '.woff2': 'file' },
 		external: ['*.woff', 'fonts/KaTeX_*.ttf'],
 		legalComments: 'linked',
-		logLevel: 'warning'
+		logLevel: 'warning',
+		metafile: true
 	});
 	const size = fs.readdirSync(outdir).reduce((sum, f) => sum + fs.statSync(path.join(outdir, f)).size, 0);
 	console.log('diff window bundled in ' + outdir + ' (' + (size / 1024 / 1024).toFixed(1) + ' MB)');
+	const packages = new Set();
+	for (const input of Object.keys(result.metafile.inputs)) {
+		const m = /(?:^|\/)node_modules\/((?:@[^/]+\/)?[^/]+)\//.exec(input);
+		if (m) packages.add(m[1]);
+	}
+	return Array.from(packages).sort();
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) await buildDiff();

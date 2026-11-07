@@ -168,11 +168,6 @@ pub fn write_setting(file: &Path, key: &str, value: Option<Value>) -> Result<(),
     write_atomic(file, text.as_bytes()).map_err(|e| format!("Cannot write {}: {e}", file.display()))
 }
 
-/// The settings as they are in settings.json now.
-pub fn settings<R: Runtime>(app: &AppHandle<R>) -> Result<Map<String, Value>, String> {
-    read_settings(&settings_file(app)?)
-}
-
 /// The settings file, created (empty) if missing - to open it in an editor.
 #[tauri::command]
 pub fn settings_path(app: AppHandle) -> Result<String, String> {

@@ -36,7 +36,7 @@ app/
     vite.config.ts、svelte.config.js、tsconfig.json
   diff/                   diff 視窗程式（Monaco ESM；main.js、mdview.js、markdown.js、preview.js、mermaid.js；沿用 Stage 1）
   docs/spec/              功能規格（README.md 是目錄）
-  scripts/                build-diff.mjs、build-app.sh、build-remote.sh、selftest.sh、preview.sh、check-cleanroom.sh
+  scripts/                build-diff.mjs、build-app.sh、build-remote.sh、selftest.sh、preview.sh、check-cleanroom.sh、third-party.mjs（產生根目錄的 THIRD-PARTY.md：cargo metadata 的 crate、esbuild metafile 裡的 npm 套件、web/src import 的套件）
   tests/                  fake-ssh.sh、fake-java.sh、ssh-server.sh、real-ssh.sh、basic_auth_server.py（self-test 與 cargo 測試用）
   package.json            scripts：dev、build、build:diff、check（svelte-check）、test（check-cleanroom ＋ vitest）
   src-tauri/              Rust（獨立 Cargo workspace：App、crates/backend、crates/remote）
@@ -68,14 +68,14 @@ app/scripts/build-remote.sh                 # 遠端 helper → src-tauri/remote
 (cd app && npm run build)                   # diff bundle ＋ Vite → web/dist/（改了 web/、diff/ 之後要重跑）
 (cd app/src-tauri && cargo build --workspace)   # debug；--workspace 也建出 self-test 用的 target/debug/gg-remote
 (cd app/src-tauri && cargo tauri dev --config tauri.dev.conf.json)   # 開發：Vite HMR
-app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（含 check-cleanroom、npm run build、驗證簽章）
+app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（含 check-cleanroom、npm run build、build-remote、third-party、驗證簽章與 Resources 裡的 THIRD-PARTY.md）
 ```
 
 - **改了 `app/web/`、`app/diff/` 要先 `npm run build` 再 `cargo build`**：前端是編譯時嵌入執行檔的。
-- `cd app && npm test`：check-cleanroom ＋ vitest（目前 29 個：diffspec、errors、remote、theme、markdown、draw、filetree）。`npm run check`：svelte-check。
-- `cd app/src-tauri && cargo test --workspace`（目前 161 個：backend 91 ＋ `tests/ops.rs` 34、remote 8、App 28；App 的遠端測試用 `target/debug/gg-remote`，所以要 `--workspace`）。`tests/ops.rs` 對真的 git 測每個操作、data-loss 規則、CLI 讀取與全域作者同步，`GIT_CONFIG_GLOBAL` 指向臨時檔，不會動到你的全域設定。
-- **self-test**：`app/scripts/selftest.sh <執行檔> <repo 或含多個 repo 的資料夾> [log]`（`GG_SELFTEST=1`，`GG_DATA_DIR` 指到臨時目錄）。檢查項目與狀態在 `docs/spec/99-acceptance.md`；目前只有第 1 項（三種 diff 視窗）。它會寫入目標 repo，對 scratch 的 clone 跑。每次改動前端或 host 都要跑。遠端段落（假 ssh：`GG_REMOTE_SSH=tests/fake-ssh.sh`）、真 ssh（Docker：`tests/ssh-server.sh`、`GG_SELFTEST_SSH=…`、`GG_REMOTE_SSH=tests/real-ssh.sh`）、HTTP 帳密（`tests/basic_auth_server.py`、`GG_SELFTEST_HTTP`）的做法沿用 Stage 1，在對應里程碑接回來。
-- **看畫面**：`app/scripts/preview.sh <執行檔> <repo> <場景> <light|dark|system> <輸出前綴>`（`GG_PREVIEW`；場景由 `web/src/preview.ts` 實作，M4 起）。需要螢幕錄製權限。
+- `cd app && npm test`：check-cleanroom ＋ vitest（目前 57 個、14 個檔案：diffspec、errors、remote、theme、markdown、draw、filetree、menus、dialogs、sidebar、dates、find、repoconfig、i18n）。`npm run check`：svelte-check。
+- `cd app/src-tauri && cargo test --workspace`（目前 162 個：backend 91 ＋ `tests/ops.rs` 34、remote 8、App 29；App 的遠端測試用 `target/debug/gg-remote`，所以要 `--workspace`）。`tests/ops.rs` 對真的 git 測每個操作、data-loss 規則、CLI 讀取與全域作者同步，`GIT_CONFIG_GLOBAL` 指向臨時檔，不會動到你的全域設定。
+- **self-test**：`app/scripts/selftest.sh <執行檔> <repo 或含多個 repo 的資料夾> [log]`（`GG_SELFTEST=1`，`GG_DATA_DIR` 指到臨時目錄）。檢查項目與狀態在 `docs/spec/99-acceptance.md`（除了第 13 項的監看之外全部自動）。它會寫入目標 repo（臨時分支、`gg-selftest/` 目錄、`gg-selftest-*` remote，都會清掉），對 scratch 的 clone 跑；單一 repo 與含多個 repo 的資料夾各跑一次。每次改動前端或 host 都要跑。遠端段落用假 ssh（`GG_REMOTE_SSH=tests/fake-ssh.sh`，helper 在本機跑）；真 ssh 是 Docker（`tests/ssh-server.sh`、`GG_SELFTEST_SSH=…`、`GG_REMOTE_SSH=tests/real-ssh.sh`）。帳密提示：腳本自己起 `tests/basic_auth_server.py`（401 → 記下帳密 → 403），結束時要看到 `auth: gg-selftest:secret` 兩次（本機 git 一次、helper 一次）；`GG_SELFTEST_HTTP` 可指定別的位址。PlantUML 用 `tests/fake-java.sh`（`GG_SELFTEST_PLANTUML_JAR` 換成真的 jar）。**腳本裡的 `pkill -f "$app"` 會殺掉命令列含執行檔路徑的任何 process**——從別的腳本呼叫時，不要把路徑放在自己的命令列上（把呼叫寫進檔案再執行）。**被蓋住的視窗**：打包成 `.app` 後 macOS 把它當一般 App 管理，視窗被終端機蓋住、App 不在前景時，WebKit 會把頁面凍住（timer、IPC、畫面全停；切換外觀時必定發生，否則過幾秒也會）——self-test 在最後一個 diff 視窗關掉後就停住、Rust 這邊全部閒置、截圖是空的，把 App 叫到前景才恢復；裸的 `target/debug` 執行檔不受管理，開發時看不到。所以 `GG_SELFTEST`／`GG_PREVIEW` 時（`main.rs` 的 `kept_in_front`）主視窗與 diff 視窗都 always-on-top，並以 `system::no_app_nap` 關掉 App Nap；關掉 App Nap 本身不夠。對 release 的 `.app` 也要跑一次 self-test。
+- **看畫面**：`app/scripts/preview.sh <執行檔> <repo> <場景> <light|dark|system> <輸出前綴>`（`GG_PREVIEW`；場景列在 `web/src/preview.ts` 開頭：details、compare、branches、authors、menu、dialog、error、settings、find、reflog、worktrees、addmenu、addremote、addserver、diff、markdown、resize、zh，加 `contrast` 強制增強對比）。需要螢幕錄製權限。
 - **監看的手動檢查**：開著 App 閒置幾秒應該 0 次刷新；終端機 `git commit`、`git checkout -b` 各剛好刷新一次。
 - **模擬從 Finder 啟動**：`env -i HOME=$HOME PATH=/usr/bin:/bin:/usr/sbin:/sbin GG_SELFTEST=1 target/debug/git-graph-app <repo>`。
 - **引擎測試**：`cd vendor/vscode-git-graph-rs && cargo test -p git-graph-core`。
@@ -90,7 +90,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
   | 記憶體 | — | 全部載入後 WebContent 增加 < 300MB | 第一頁時 WebContent 341MB（WebKit 本身），全部載入並捲動後 496MB（+155MB）；Rust 端 453→463MB（引擎的 repo 快取，Stage 1 相同） |
   | load more 後前綴不變 | — | 性質測試 | `graph.rs` 的測試 |
 
-  之後的改動不應讓這些數字明顯變差。`.app` 22 MB。
+  之後的改動不應讓這些數字明顯變差。`.app` 23 MB（arm64，含三個遠端 helper）。
 
 ## 里程碑
 
@@ -103,7 +103,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 | M4 | 右鍵選單（`lib/menus.ts`：commit／HEAD／未 commit 列／本地分支／遠端分支／tag／stash／檔案／空白處）、對話框（`lib/dialogs.ts` 的 spec → `FormDialog.svelte`；預設值來自 `dialogs.*`）、`OpDialogs.svelte`（data-loss 詢問、串流進度與取消、錯誤）、`lib/ops.svelte.ts`（執行、再送 confirmed、刷新）、`StatusBar.svelte`（merge／rebase 進行中：Continue／Abort）、監看事件 `repo-changed` 的去重（`ECHO_MS`）、互動式 rebase 經 Terminal、Create Archive 經存檔對話框、`lib/i18n/en.ts` | ✅ 2026-11-07。Remote 的增刪改與 user details 隨 M6 的設定面板；fixup／squash 目前一律可選（staged 的判斷隨 M6）；選單列的快捷鍵（⌘R、⌘⇧F）隨 M6 接上 |
 | M5 | 側欄（`lib/sidebar.ts` 純函式＋`Sidebar.svelte`：群組、pointer 拖拉排序與拖進群組、⌘／⇧ 多選、收合、變淡、ahead/behind、右鍵選單）、起始畫面（`StartPage.svelte`：最近清單、三種加入）、`lib/state.svelte.ts`（state.json 的共用快照，`state-changed` 跟其他視窗同步）、多視窗（Open in New Window、`open-repo`、`menu-command`）、Finder 拖放（`onDragDropEvent`）、遠端 repo（Add SSH Repository 對話框、`remote_connect`、斷線變淡、點了重連）、SMB（Connect to Server 對話框、`mount_volume`、`mounts`）、`AskpassDialog.svelte`、`repo-changed` → 刷新與 ahead/behind、焦點回來時遠端／share 的 repo 刷新 | ✅ 2026-11-07。askpass 對話框還沒在 self-test 裡跑（要 HTTP 帳密伺服器，M7）；監看觸發的刷新只有手動驗證 |
 | M6 | 設定面板（`SettingsPanel.svelte`：每個設定即時寫入、作者身分＋全域作者同步、顯示中 repo 的 remote 增刪改與 user details、開 settings.json／session log、列出被略過的 key）、`state.json` 的 `migrate_v2`（刪 Stage 1 的 key）、每個 repo 的狀態 `repo:<repo>`（分支／作者篩選、remote 分支、first parent、order）與 `.your-git-graph.json` 匯出／匯入（`lib/repoconfig.ts`）、Find（`lib/find.ts`＋`FindWidget.svelte`，⌘F）、作者篩選與 first-parent（`MultiFilter.svelte`）、Reflog 與 Worktree 面板、⌘J 未載入時先數再載入、i18n（`lib/i18n/strings.svelte.ts` 是 reactive 的字典，`zh-TW.ts` 全部翻譯，切換不重載；測試比對 key 與佔位符、擋簡體字）、日期格式（`dates.ts`）、本機與遠端同名分支合併標籤 | ✅ 2026-11-07。`details.location = inline` 沒做（面板只停靠底部）；`commits.dateType` 沒接（引擎的清單只有作者日期）；`includeReflog` 沒接（引擎不支援，要 CLI 後備） |
-| M7 | self-test 全部、preview 場景、`THIRD-PARTY.md`、Developer ID／notarization 的設定位置、README | |
+| M7 | self-test 全部（askpass 經 `tests/basic_auth_server.py`，本機與 helper 各一輪；Markdown 預覽與圖片 diff 用 `selftest_write` 放進工作目錄的檔案；主題）、preview 場景補齊、`THIRD-PARTY.md`（`scripts/third-party.mjs` 產生，連同 `LICENSE` 放進 `.app` 的 Resources）、`build-app.sh` 的 Developer ID／notarization 環境變數、README | ✅ 2026-11-07。`.app` 23 MB |
 
 ## 設計（決定了的）
 
@@ -160,7 +160,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 - `from === to` 代表「那一個 commit」（父 ↔ 它）；`*` 代表 HEAD ↔ 工作目錄。A/U 狀態左側為空，D 狀態右側為空。
 - 偏好存在 diff 視窗的 `localStorage`（`gg.diffPrefs`）。
 - Markdown 預覽：`diff/markdown.js`（markdown-it `html: false`、task list、KaTeX）與 Mermaid 各是延後載入的 bundle（`loadBundle`）；不要把 `markdown.js` import 進 `main.js`。程式碼用 `monaco.editor.colorize()` 上色。圖片相對路徑用 `mdview.js` 的 `resolveRelative` 從顯示的那個 revision 讀成 data URL；HTML 先放進 `<template>` 處理完圖片才接上頁面。連結不導覽，`http(s)`、`mailto` 交給 `open_url`。
-- PlantUML（`plantuml.rs`）：只用本機 jar（設定 `plantuml.jar`），`-DPLANTUML_SECURITY_PROFILE=SANDBOX`，30 秒逾時，結果快取，輸出放 `<img>` 的 data URL。`GG_PLANTUML_JAVA`、`GG_SELFTEST_PLANTUML_JAR` 只給測試。
+- PlantUML（`plantuml.rs`）：只用本機 jar（設定 `plantuml.jar`，經 `settings::load` 讀型別化的設定，不要直接讀 settings.json 的 map——Stage 1 的 key 已搬走），`-DPLANTUML_SECURITY_PROFILE=SANDBOX`，30 秒逾時，結果快取，輸出放 `<img>` 的 data URL。`GG_PLANTUML_JAVA`、`GG_SELFTEST_PLANTUML_JAR` 只給測試。
 - 捲動同步：區塊帶 `data-line`，`mdview.js` 內插；只有使用者正在操作的那一邊帶動另一邊。
 - Esc 關閉視窗（Monaco 處理過的按鍵不關；`isComposing` 不關）。不要改成 capture 階段。
 - diff 視窗還用 `window.__TAURI__`（所以 `tauri.conf.json` 的 `withGlobalTauri` 暫時保持 true）；改成 `@tauri-apps/api` 時一併關掉。
@@ -212,7 +212,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 
 - `tauri.conf.json` 的 `signingIdentity` 是 `"-"`（ad-hoc；識別碼 `dev.kigi.gitgraph`、hardened runtime），不做 notarization。`build-app.sh` 驗證 `codesign --verify --deep --strict` 與識別碼。`spctl` 回 rejected 是正常的。傳到另一台 Mac 要 `xattr -dr com.apple.quarantine`。
 - ad-hoc 的 cdhash 每次建置不同，macOS 可能重複問權限；可用 Keychain 自簽的憑證 `APPLE_SIGNING_IDENTITY=… app/scripts/build-app.sh` 固定。
-- 公開散布時：`signingIdentity` 改成 Developer ID 憑證，加 `APPLE_ID`／`APPLE_PASSWORD`／`APPLE_TEAM_ID` 做 notarization（M7 準備設定位置）。
+- 公開散布時：環境變數 `APPLE_SIGNING_IDENTITY`（Developer ID Application 憑證）加 `APPLE_ID`／`APPLE_PASSWORD`／`APPLE_TEAM_ID`（或 `APPLE_API_ISSUER`／`APPLE_API_KEY`／`APPLE_API_KEY_PATH`），`cargo tauri build` 就會簽章、notarize、staple；`build-app.sh` 的開頭有說明，不必改 `tauri.conf.json`。
 
 ## Stage 1（`main` 分支）
 

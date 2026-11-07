@@ -107,6 +107,32 @@ fn self_test() -> Option<serde_json::Value> {
     })
 }
 
+/// Under `GG_SELFTEST` only: a file of the self-test's own (a Markdown document, an image) put
+/// into the working tree of a local repository, under its `gg-selftest/` directory, to be
+/// shown and removed again by the test.
+#[tauri::command]
+fn selftest_write(repo: String, path: String, contents: Vec<u8>) -> Result<(), String> {
+    if self_test().is_none() {
+        return Err("only under GG_SELFTEST".into());
+    }
+    if remote::parse(&repo)?.is_some() {
+        return Err("local repositories only".into());
+    }
+    if !path.starts_with("gg-selftest/") || path.split('/').any(|part| part.is_empty() || part == "..") {
+        return Err("a path under gg-selftest/ only".into());
+    }
+    gg_backend::files::write_atomic(&std::path::Path::new(&repo).join(path), &contents).map_err(|e| e.to_string())
+}
+
+/// Whether the windows stay in front of every other app's (the self-test, a preview): a bundled
+/// app whose windows are covered - by the terminal that started it - is managed by macOS like
+/// any background app, and WebKit then freezes its pages (timers, drawing, the IPC) once the
+/// appearance changes or some seconds pass, until the app is brought forward. A bare binary
+/// (cargo build) is left alone, which hides this in development.
+fn kept_in_front() -> bool {
+    self_test().is_some() || preview().is_some()
+}
+
 /// `GG_PREVIEW=<scene>[,<scene>…][,contrast]`: open the view in a given state and leave it
 /// there, to look at (screenshots of the theme): see web/src/preview.ts. `contrast`
 /// forces Increase Contrast, which cannot be switched for one app.
@@ -145,6 +171,12 @@ fn main() {
             }
         })
         .setup(|app| {
+            if kept_in_front() {
+                system::no_app_nap("self-test or preview in progress");
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_always_on_top(true);
+                }
+            }
             // The configured window starts on the start page until its page opens a folder.
             app.state::<repos::Windows>().0.lock().unwrap().entry("main".into()).or_default();
             let data = state::data_dir(app.handle());
@@ -180,6 +212,7 @@ fn main() {
             engine_request,
             host_log,
             self_test,
+            selftest_write,
             preview,
             preview_resize,
             git::git_info,
