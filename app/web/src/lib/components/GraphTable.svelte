@@ -139,7 +139,8 @@
 		else if (e.key === 'End') { if (more) onLoadMore?.(); else select(rows - 1); e.preventDefault(); }
 		else if (e.key === 'Home') { select(0); e.preventDefault(); }
 		else if (e.key === 'Enter' && !e.isComposing && selected >= 0 && selected < rows) { onOpen?.(selected, commits[selected] as Commit); e.preventDefault(); }
-		else if (e.key === 'Escape') { onEscape?.(); }
+		// Handled here (the find widget, else the details): the details' own window-wide Esc must not close them too.
+		else if (e.key === 'Escape') { onEscape?.(); e.preventDefault(); }
 		else if (e.key === 'j' && e.metaKey) { if (headRow >= 0) select(headRow); e.preventDefault(); }
 	}
 

@@ -313,6 +313,13 @@ async function checkPanelsAndMore(check: Check): Promise<void> {
 		check(app().table()?.stats().selected === matches[1], 'Enter steps to the next match');
 	}
 	check(document.querySelectorAll('.gg-row.highlighted').length > 0, 'matches are highlighted');
+	// Esc on the graph with the widget open closes the widget only, not the details as well.
+	const withDetails = await detailsReady();
+	document.querySelector('.gg-viewport')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+	check(await settles(() => document.querySelector('.gg-find') === null), 'Esc on the graph closes the find widget');
+	if (withDetails) { await pause(200); check(app().state().details !== null, 'and leaves the details open'); }
+	app().openFind();
+	check(await settles(() => document.querySelector('.gg-find input') !== null), 'the find widget opens again');
 	(document.querySelector('.gg-find input') as HTMLElement | null)?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
 	check(await settles(() => document.querySelector('.gg-find') === null), 'Esc closes the find widget');
 	// The settings drawer opens and closes.
