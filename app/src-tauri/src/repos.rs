@@ -256,7 +256,7 @@ const APPEARANCE_PREFIX: &str = "appearance:";
 const APPEARANCES: [(&str, &str); 3] = [("system", "System"), ("light", "Light"), ("dark", "Dark")];
 
 /// Menu items the focused graph window carries out (event `menu-command` with the part after
-/// the prefix; `host/main.js` maps it to the view's own button or shortcut).
+/// the prefix; the front end carries it out).
 const COMMAND_PREFIX: &str = "command:";
 
 /// The default menu (it carries Edit, without which ⌘C/⌘V do not work in text fields) with

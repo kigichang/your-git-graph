@@ -116,8 +116,8 @@ async fn says_hello_and_answers_the_engine_and_the_file_requests() {
     std::fs::create_dir_all(root.join("nested/.git")).unwrap();
     assert_eq!(helper.result(json!({ "op": "scan", "folder": root })).await, json!([root.join("nested").display().to_string()]));
     let written = helper.result(json!({ "op": "exportRepoConfig", "repo": root, "contents": "{\"a\":1}" })).await;
-    assert_eq!(written, json!(root.join(".vscode/vscode-git-graph.json").display().to_string()));
-    let read = helper.result(json!({ "op": "worktreeFile", "repo": root, "path": ".vscode/vscode-git-graph.json" })).await;
+    assert_eq!(written, json!(root.join(".your-git-graph.json").display().to_string()));
+    let read = helper.result(json!({ "op": "worktreeFile", "repo": root, "path": ".your-git-graph.json" })).await;
     assert_eq!(read["text"], "{\"a\":1}");
 
     let id = helper.ask(json!({ "op": "worktreeFile", "repo": root, "path": "../outside" })).await;

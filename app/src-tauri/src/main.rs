@@ -1,9 +1,9 @@
-//! Your Git Graph: a macOS app around vscode-git-graph-rs.
+//! Your Git Graph: a macOS git graph app (Tauri 2) around the git-graph-core engine.
 //!
-//! The upstream webview runs unchanged in the Tauri window; `ui/host/` plays the extension
-//! host and reaches the engine through `engine_request`, which is upstream's single JSON entry
-//! point (`git_graph_core::dispatch::request`) called in-process. Writes go through the `git`
-//! CLI (`git` module); `repo` and `system` cover what VS Code used to provide.
+//! The front end (web/, Svelte) runs in the Tauri windows and reaches the engine through
+//! `engine_request`, the engine's single JSON entry point (`git_graph_core::dispatch::request`)
+//! called in-process. Writes go through the `git` CLI (`git` module); `repo`, `repos` and
+//! `system` cover the app's own concerns: repositories, windows, menus, macOS integration.
 
 mod askpass;
 mod diff;
@@ -106,7 +106,7 @@ fn self_test() -> Option<serde_json::Value> {
 }
 
 /// `GG_PREVIEW=<scene>[,<scene>…][,contrast]`: open the view in a given state and leave it
-/// there, to look at (screenshots of the theme): see `runPreview` in host/main.js. `contrast`
+/// there, to look at (screenshots of the theme): see web/src/preview.ts. `contrast`
 /// forces Increase Contrast, which cannot be switched for one app.
 #[tauri::command]
 fn preview() -> Option<String> {
@@ -148,7 +148,7 @@ fn main() {
             let data = state::data_dir(app.handle());
             let saved = state::State::open(data.as_ref().map(|d| d.join("state.json")));
             // localStorage is shared by every launch whatever its data directory: only the
-            // default one may take over what earlier versions kept there (host/main.js).
+            // default one may take over what earlier versions kept there.
             if std::env::var_os("GG_DATA_DIR").is_some() && !saved.snapshot().contains_key("migratedFromLocalStorage") {
                 saved.set("migratedFromLocalStorage".into(), Some(serde_json::Value::Bool(true)));
             }

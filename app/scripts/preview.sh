@@ -1,5 +1,5 @@
 #!/bin/bash
-# Screenshot the app in a given state (GG_PREVIEW, see host/main.js runPreview), to look at the
+# Screenshot the app in a given state (GG_PREVIEW, see web/src/preview.ts), to look at the
 # theme. Needs Screen Recording permission for the terminal. Never touches your settings: the
 # app runs on a temporary GG_DATA_DIR.
 #

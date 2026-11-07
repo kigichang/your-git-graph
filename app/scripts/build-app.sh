@@ -9,9 +9,8 @@
 #   --install    replace /Applications/Your Git Graph.app with the new build
 #                (also removes an older install named "Git Graph.app")
 #
-# Prerequisites (once): git submodule update --init; in vendor/vscode-git-graph-rs
-# `npm ci && npm run compile-src && npm run compile-web`; in app/ `npm ci`.
-# For the helpers of repositories over ssh (scripts/build-remote.sh):
+# Prerequisites (once): git submodule update --init (the engine, vendor/.../native); in app/
+# `npm ci`. For the helpers of repositories over ssh (scripts/build-remote.sh):
 # rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl, and
 # brew install filosottile/musl-cross/musl-cross.
 #
@@ -45,8 +44,11 @@ if [ "$universal" = 1 ]; then
 fi
 bundles=app; [ "$dmg" = 1 ] && bundles=app,dmg
 
-echo "==> assets"
-node "$app_dir/scripts/prepare-ui.mjs"
+echo "==> clean room"
+"$app_dir/scripts/check-cleanroom.sh"
+
+echo "==> front end"
+(cd "$app_dir" && npm run build)
 
 echo "==> remote helpers (repositories over ssh)"
 "$app_dir/scripts/build-remote.sh"

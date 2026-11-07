@@ -4,7 +4,8 @@
   "version": "0.7.0",
   "identifier": "dev.kigi.gitgraph",
   "build": {
-    "frontendDist": "../ui"
+    "frontendDist": "../web/dist",
+    "beforeBuildCommand": "npm run build"
   },
   "app": {
     "withGlobalTauri": true,

@@ -1,0 +1,17 @@
+{
+	"extends": "@tsconfig/svelte/tsconfig.json",
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"strict": true,
+		"noUncheckedIndexedAccess": true,
+		"allowJs": true,
+		"checkJs": false,
+		"isolatedModules": true,
+		"noEmit": true,
+		"types": ["vite/client", "vitest/importMeta"],
+		"lib": ["ES2022", "DOM", "DOM.Iterable"]
+	},
+	"include": ["src/**/*.ts", "src/**/*.svelte", "vite.config.ts", "../diff/**/*.js", "../diff/**/*.ts"]
+}

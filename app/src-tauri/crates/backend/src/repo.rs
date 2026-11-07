@@ -63,21 +63,15 @@ pub fn operation_state(root: &Path) -> OperationState {
     none
 }
 
-/// Where Export Repository Configuration writes, relative to the work tree (shared with the
-/// VS Code extension, so a committed file serves both).
-pub const REPO_CONFIG_FILE: &str = ".vscode/vscode-git-graph.json";
+/// Where Export Repository Configuration writes, relative to the work tree (a file meant to be
+/// committed, so everyone who clones the repository shares the settings in it).
+pub const REPO_CONFIG_FILE: &str = ".your-git-graph.json";
 
 /// Write the exported repository configuration of the work tree at `root`. Only that one path:
-/// a `.vscode` that is not a plain directory (a symlink out of the repository) is refused.
+/// a symbolic link there (pointing out of the repository) is refused.
 pub fn write_repo_config(root: &Path, contents: &str) -> Result<PathBuf, String> {
     if git_dir(root).is_none() {
         return Err(format!("{} is not a Git work tree.", root.display()));
-    }
-    let dir = root.join(".vscode");
-    match fs::symlink_metadata(&dir) {
-        Ok(meta) if !meta.is_dir() => return Err(format!("{} is not a directory.", dir.display())),
-        Ok(_) => {}
-        Err(_) => fs::create_dir(&dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?,
     }
     let file = root.join(REPO_CONFIG_FILE);
     if fs::symlink_metadata(&file).is_ok_and(|m| m.file_type().is_symlink()) {
@@ -108,11 +102,7 @@ mod tests {
         fs::remove_file(&file).unwrap();
         std::os::unix::fs::symlink(outside.path().join("x.json"), &file).unwrap();
         assert!(write_repo_config(p, "{}").unwrap_err().contains("symbolic link"));
-        fs::remove_file(&file).unwrap();
-        fs::remove_dir(p.join(".vscode")).unwrap();
-        std::os::unix::fs::symlink(outside.path(), p.join(".vscode")).unwrap();
-        assert!(write_repo_config(p, "{}").unwrap_err().contains("not a directory"));
-        assert!(!outside.path().join("vscode-git-graph.json").exists());
+        assert!(!outside.path().join("x.json").exists());
     }
 
     fn git(dir: &Path, args: &[&str]) -> bool {

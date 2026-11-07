@@ -1,12 +1,12 @@
-/* The diff window (ui/diff.html): a Monaco diff editor, a read-only file view (a Markdown file
+/* The diff window (web/diff.html): a Monaco diff editor, a read-only file view (a Markdown file
  * with its rendered page beside it), an image / binary comparison, or a file list with a diff
- * beside it. Bundled by scripts/build-diff.mjs into ui/diff-dist/. What to show arrives as window.__GG_DIFF_SPEC (see ui/host/diffspec.js); the
+ * beside it. Bundled by scripts/build-diff.mjs into web/public/diff-dist/. What to show arrives as window.__GG_DIFF_SPEC (see web/src/lib/diffspec.ts); the
  * contents are read here, from the engine (revisions) and the worktree_file command (disk). */
 import * as monaco from 'monaco-editor/editor';
 import 'monaco-editor/features/register.all';
 import 'monaco-editor/languages/definitions/register.all'; // syntax colouring only, no language services
-import { fileSides, UNCOMMITTED, WORKTREE } from '../ui/host/diffspec.js';
-import { errorText, engineAnswer } from '../ui/host/errors.js';
+import { fileSides, UNCOMMITTED, WORKTREE } from '../web/src/lib/diffspec';
+import { errorText, engineAnswer } from '../web/src/lib/errors';
 import { isMarkdown, resolveRelative, monotonic, lineToOffset, offsetToLine } from './mdview.js';
 
 const { invoke } = window.__TAURI__.core;
@@ -60,7 +60,7 @@ function languageFor(path) {
 	return 'plaintext';
 }
 
-/* The editor's theme follows the appearance (ui/theme.js), Increase Contrast included. */
+/* The editor's theme follows the appearance (web/public/theme.js), Increase Contrast included. */
 const monacoTheme = (t) => (t.contrast ? (t.dark ? 'hc-black' : 'hc-light') : t.dark ? 'vs-dark' : 'vs');
 let editorTheme = null, onAppearance = null;
 const applyTheme = () => window.__ggTheme.onChange((t) => {

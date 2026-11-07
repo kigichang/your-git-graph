@@ -1,4 +1,4 @@
-/* Bundle the diff window (app/diff/main.js + Monaco's ESM build) into app/ui/diff-dist/.
+/* Bundle the diff window (app/diff/main.js + Monaco's ESM build) into app/web/public/diff-dist/.
  * Monaco 0.53+ supports only bundled ESM; its language services (TypeScript, CSS, HTML, JSON
  * workers) are left out - the window needs syntax colouring, not IntelliSense. Two more
  * bundles hold what only the Markdown preview needs (diff/preview.js, diff/mermaid.js). */
@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 const appDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export async function buildDiff() {
-	const outdir = path.join(appDir, 'ui', 'diff-dist');
+	const outdir = path.join(appDir, 'web', 'public', 'diff-dist');
 	fs.rmSync(outdir, { recursive: true, force: true });
 	await esbuild.build({
 		absWorkingDir: appDir,

@@ -6,7 +6,7 @@
 import MarkdownIt from 'markdown-it';
 import taskLists from 'markdown-it-task-lists';
 import katexPlugin from '@vscode/markdown-it-katex';
-import { errorText } from '../ui/host/errors.js';
+import { errorText } from '../web/src/lib/errors';
 
 const md = new MarkdownIt({ html: false, linkify: true });
 md.use(taskLists, { enabled: false });

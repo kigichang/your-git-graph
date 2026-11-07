@@ -1,4 +1,4 @@
-//! The diff windows (ui/diff.html, a Monaco editor) and the working-tree reads they need.
+//! The diff windows (web/diff.html, a Monaco editor) and the working-tree reads they need.
 //! Revision contents come from the engine; only the working tree is read here.
 
 use std::path::Path;
@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 use crate::remote::{self, Remotes};
 
-/// Open a diff window. `spec` (JSON, built by ui/host/diffspec.js) tells the page what to show;
+/// Open a diff window. `spec` (JSON, built by web/src/lib/diffspec.ts) tells the page what to show;
 /// it is handed over as a global set before the page's scripts run.
 #[tauri::command]
 pub fn open_diff_window(app: tauri::AppHandle, spec: String, title: String) -> Result<(), String> {
