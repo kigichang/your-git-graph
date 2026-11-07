@@ -63,6 +63,65 @@ async function openAndReport(spec: DiffSpec): Promise<DiffReport> {
 	return report;
 }
 
+type AppHandle = {
+	state: () => { repo: string | null; data: { commits: { hash: string }[]; layout: { nodeLane: number[]; lanes: number }; more: boolean } | null; error: string; firstPaintMs: number | null };
+	load: (max: number) => Promise<void>;
+	table: () => { stats: () => { rows: number; rendered: number; paints: number }; scrollTo: (top: number) => void } | undefined;
+};
+const app = (): AppHandle => (window as unknown as { __gg: { app: AppHandle } }).__gg.app;
+
+/** The graph the window drew for the repository it opened: rows, their layout, the canvas. */
+async function checkGraph(check: (ok: boolean, what: string) => void): Promise<void> {
+	const ready = await settles(() => app().state().data !== null || app().state().error !== '', 30000);
+	const s = app().state();
+	check(ready && s.data !== null, 'the graph did not load: ' + s.error);
+	if (s.data === null) return;
+	const table = app().table();
+	check(s.data.commits.length > 0, 'no commits');
+	check(s.data.layout.nodeLane.length === s.data.commits.length, 'the layout has a lane per row');
+	check(s.data.layout.lanes >= 1, 'at least one lane');
+	const painted = await settles(() => (table?.stats().paints ?? 0) > 0 && (table?.stats().rendered ?? 0) > 0);
+	const stats = table?.stats();
+	check(painted, 'the graph canvas was not painted or no row was rendered: ' + JSON.stringify(stats));
+	check((stats?.rendered ?? 0) <= 80, 'only the rows in view are in the DOM: ' + stats?.rendered);
+	check(document.querySelectorAll('.gg-row').length === stats?.rendered, 'the DOM rows match the table');
+	await log(`graph ${s.data.commits.length} rows, ${s.data.layout.lanes} lanes, ${stats?.rendered} rendered, first paint ${s.firstPaintMs?.toFixed(0)} ms`);
+	// The same page again, warm (the number Stage 1's figure was measured as).
+	const again = performance.now();
+	await app().load(300);
+	await log(`graph: warm reload of 300 in ${(performance.now() - again).toFixed(0)} ms`);
+	// A large repository: everything at once, and scrolling through it (the M1 gate).
+	if (s.data.more) {
+		const started = performance.now();
+		await app().load(100000);
+		const all = app().state().data;
+		const loadMs = performance.now() - started;
+		if (all !== null && all.commits.length > 5000 && table) {
+			await log(`bench: ${all.commits.length} commits loaded in ${loadMs.toFixed(0)} ms (${JSON.stringify((all as unknown as { timing: unknown }).timing)})`);
+			const total = all.commits.length * 24;
+			const frames: number[] = [];
+			await new Promise<void>((done) => {
+				const begin = performance.now();
+				let last = begin;
+				const step = (now: number) => {
+					frames.push(now - last);
+					last = now;
+					const t = (now - begin) / 3000;
+					if (t >= 1) return done();
+					table.scrollTo(t * total);
+					requestAnimationFrame(step);
+				};
+				requestAnimationFrame(step);
+			});
+			frames.shift();
+			const avg = frames.reduce((a, b) => a + b, 0) / frames.length, worst = Math.max(...frames);
+			await log(`bench: scrolled ${all.commits.length} rows in 3 s: ${frames.length} frames, avg ${avg.toFixed(1)} ms, worst ${worst.toFixed(0)} ms, ${table.stats().paints} paints`);
+			check(avg < 20, 'scrolling at 50 fps or better (avg ' + avg.toFixed(1) + ' ms)');
+			await pause(9000); // time to read the process's memory from outside, twice
+		}
+	}
+}
+
 export async function selfTest(_config: Record<string, unknown>): Promise<void> {
 	const failures: string[] = [];
 	const check = (ok: boolean, what: string) => { if (!ok) failures.push(what); };
@@ -71,6 +130,7 @@ export async function selfTest(_config: Record<string, unknown>): Promise<void> 
 		if (folders.length === 0) throw new Error('give the repository on the command line');
 		const repo = await repositoryOf(folders[0] as string);
 		await log('repository ' + repo);
+		await checkGraph(check);
 		const { hash, change } = await someChange(repo);
 		const specs: DiffSpec[] = [
 			diffSpec(repo, hash, hash, change.oldFilePath, change.newFilePath, change.type),

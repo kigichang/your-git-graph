@@ -2,9 +2,11 @@
 //! read and written outside git, the file watcher, and the askpass program's side. The app calls these for local
 //! repositories; the remote helper (crates/remote) serves the same over ssh.
 
+pub mod api;
 pub mod askpass;
 pub mod files;
 pub mod git;
+pub mod graph;
 pub mod repo;
 pub mod watch;
 pub mod wire;

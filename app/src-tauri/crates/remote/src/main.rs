@@ -23,6 +23,8 @@ use tokio::task::JoinSet;
 #[serde(tag = "op", rename_all = "camelCase")]
 enum Request {
     Engine { repo: String, request: String },
+    /// A typed read (`gg_backend::api`): the same code the app runs for a local repository.
+    Read { repo: String, request: gg_backend::api::ReadRequest },
     Git { request: GitExecRequest },
     OperationState { repo: String },
     WorktreeFile { repo: String, path: String },
@@ -73,6 +75,7 @@ impl Session {
     async fn run(&self, id: u64, request: Request) -> Result<Vec<u8>, String> {
         match request {
             Request::Engine { repo, request } => blocking(move || Ok(gg_backend::engine(&repo, &request).into_bytes())).await,
+            Request::Read { repo, request } => blocking(move || json(&gg_backend::api::read(&repo, request)?)).await,
             Request::OperationState { repo } => blocking(move || json(&gg_backend::repo::operation_state(Path::new(&repo)))).await,
             Request::WorktreeFile { repo, path } => {
                 blocking(move || json(&gg_backend::files::read_worktree_file(Path::new(&repo), &path)?)).await

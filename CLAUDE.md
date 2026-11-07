@@ -77,14 +77,25 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 - **監看的手動檢查**：開著 App 閒置幾秒應該 0 次刷新；終端機 `git commit`、`git checkout -b` 各剛好刷新一次。
 - **模擬從 Finder 啟動**：`env -i HOME=$HOME PATH=/usr/bin:/bin:/usr/sbin:/sbin GG_SELFTEST=1 target/debug/git-graph-app <repo>`。
 - **引擎測試**：`cd vendor/vscode-git-graph-rs && cargo test -p git-graph-core`。
-- **效能基準**（Stage 1，git/git 8.6 萬個 commit，release 版，暖機後）：`loadCommits`（300 筆）約 85ms；首屏約 155–190ms；`.app` 22 MB。Stage 2 的閘門見里程碑 M1。
+- **效能基準**（git/git，86,054 列，release 版；self-test 對大 repo 會自動量，`GG_SELFTEST=1 target/release/git-graph-app <git/git clone>`，log 裡的 `graph:` 與 `bench:` 行）。M1 的閘門與結果：
+
+  | 量測 | Stage 1 | 閘門 | Stage 2（2026-11-07） |
+  |---|---|---|---|
+  | `Commits(300)`（引擎＋layout） | 約 85ms（暖） | ≤ 100ms | 33ms（冷）／30ms（暖） |
+  | 首屏（導覽開始 → 畫出第一頁） | 155–190ms | ≤ 250ms | 112ms |
+  | 全部 86k 列：引擎／layout／IPC 往返 | — | layout ≤ 20ms | 711ms／15ms／817ms |
+  | 86k 列在 3 秒內捲到底（每幀換掉整頁的列，最壞情況） | — | 60fps | 平均 16.8ms/幀（59.5fps），最差 55ms，每幀 1 次 canvas 重畫 |
+  | 記憶體 | — | 全部載入後 WebContent 增加 < 300MB | 第一頁時 WebContent 341MB（WebKit 本身），全部載入並捲動後 496MB（+155MB）；Rust 端 453→463MB（引擎的 repo 快取，Stage 1 相同） |
+  | load more 後前綴不變 | — | 性質測試 | `graph.rs` 的測試 |
+
+  之後的改動不應讓這些數字明顯變差。`.app` 22 MB。
 
 ## 里程碑
 
 | M | 內容 | 狀態 |
 |---|---|---|
 | M0 | 分支、clean-room 檢查、規格骨架、Vite＋Svelte 骨架、diff 視窗在新建置下可開、刪除 Stage 1 的 UI、CLAUDE.md 重寫 | ✅ 2026-11-07 |
-| M1 | `crates/backend/src/graph.rs` lane 配置 ＋ 測試；`repo_read(Commits)`；`GraphTable`／`GraphCanvas` 虛擬捲動；git/git 量測。**閘門**：`Commits(300)` 含 layout ≤ 100ms、首屏 ≤ 250ms、layout 86k ≤ 20ms、86k 列捲動 60fps、記憶體 < 300MB、load more 後前綴不變。不過就停下重新設計 | |
+| M1 | `crates/backend/src/graph.rs` lane 配置 ＋ 測試；`repo_read(Commits)`（`api.rs`，ts-rs 產生型別）；`GraphTable`／`GraphCanvas` 虛擬捲動；git/git 量測 | ✅ 2026-11-07，閘門全過（數字見「效能基準」） |
 | M2 | `api.rs`／`runtime.rs`／`reads.rs`、ts-rs 產生型別；所有讀取、ref 標籤、分支下拉、詳細資料、檔案→diff；設定 schema 定稿 | |
 | M3 | `ops/*`、`loss.rs`，`main` 的 gitops 38 個測試搬成 Rust；`repo_op`／取消／進度；helper 的 `read`／`op`；遠端路由 | |
 | M4 | 右鍵選單、全部對話框、data-loss 與進度對話框、刷新策略、互動式 rebase | |
@@ -96,7 +107,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 
 - **協定**：三個型別化 command 取代 Stage 1 的逐請求 handler：`repo_read(repo, ReadRequest) -> ReadResponse`、`repo_op(repo, OpRequest, confirmed, id, Channel<OpProgress>) -> OpResult`、`repo_op_cancel(id)`。`ReadRequest`／`OpRequest` 是 serde 的 tagged enum（`kind`，camelCase），derive `ts_rs::TS`，`cargo test -p gg-backend` 輸出到 `web/src/lib/api/generated/`（commit 進 repo，有測試比對不漂移）。`OpResult = Done { refresh } | NeedsConfirmation { reasons: Vec<LossReason> } | Failed { message }`；`LossReason` 是結構化 enum，文字由前端 i18n 產生，**不送 HTML**。diff 視窗繼續用 `engine_request`、`worktree_file`。
 - **gg-backend 的模組**：`api.rs`（型別與 `read`／`operate` 兩個總入口）、`runtime.rs`（`trait Runtime { git, engine, repo }`，`LocalRuntime` 固定帶 `GIT_OPTIONAL_LOCKS=0`、`GIT_EDITOR=true`、`GIT_TERMINAL_PROMPT=0`）、`ops/`（每個操作 `argv(&Req)` ＋ `run(rt, &Req, progress)`）、`loss.rs`、`reads.rs`、`graph.rs`、`settings.rs`、`repostate.rs`。
-- **graph**：lane 配置在 Rust（`graph.rs`，自己的演算法：依引擎順序逐列處理，`incoming` lane 匯入、第一個父接手節點 lane、其他父分出或接到已在等的 lane、空位重用、父不在集合時 dangling、`MAX_LANES = 200`），輸出壓縮陣列 `Layout { lanes, node_lane[], node_colour[], edge_offsets[], edges[] }`，前端只畫（canvas，只畫可視列）。
+- **graph**：lane 配置在 Rust（`crates/backend/src/graph.rs`，自己的演算法：依引擎順序逐列處理，等著這個 commit 的 lane 匯入節點、第一個父接手節點 lane、其他父分出到已在等的 lane 或新 lane、空位重用且不左移、父不在清單時 dangling（還能載入更多時 lane 延伸到底）、`MAX_LANES = 200`）。輸出 `Layout { lanes, node_lane[], node_colour[], spans[], dangling[] }`：**線條是 span**（每條 6 個數：起列、迄列、lane、起點欄、終點欄、顏色，依起列排序），不是每列每 lane 一段——git/git 8.6 萬列 × 100 多條 lane 若逐列輸出會有 3500 萬個數字，IPC 與 WebContent 都撐不住。前端（`web/src/lib/graph/draw.ts`）只畫可視列：掃 span 清單找出跨過可視範圍的，直線段合併成一條 `lineTo`。
 - **設定**：`settings.json` 用自己的 key（`language`、`graph.*`、`commits.*`、`repository.*`、`details.*`、`dialogs.*`、`authors`、`plantuml.jar`、`log.enabled`，見 `docs/spec/60`），`settings.rs` 的 `LEGACY_KEYS` 搬 Stage 1 的 key。`state.json`：保留 `sidebar`、`lastActiveRepo`、`mounts`、`appearance`，Stage 1 其餘的 key 第一次啟動時刪掉（`stateVersion: 2`），新的 `repo:<repo>`、`window:<label>`。Repo 設定匯出改成 `<repo>/.your-git-graph.json`（`repo.rs` 的 `REPO_CONFIG_FILE`，已改）。
 - **i18n**：英文與繁體中文（臺灣），`web/src/lib/i18n/{en,zh-TW}.ts` 同一個 `Strings` 型別；切換即時生效、不重載；vitest 檢查兩份 key 一致、沒有簡體字元。
 - **主題**：token 是 `--gg-*`（`web/public/theme.css`），四種外觀由 `<html>` 的 `gg-dark`／`gg-contrast` 決定；`web/src/theme.test.ts` 檢查文字 4.5:1、增強對比時主要文字 7:1、邊框 3:1。View > Appearance 經 Rust 的 `set_theme` 存在 `state.json` 的 `appearance`。強調色上的文字固定白色（WebKit 把 `AccentColorText` 解析成黑色）。
@@ -126,6 +137,13 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 - **側欄的拖拉不用 HTML5 drag and drop**：Tauri 的檔案拖放會攔走。
 - **最近清單**：`recent.json`，最多 10 筆，不存在的路徑略過。
 - **不上 Mac App Store**（Sandbox 擋掉 git 與 `~/.ssh`）。最低 macOS 13。
+
+### 前端（Svelte 5）
+
+- 大陣列（commits、layout）用 `$state.raw`，不要 `$state`：深層 proxy 對 86k 個物件太慢。
+- `$effect` 裡不要讀寫同一個 `$state`（例如計數器 `n++`）：effect 會依賴它而重跑。只給測試看的計數器用普通變數。
+- 虛擬捲動（`GraphTable.svelte`）：spacer 撐出高度，只渲染可視範圍 ±8 列，列以 `translateY` 定位；canvas 放在 viewport 外的絕對定位層，捲動時只改它畫的內容。graph 欄最寬 360px（約 25 條 lane），更右的 lane 在淡出範圍外。git/git 以日期排序的第一頁就有 135 條 lane（很多 topic branch 的 commit 等著更深的父）——這是這種配置法的本性，要不要壓縮待 M2 之後看畫面決定。
+- 型別：`web/src/lib/api/generated/*.ts` 由 `cargo test -p gg-backend` 產生，不要手改；改了 Rust 的型別就重跑測試並一起 commit。
 
 ### diff 視窗（`app/diff/main.js`，沿用 Stage 1）
 

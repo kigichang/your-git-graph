@@ -5,6 +5,7 @@
 | # | 檢查 | 里程碑 | 狀態 |
 |---|---|---|---|
 | 1 | 打開三種 diff 視窗（一個檔案的變更、檔案內容、比較）：每個都畫出內容、Monaco worker 沒有警告、搜尋框開著時 Esc 只關搜尋框、Esc 關閉視窗；最後只剩主視窗 | M0 | ✅ |
+| 1b | graph 載入：有列、layout 的列數與 commit 數一致、canvas 有畫、只有可視範圍的列在 DOM；暖機重載一次記時間；大 repo（還有更多時）全部載入並在 3 秒內捲到底，平均每幀 < 20ms | M1 | ✅ |
 | 2 | 介面語言切成繁體中文再切回英文：工具列與側欄文字跟著變、`settings.json` 存的是 `zh-TW`；不重新載入 | M6 | |
 | 3 | 載入 repo：graph 有列、HEAD 的列有標籤、點一列打開詳細資料、檔案清單有檔案 | M2 | |
 | 4 | 讀取：repo info、commits、details（commit／stash／未 commit／比較）、line counts、tag details、reflog、worktree list | M2 | |

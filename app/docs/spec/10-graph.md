@@ -10,7 +10,8 @@
 | Author | 作者名稱 | |
 | Commit | 短 hash（8 碼） | |
 
-- 欄寬可拖，存在視窗的 state。表頭可固定（`graph.stickyHeader`）。
+- 欄寬可拖，存在視窗的 state（待做）。表頭可固定（`graph.stickyHeader`）。
+- Graph 欄最寬 360px，右緣 10px 淡出；更多的 lane 看不到（M1 的做法，待看畫面後決定是否壓縮 lane）。
 - 列高 `graph.rowHeight`、字級 `graph.fontSize`、線條風格 `graph.style`（rounded／angular）。
 
 ## 列

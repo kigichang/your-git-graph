@@ -5,6 +5,7 @@
 //! called in-process. Writes go through the `git` CLI (`git` module); `repo`, `repos` and
 //! `system` cover the app's own concerns: repositories, windows, menus, macOS integration.
 
+mod api;
 mod askpass;
 mod diff;
 mod git;
@@ -168,6 +169,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             initial_repo,
+            api::repo_read,
             engine_request,
             host_log,
             self_test,

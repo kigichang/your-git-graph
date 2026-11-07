@@ -13,6 +13,9 @@ git-graph-core = { path = "../../../../vendor/vscode-git-graph-rs/native/core" }
 tokio = { version = "1", features = ["process", "io-util", "time", "sync", "macros", "rt"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The TypeScript side of the request and response types (web/src/lib/api/generated/), written
+# by `cargo test`.
+ts-rs = "12"
 libc = "0.2"
 base64 = "0.22"
 # File watching (FSEvents, inotify); 8.2.1 was too recent when pinned.
