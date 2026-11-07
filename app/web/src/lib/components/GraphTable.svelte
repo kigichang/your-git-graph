@@ -7,9 +7,15 @@
 	import { formatDate } from '../dates';
 	import { UNCOMMITTED, type Commit, type Layout } from '../api/client';
 
-	let { commits, layout, head = null, more = false, rowHeight = 24, onLoadMore, onSelect }: {
+	let { commits, layout, head = null, more = false, rowHeight = 24, onLoadMore, onSelect, onCompare, onEscape, onTag }: {
 		commits: Commit[]; layout: Layout; head?: string | null; more?: boolean; rowHeight?: number;
-		onLoadMore?: () => void; onSelect?: (row: number, commit: Commit) => void;
+		onLoadMore?: () => void;
+		/** A row was selected (click, keys); `again` when it was the selected one already. */
+		onSelect?: (row: number, commit: Commit, again: boolean) => void;
+		/** ⇧-click: the selected row against another. */
+		onCompare?: (selected: Commit, other: Commit) => void;
+		onEscape?: () => void;
+		onTag?: (name: string, commit: Commit) => void;
 	} = $props();
 
 	const OVERSCAN = 8;
@@ -50,14 +56,27 @@
 		if (more && onLoadMore && viewport.scrollTop + viewport.clientHeight >= viewport.scrollHeight - rowHeight * 2) onLoadMore();
 	}
 
-	function select(row: number) {
+	export function select(row: number) {
 		if (row < 0 || row >= rows) return;
+		const again = row === selected;
 		selected = row;
-		onSelect?.(row, commits[row] as Commit);
+		onSelect?.(row, commits[row] as Commit, again);
+		reveal(row);
+	}
+
+	function reveal(row: number) {
 		if (!viewport) return;
 		const top = row * rowHeight, bottom = top + rowHeight;
 		if (top < viewport.scrollTop) viewport.scrollTop = top;
 		else if (bottom > viewport.scrollTop + viewport.clientHeight) viewport.scrollTop = bottom - viewport.clientHeight;
+	}
+
+	function onRowClick(e: MouseEvent, row: number) {
+		if (e.shiftKey && selected >= 0 && selected !== row) {
+			onCompare?.(commits[selected] as Commit, commits[row] as Commit);
+			return;
+		}
+		select(row);
 	}
 
 	function onKeydown(e: KeyboardEvent) {
@@ -65,7 +84,15 @@
 		else if (e.key === 'ArrowUp') { select(Math.max(0, selected - 1)); e.preventDefault(); }
 		else if (e.key === 'End') { if (more) onLoadMore?.(); else select(rows - 1); e.preventDefault(); }
 		else if (e.key === 'Home') { select(0); e.preventDefault(); }
+		else if (e.key === 'Escape') { onEscape?.(); }
 		else if (e.key === 'j' && e.metaKey) { if (headRow >= 0) select(headRow); e.preventDefault(); }
+	}
+
+	/** Scroll to HEAD's row and select it (View > Show HEAD Commit); false when it is not loaded. */
+	export function showHead(): boolean {
+		if (headRow < 0) return false;
+		select(headRow);
+		return true;
 	}
 
 	const shortHash = (hash: string) => (hash === UNCOMMITTED ? '' : hash.slice(0, 8));
@@ -86,12 +113,12 @@
 				{#each visible as { row, commit } (commit.hash)}
 					<!-- svelte-ignore a11y_click_events_have_key_events a11y_interactive_supports_focus -->
 					<div class="gg-row" class:selected={row === selected} class:head={row === headRow} role="row" aria-rowindex={row + 1} tabindex="-1"
-						onclick={() => select(row)}>
+						onclick={(e) => onRowClick(e, row)}>
 						<div class="gg-cell gg-col-graph"></div>
 						<div class="gg-cell gg-col-desc">
-							{#each commit.heads as name (name)}<span class="gg-ref gg-ref-head">{name}</span>{/each}
+							{#each commit.heads as name (name)}<span class="gg-ref gg-ref-head" class:gg-ref-current={name === head || (row === headRow)}>{name}</span>{/each}
 							{#each commit.remotes as r (r.name)}<span class="gg-ref gg-ref-remote">{r.name}</span>{/each}
-							{#each commit.tags as t (t.name)}<span class="gg-ref gg-ref-tag">{t.name}</span>{/each}
+							{#each commit.tags as t (t.name)}<button class="gg-ref gg-ref-tag" onclick={(e) => { e.stopPropagation(); onTag?.(t.name, commit); }}>{t.name}</button>{/each}
 							{#if commit.stash}<span class="gg-ref gg-ref-stash">{commit.stash.selector}</span>{/if}
 							<span class="gg-message">{commit.message}</span>
 						</div>
@@ -134,8 +161,10 @@
 	.gg-graph-layer { position: absolute; top: 0; left: 0; width: var(--gg-graph-width); pointer-events: none; overflow: hidden; }
 	.gg-ref {
 		display: inline-block; margin-right: 4px; padding: 0 5px; border-radius: 4px; font-size: 11px; line-height: 16px;
-		border: 1px solid var(--gg-panel-border); background: var(--gg-editorWidget-background);
+		border: 1px solid var(--gg-panel-border); background: var(--gg-editorWidget-background); font-family: inherit; vertical-align: 1px;
 	}
+	button.gg-ref { cursor: pointer; }
+	.gg-ref-current { font-weight: 600; }
 	.gg-ref-head { border-color: var(--gg-charts-green); color: var(--gg-charts-green); }
 	.gg-ref-remote { border-color: var(--gg-charts-blue); color: var(--gg-charts-blue); }
 	.gg-ref-tag { border-color: var(--gg-charts-yellow); color: var(--gg-charts-yellow); }
