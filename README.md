@@ -10,9 +10,9 @@ repository, MIT, a git submodule) for reading; writes run the `git` CLI.
 > **Licence.** The source code in this repository is MIT ([LICENSE](LICENSE)); what the app
 > bundles besides is listed in [THIRD-PARTY.md](THIRD-PARTY.md). The app contains nothing of
 > mhutchie's Git Graph or of the vscode-git-graph-rs extension's own code - only its engine,
-> which is MIT. (The first version of this app, on the `main` branch, embedded that extension's
-> webview and could not be distributed; this version, `stage-2`, is a clean-room rewrite of
-> everything but the engine.)
+> which is MIT. (The first version of this app, up to the tag `v0.7.0`, embedded that extension's
+> webview and could not be distributed; this version is a clean-room rewrite of everything
+> but the engine.)
 >
 > This is an independent project, not affiliated with or endorsed by mhutchie's
 > [Git Graph](https://github.com/mhutchie/vscode-git-graph) or

@@ -2,7 +2,7 @@
 
 macOS 的 git graph App，使用 **Tauri 2**。讀取來自 Rust 引擎 git-graph-core（[vscode-git-graph-rs](https://github.com/neophack/vscode-git-graph-rs) 的 `native/core`，MIT，submodule 鎖在 v1.0.28），寫入走 `git` CLI。
 
-**這個分支（`stage-2`）是 clean-room 重寫**：Stage 1（`main` 分支，可用的自用版）把上游受限授權的 webview 與 extension host 包進 App，所以不能散布；Stage 2 把那些全部換成自己的前端（Svelte 5 + TypeScript）與 host（Rust），只留引擎，目標是可以公開散布。目前進度見「里程碑」。
+**這是 clean-room 重寫（Stage 2，已合併進 `main`）**：Stage 1（最後一版是 tag `v0.7.0`，可用的自用版）把上游受限授權的 webview 與 extension host 包進 App，所以不能散布；Stage 2 把那些全部換成自己的前端（Svelte 5 + TypeScript）與 host（Rust），只留引擎，目標是可以公開散布。目前進度見「里程碑」。
 
 ## 授權與 clean-room（每次動手前都要記得）
 
@@ -11,10 +11,10 @@ macOS 的 git graph App，使用 **Tauri 2**。讀取來自 Rust 引擎 git-grap
 | `vendor/vscode-git-graph-rs/native/`（引擎） | MIT | 可以用、可以看（`native/core/src/dispatch.rs` 是方法清單） |
 | `vendor/vscode-git-graph-rs/` 的其他部分：`web/`、`src/`、`out/`、`media/`、`resources/`、`tests/`、`docs/`、`package.json`、`package.nls*.json`、`README.md` | mhutchie Git Graph 授權 | **禁止散布衍生作品；Stage 2 連看都不看** |
 
-- **絕不打開上表第二列的任何檔案**，也不打開 `main` 分支上從它們衍生的東西：`app/ui/host/main.js`、`app/ui/shim.js`、`app/ui/sidebar.css`、`app/ui/theme.css` 的選擇器、`app/scripts/prepare-ui.mjs`、`app/scripts/zh-tw.mjs`、`app/tests/settings.test.mjs`。`main` 上**自己寫的**可以看、可以搬：`gitops.js`（git 語意與 data-loss 規則）、`tests/gitops.test.mjs`、`sidebar.js`、`askpass.js`、`addremote.js`、`repoconfig.js`、`app.js`、`reads.js`（只看它們呼叫引擎與 git 的方式，不看協定名稱）。取用時 `git show main:app/ui/host/gitops.js`。
+- **絕不打開上表第二列的任何檔案**，也不打開 Stage 1（tag `v0.7.0` 與更早的歷史）裡從它們衍生的東西：`app/ui/host/main.js`、`app/ui/shim.js`、`app/ui/sidebar.css`、`app/ui/theme.css` 的選擇器、`app/scripts/prepare-ui.mjs`、`app/scripts/zh-tw.mjs`、`app/tests/settings.test.mjs`。Stage 1 裡**自己寫的**可以看、可以搬：`gitops.js`（git 語意與 data-loss 規則）、`tests/gitops.test.mjs`、`sidebar.js`、`askpass.js`、`addremote.js`、`repoconfig.js`、`app.js`、`reads.js`（只看它們呼叫引擎與 git 的方式，不看協定名稱）。取用時 `git show v0.7.0:app/ui/host/gitops.js`。
 - 新程式碼只依據 **`app/docs/spec/*.md`（功能規格）**、引擎的介面、git 的文件。規格寫使用者看得到的行為，不寫 DOM、class、內部協定；對話框文字自己寫。
 - **`app/scripts/check-cleanroom.sh`**：`app/` 內出現上游才有的名稱（`acquireVsCodeApi`、`--vscode-`、`out.min.*`、`vscode-git-graph`、`git-graph-rs.`、`vscode-light|dark|high-contrast`）或 Stage 1 的目錄還在，就失敗。`npm test` 與 `build-app.sh` 都會跑；每次 commit 前跑。
-- 可選：在這個分支工作時 `git -C vendor/vscode-git-graph-rs sparse-checkout set native licenses`（cone 模式，頂層檔案保留，引擎照常建置）；切回 `main` 前 `sparse-checkout disable`——這是 submodule 工作樹的設定，不隨分支切換。
+- 可選：`git -C vendor/vscode-git-graph-rs sparse-checkout set native licenses`（cone 模式，頂層檔案保留，引擎照常建置）；切到 Stage 1 的 tag 前 `sparse-checkout disable`——這是 submodule 工作樹的設定，不隨分支切換。
 - 本 repo 的原始碼以 MIT 公開（根目錄 `LICENSE`，範圍不含 `vendor/`）。公開 repo：https://github.com/kigichang/your-git-graph 。舊的私人 repo `kigichang/git-graph` 已封存，裡面的歷史含上游內容，**不要把它的 ref 或 tag 推到公開 repo**。
 - 這份文件**不記錄上游的內部細節**（元素 id、它的協定、它的字典、它的 CSS 做法）。要描述行為就寫進 `docs/spec/`。
 
@@ -223,6 +223,6 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 - ad-hoc 的 cdhash 每次建置不同，macOS 可能重複問權限；可用 Keychain 自簽的憑證 `APPLE_SIGNING_IDENTITY=… app/scripts/build-app.sh` 固定。
 - 公開散布時：環境變數 `APPLE_SIGNING_IDENTITY`（Developer ID Application 憑證）加 `APPLE_ID`／`APPLE_PASSWORD`／`APPLE_TEAM_ID`（或 `APPLE_API_ISSUER`／`APPLE_API_KEY`／`APPLE_API_KEY_PATH`），`cargo tauri build` 就會簽章、notarize、staple；`build-app.sh` 的開頭有說明，不必改 `tauri.conf.json`。
 
-## Stage 1（`main` 分支）
+## Stage 1（tag `v0.7.0`）
 
-自用版，功能完整：上游 webview ＋ 自己寫的 JS host ＋ 這裡沿用的 Rust。它的 CLAUDE.md 在 `main` 上。這個分支不合併回 `main`；`main` 不再開發。
+自用版，功能完整：上游 webview ＋ 自己寫的 JS host ＋ 這裡沿用的 Rust。它的 CLAUDE.md 在那個 tag 上。Stage 2 已經合併進 `main`，Stage 1 不再開發；歷史裡仍有它的上游衍生內容。

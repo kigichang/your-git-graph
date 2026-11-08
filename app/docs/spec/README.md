@@ -2,7 +2,7 @@
 
 Stage 2 的程式碼只依據這裡的規格、引擎（`vendor/vscode-git-graph-rs/native/core`，MIT）的介面、以及 git 的文件來寫。規格描述**使用者看得到的行為**：畫面上有什麼、能做什麼、結果是什麼、背後執行哪個 git 指令。不描述 DOM、class 名稱、內部協定。
 
-來源：Stage 1 的 App（`main` 分支）實際的行為，用執行中的 App 與截圖觀察而得；git 語意的部分對照 `main` 分支上我們自己寫的 `app/ui/host/gitops.js`（那是自己的程式碼，可以看）。
+來源：Stage 1 的 App（tag `v0.7.0`）實際的行為，用執行中的 App 與截圖觀察而得；git 語意的部分對照那個 tag 上我們自己寫的 `app/ui/host/gitops.js`（那是自己的程式碼，可以看）。
 
 | 檔案 | 內容 | 狀態 |
 |---|---|---|
