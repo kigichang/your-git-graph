@@ -13,7 +13,11 @@
 
 	const tree = $derived(buildTree(files, compact));
 	let folded = $state(new Set<string>());
-	$effect(() => { void folderPaths(tree); folded = new Set(); }); // a new list: everything open
+	const paths = $derived(files.map((f) => f.newPath).join('\n'));
+	$effect(() => { void paths; folded = new Set(); }); // other files (not the line counts arriving): everything open
+
+	export const collapseAll = () => { folded = new Set(folderPaths(tree)); };
+	export const expandAll = () => { folded = new Set(); };
 
 	const toggle = (path: string) => { const next = new Set(folded); if (next.has(path)) next.delete(path); else next.add(path); folded = next; };
 	const open = (e: MouseEvent, change: FileChange) => { e.preventDefault(); onOpen(change, e.metaKey); };

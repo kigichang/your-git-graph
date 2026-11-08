@@ -177,6 +177,26 @@ async function checkDetails(check: Check): Promise<void> {
 		const mail = document.querySelector<HTMLAnchorElement>('.gg-details .gg-fields a[href^="mailto:"]');
 		check(mail?.textContent === d.details.authorEmail, 'the author\'s email is a link: ' + mail?.textContent);
 	}
+	// The icons beside the files: how they are shown (a setting), their folders.
+	const tool = (name: string) => document.querySelector<HTMLButtonElement>('.gg-details .gg-tool-' + name);
+	const fileRows = () => document.querySelectorAll('.gg-details .gg-file').length;
+	const pressed = (name: string) => tool(name)?.getAttribute('aria-pressed') === 'true';
+	const total = fileRows();
+	check(pressed('list') && tool('collapse')?.disabled === true && tool('expand')?.disabled === true, 'as a list: nothing to collapse');
+	tool('tree')?.click();
+	check(await settles(() => pressed('tree') && !pressed('list')), 'the tree icon shows the files as a tree');
+	const savedView = (await invoke<{ settings: { details: { fileView: string } } }>('settings_get')).settings.details.fileView;
+	check(savedView === 'tree', 'and it is the setting: ' + savedView);
+	check(fileRows() === total, 'the tree has every file');
+	if (d?.kind === 'commit' && d.details.files.some((f) => f.newPath.includes('/'))) {
+		const atRoot = d.details.files.filter((f) => !f.newPath.includes('/')).length;
+		tool('collapse')?.click();
+		check(await settles(() => fileRows() === atRoot), 'collapse all leaves the files outside any folder: ' + fileRows() + ' of ' + total);
+		tool('expand')?.click();
+		check(await settles(() => fileRows() === total), 'expand all shows them again');
+	}
+	tool('list')?.click();
+	check(await settles(() => pressed('list') && fileRows() === total), 'the list icon shows the list again');
 	await log(`details of ${commit.hash.slice(0, 8)}: ${d?.kind === 'commit' ? d.details.files.length : 0} files`);
 
 	// The file's change (click) and the file itself (⌘-click), each in a diff window.
