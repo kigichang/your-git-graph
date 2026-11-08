@@ -27,6 +27,6 @@
 ## 檔案監看
 
 - 本機 repo 用 FSEvents：`.git` 裡的 HEAD、refs、packed-refs、index、config、進行中操作的標記檔，以及工作目錄未被忽略的檔案。事件合併 300ms。
-- 變動的 repo 正是目前顯示的 repo 才刷新；自己的寫入操作執行中與結束後 1 秒內的事件忽略。
+- 變動的 repo 正是目前顯示的 repo 才刷新；自己的寫入操作執行中與結束後 1 秒內的事件忽略。載入途中發生的變動在載入完後補刷新一次。
 - linked worktree 與 submodule（`.git` 是檔案）也監看它們的 git dir 與共用的 git dir。
 - 閒置時 0 次刷新；終端機 `git commit`、`git checkout -b` 各剛好刷新一次。

@@ -134,14 +134,19 @@
 
 	/* ---------- Loading the shown repository ---------- */
 
+	let loadRun = 0; // the load that counts: showing a repository starts over, whatever is running
+	let reloadAgain = false; // something changed during a load, which may have read it too late
+
 	async function load(max: number): Promise<boolean> {
 		if (repo === null || loading) return false;
 		loading = true;
 		const started = performance.now();
 		const r = repo;
+		const run = ++loadRun;
+		const superseded = () => run !== loadRun || repo !== r;
 		try {
 			const answer = await loadCommits(r, options(max));
-			if (repo !== r) return false; // switched meanwhile
+			if (superseded()) return false;
 			const requestMs = performance.now() - started;
 			data = answer;
 			maxCommits = max;
@@ -155,21 +160,35 @@
 					void log(`graph: first paint at ${firstPaintMs.toFixed(0)} ms since navigation`);
 				});
 			}
-			info = await loadRepoInfo(r, { showRemoteBranches, showRemoteHeads: true, hideRemotes: [], showStashes: true });
+			const repoInfo = await loadRepoInfo(r, { showRemoteBranches, showRemoteHeads: true, hideRemotes: [], showStashes: true });
+			if (superseded()) return false;
+			info = repoInfo;
 			const state = await operationState(r);
+			if (superseded()) return false;
 			inProgress = state.operation === null ? null : { operation: state.operation, progress: state.progress, conflicted: state.conflictedFiles };
 			staged = state.staged;
 			setStatus(r, { missing: false, note: undefined });
 			return true;
 		} catch (e) {
-			if (repo === r) error = errorText(e);
+			if (!superseded()) error = errorText(e);
 			return false;
 		} finally {
-			if (repo === r) loading = false;
+			if (run === loadRun) {
+				loading = false;
+				if (reloadAgain) void reload();
+			}
 		}
 	}
 
-	const reload = () => load(maxCommits);
+	/** Load again what is shown; during a load, once more right after it. */
+	function reload(): Promise<boolean> {
+		if (loading) {
+			reloadAgain = true;
+			return Promise.resolve(false);
+		}
+		reloadAgain = false;
+		return load(maxCommits);
+	}
 	const loadMore = () => load(maxCommits + settings.current.commits.loadMore);
 
 	function setStatus(r: string, patch: RepoStatus) {
@@ -203,6 +222,10 @@
 			return false;
 		}
 		repo = r;
+		// What is still loading for the one shown before no longer counts.
+		loadRun++;
+		loading = false;
+		reloadAgain = false;
 		data = null;
 		info = null;
 		selected = null;
@@ -211,7 +234,10 @@
 		appState.set('lastActiveRepo', r);
 		await restoreRepoState(r);
 		const ok = await load(settings.current.commits.initialLoad);
-		if (!ok) { setStatus(r, { missing: true, note: error }); return false; }
+		if (!ok) {
+			if (repo === r) setStatus(r, { missing: true, note: error }); // not when another took its place meanwhile
+			return false;
+		}
 		void reportShown();
 		void updateAheadBehind([r]);
 		if (!isRemote(r)) {
@@ -741,6 +767,7 @@
 		app: {
 			state: () => ({ repo, data, info, error, status, firstPaintMs, details, branches, settings: settings.current, menu, dialog, inProgress, ops, sidebar, repoStatus, recent, booted }),
 			load,
+			reload,
 			table: () => table,
 			setBranches: (b: string[] | null) => { branches = b; return reload(); },
 			selectRow: (row: number) => table?.select(row),

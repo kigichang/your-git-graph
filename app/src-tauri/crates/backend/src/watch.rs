@@ -145,6 +145,14 @@ pub fn classify(git: Option<&Path>, repos: &[Repo], paths: &[PathBuf]) -> BTreeS
     changed
 }
 
+/// What turns the repositories [`watch`] reports (their real paths) back into the names `roots`
+/// gave them: whoever asked compares its own strings, and a path through a symlink is not the
+/// real one. Two names for one repository both answer.
+pub fn named(roots: &[String]) -> impl Fn(&BTreeSet<PathBuf>) -> Vec<String> + Send + 'static {
+    let asked: Vec<(PathBuf, String)> = roots.iter().map(|root| (Path::new(root).canonicalize().unwrap_or_else(|_| PathBuf::from(root)), root.clone())).collect();
+    move |changed| asked.iter().filter(|(real, _)| changed.contains(real)).map(|(_, name)| name.clone()).collect()
+}
+
 /// Watch `roots` and call `on_change` with the repositories a burst of changes matters to.
 /// Without `worktrees` only their git directories are watched (commits, checkouts, staging,
 /// fetches): inotify, unlike FSEvents, takes one watch per directory, and a work tree with
@@ -220,6 +228,19 @@ mod tests {
         assert!(Command::new(git_path()).args(["init", "-q"]).current_dir(&root).status().unwrap().success());
         std::fs::write(root.join(".gitignore"), "target/\n*.log\n").unwrap();
         (dir, root)
+    }
+
+    #[test]
+    fn changes_are_reported_by_the_names_asked_for() {
+        let (dir, root) = repo();
+        let link = dir.path().parent().unwrap().join(format!("gg-watch-link-{}", std::process::id()));
+        std::os::unix::fs::symlink(&root, &link).unwrap();
+        let other = root.join("not-changed").display().to_string();
+        let (real, through_link) = (root.display().to_string(), link.display().to_string());
+        let names = named(&[through_link.clone(), other, real.clone()]);
+        let reported = names(&classify(git(), &[Repo::of(link.clone())], &[root.join(".git/HEAD")]));
+        std::fs::remove_file(&link).unwrap();
+        assert_eq!(reported, [through_link, real]);
     }
 
     /// A change in the working tree asks `git check-ignore`, unasked by anyone: a repository's

@@ -157,13 +157,10 @@ impl Session {
 
     async fn watch(&self, id: u64, roots: Vec<String>) -> Result<Vec<u8>, String> {
         let mut cancel = self.cancellable(id);
-        // The watcher names repositories by their real paths: answer with the paths asked for.
-        let asked: HashMap<PathBuf, String> =
-            roots.iter().map(|root| (Path::new(root).canonicalize().unwrap_or_else(|_| PathBuf::from(root)), root.clone())).collect();
+        let names = gg_backend::watch::named(&roots);
         let (changes, mut pending) = mpsc::unbounded_channel::<Vec<String>>();
         let watcher = gg_backend::watch::watch(self.git.clone(), roots.iter().map(PathBuf::from).collect(), false, move |changed| {
-            let repos = changed.iter().map(|p| asked.get(p).cloned().unwrap_or_else(|| p.display().to_string())).collect();
-            let _ = changes.send(repos);
+            let _ = changes.send(names(&changed));
         })
         .map_err(|e| e.to_string());
         let watcher = match watcher {

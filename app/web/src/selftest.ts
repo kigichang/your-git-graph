@@ -36,6 +36,7 @@ type AppHandle = {
 	removeRepos: (repos: string[]) => Promise<void>;
 	saveSidebar: (next: SidebarState) => void;
 	load: (max: number) => Promise<void>;
+	reload: () => Promise<boolean>;
 	table: () => { stats: () => { rows: number; rendered: number; paints: number; selected: number }; scrollTo: (top: number) => void } | undefined;
 	setBranches: (b: string[] | null) => Promise<void>;
 	selectRow: (row: number) => void;
@@ -92,6 +93,34 @@ function checkReport(check: Check, report: DiffReport, expectKinds: string[]) {
 	for (const [command, said] of Object.entries(report.refused)) check(said.includes('not allowed'), what + ': a diff window may not call ' + command + ': ' + said);
 	check(report.escape.closes, what + ': Esc does not close the window');
 	check(report.escape.findFirst !== false, what + ': Esc with the find widget open closed more than the widget');
+}
+
+/** 3f: what asks for a load while one is running. A change that arrives then is not lost, and
+ * showing a repository then neither fails nor leaves the window unable to load again. */
+async function checkLoadsInFlight(check: Check): Promise<void> {
+	const repo = app().state().repo;
+	if (repo === null) return;
+	const running = app().load(300);
+	void app().reload();
+	await running;
+	const first = app().state().data;
+	check(await settles(() => app().state().data !== first, 5000), 'a reload asked for during a load runs after it');
+	await pause(300);
+	const second = app().state().data;
+	await pause(500);
+	check(app().state().data === second, 'and runs once');
+
+	// Another repository of the sidebar when there is one (a folder of them), else this one again.
+	const other = app().state().sidebar.repos.find((r) => r !== repo) ?? repo;
+	const superseded = app().load(300);
+	const shown = await app().show(other);
+	await superseded;
+	check(shown && app().state().repo === other && app().state().data !== null, 'a repository shown during a load is shown: ' + app().state().error);
+	const before = app().state().data;
+	check(await app().reload() && app().state().data !== before, 'the window still loads after that');
+	if (other !== repo) {
+		check(await app().show(repo), 'and shows the first repository again: ' + app().state().error);
+	}
 }
 
 /** 1b: the graph the window drew for the repository it opened: rows, their layout, the canvas;
@@ -806,6 +835,7 @@ export async function selfTest(config: Record<string, unknown>): Promise<void> {
 	try {
 		await getCurrentWindow().setFocus().catch(() => {});
 		await checkGraph(check);
+		await checkLoadsInFlight(check);
 		await checkDetails(check);
 		await checkOps(check);
 		if (app().state().repo !== null) await checkAskpass(check, config, app().state().repo as string);

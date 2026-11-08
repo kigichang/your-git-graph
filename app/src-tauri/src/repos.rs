@@ -118,11 +118,11 @@ struct RepoChanged {
 pub fn repo_opened(app: AppHandle, window: tauri::Window, windows: tauri::State<'_, Windows>, remotes: tauri::State<'_, Arc<Remotes>>, folder: String, repos: Vec<String>) -> Result<(), String> {
     let label = window.label().to_string();
     // The local roots, and per connected machine its session and the paths there.
-    let mut local = Vec::new();
+    let mut local: Vec<String> = Vec::new();
     let mut there: Vec<(remote::Remote, Arc<Session>, Vec<String>)> = Vec::new();
     for repo in &repos {
         match remote::parse(repo) {
-            Ok(None) => local.push(PathBuf::from(repo)),
+            Ok(None) => local.push(repo.clone()),
             Ok(Some(r)) => {
                 if let Some(at) = there.iter_mut().find(|(known, _, _)| known.authority == r.authority) {
                     at.2.push(r.path);
@@ -149,9 +149,9 @@ pub fn repo_opened(app: AppHandle, window: tauri::Window, windows: tauri::State<
     let git = gg_backend::git::locate_git().ok().map(|g| PathBuf::from(&g.path));
     let target = label.clone();
     let emitter = app.clone();
-    let watcher = gg_backend::watch::watch(git, local, true, move |changed| {
-        let repos = changed.into_iter().map(|p| p.display().to_string()).collect();
-        let _ = emitter.emit_to(target.as_str(), "repo-changed", RepoChanged { repos });
+    let names = gg_backend::watch::named(&local);
+    let watcher = gg_backend::watch::watch(git, local.iter().map(PathBuf::from).collect(), true, move |changed| {
+        let _ = emitter.emit_to(target.as_str(), "repo-changed", RepoChanged { repos: names(&changed) });
     })
     .map_err(|e| format!("cannot watch {folder}: {e}"))?;
     let remote_watches = there
