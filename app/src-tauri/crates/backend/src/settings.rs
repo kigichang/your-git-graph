@@ -165,7 +165,7 @@ impl Default for Settings {
                 markdown: true,
             },
             repository: RepositorySettings { show_remote_branches: true, show_remote_heads: true, fetch_and_prune: false, fetch_and_prune_tags: false },
-            details: DetailsSettings { location: DetailsLocation::Bottom, file_view: FileView::Tree, compact_folders: true, auto_center: true },
+            details: DetailsSettings { location: DetailsLocation::Inline, file_view: FileView::List, compact_folders: true, auto_center: true },
             dialogs: BTreeMap::new(),
             authors: Vec::new(),
             plantuml_jar: None,

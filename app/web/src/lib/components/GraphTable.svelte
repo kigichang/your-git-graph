@@ -134,6 +134,8 @@
 	}
 
 	function onKeydown(e: KeyboardEvent) {
+		// The inline details' own (a link, a file, the arrows in its lists), as when docked.
+		if ((e.target as Element).closest('.gg-gap')) return;
 		if (e.key === 'ArrowDown') { select(Math.min(rows - 1, selected + 1)); e.preventDefault(); }
 		else if (e.key === 'ArrowUp') { select(Math.max(0, selected - 1)); e.preventDefault(); }
 		else if (e.key === 'End') { if (more) onLoadMore?.(); else select(rows - 1); e.preventDefault(); }
@@ -239,7 +241,7 @@
 	.gg-viewport { position: absolute; inset: 0; overflow: auto; outline: none; }
 	.gg-spacer { position: relative; }
 	.gg-rows { position: absolute; left: 0; right: 0; top: 0; }
-	.gg-gap { position: absolute; left: 0; right: 0; display: flex; flex-direction: column; }
+	.gg-gap { position: absolute; left: var(--gg-graph-width); right: 0; display: flex; flex-direction: column; }
 	.gg-row:hover { background: var(--gg-list-hoverBackground); }
 	.gg-row.highlighted { background: var(--gg-editor-findMatchHighlightBackground); box-shadow: inset 0 0 0 1px var(--gg-editor-findMatchHighlightBorder); }
 	.gg-row.selected { background: var(--gg-menu-selectionBackground); color: var(--gg-menu-selectionForeground); }

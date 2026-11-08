@@ -29,8 +29,8 @@
 | `repository.showRemoteHeads` | true | |
 | `repository.fetchAndPrune` | false | |
 | `repository.fetchAndPruneTags` | false | |
-| `details.location` | `bottom` | `bottom`／`inline` |
-| `details.fileView` | `tree` | `tree`／`list` |
+| `details.location` | `inline` | `inline`／`bottom` |
+| `details.fileView` | `list` | `list`／`tree` |
 | `details.compactFolders` | true | |
 | `details.autoCenter` | true | |
 | `dialogs.<對話框>.<欄位>` | | 對話框的預設值（型別不符就用內建的預設）：`createBranch.checkout`、`deleteBranch.force`、`fetch.prune`、`fetch.pruneTags`、`fetchIntoLocalBranch.force`、`pull.noFastForward`、`pull.squash`、`merge.noFastForward`、`merge.squash`、`merge.noCommit`、`rebase.ignoreDate`、`rebase.autosquash`、`rebase.interactive`、`cherryPick.recordOrigin`、`cherryPick.noCommit`、`reset.mode`（`soft`／`mixed`／`hard`）、`resetUncommitted.mode`（`mixed`／`hard`）、`addTag.type`（`annotated`／`lightweight`）、`addTag.pushToRemote`、`stash.includeUntracked`、`applyStash.reinstateIndex`、`popStash.reinstateIndex`、`general.spaceSubstitution`（`none`／`hyphen`／`underscore`）；其餘為 true／false |

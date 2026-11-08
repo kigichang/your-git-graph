@@ -169,6 +169,14 @@ async function checkDetails(check: Check): Promise<void> {
 	const counted = await settles(() => { const v = app().state().details; return v?.kind === 'commit' && v.details.files.some((f) => f.additions !== null); });
 	check(counted, 'the files get their line counts');
 	check(document.querySelectorAll('.gg-details .gg-file').length > 0, 'the files are listed');
+	const counts = document.querySelector('.gg-details .gg-counts')?.textContent ?? '';
+	check(/^\( \+\d+ \| -\d+ \)$/.test(counts), 'a file shows its lines added and removed: ' + counts);
+	const fields = document.querySelector('.gg-details .gg-fields')?.textContent ?? '';
+	if (d?.kind === 'commit') {
+		check(fields.includes(d.details.hash) && fields.includes(d.details.committer) && fields.includes(new Date(d.details.authorDate * 1000).toString()), 'the details show the hash, the committer and the whole date');
+		const mail = document.querySelector<HTMLAnchorElement>('.gg-details .gg-fields a[href^="mailto:"]');
+		check(mail?.textContent === d.details.authorEmail, 'the author\'s email is a link: ' + mail?.textContent);
+	}
 	await log(`details of ${commit.hash.slice(0, 8)}: ${d?.kind === 'commit' ? d.details.files.length : 0} files`);
 
 	// The file's change (click) and the file itself (⌘-click), each in a diff window.
@@ -291,7 +299,23 @@ async function checkPanelsAndMore(check: Check): Promise<void> {
 		check(panel !== undefined && own !== undefined && Math.abs(panel.top - own.bottom) < 1, 'inline: right below its row');
 		check(panel !== undefined && next !== undefined && next.top >= panel.bottom - 1, 'inline: the next row below the details');
 		check(document.querySelectorAll('.gg-details').length === 1, 'inline: not docked as well');
-		await location(null);
+		const graphColumn = rect(`.gg-row[aria-rowindex="${row + 1}"] .gg-col-graph`), canvas = document.querySelector<HTMLCanvasElement>('.gg-graph-canvas');
+		check(panel !== undefined && graphColumn !== undefined && Math.abs(panel.left - graphColumn.right) < 1, 'inline: beside the graph column');
+		const scale = canvas !== null && graphColumn !== undefined ? canvas.width / graphColumn.width : 1;
+		const strip = canvas !== null && panel !== undefined ? canvas.getContext('2d')?.getImageData(0, Math.round((panel.top + 20 - canvas.getBoundingClientRect().top) * scale), canvas.width, 1).data : undefined;
+		check((data.commits[row]?.parents.length ?? 0) === 0 || (strip !== undefined && strip.some((_, i) => i % 4 === 3 && strip[i] !== 0)), 'inline: the graph\'s lines run on beside the details');
+		const parent = data.commits[row]?.parents[0], link = document.querySelector<HTMLAnchorElement>('.gg-gap .gg-fields a[href^="#"]');
+		check(parent === undefined || link !== null, 'a parent is a link');
+		if (parent !== undefined && link !== null && data.commits.some((c) => c.hash === parent)) {
+			link.click();
+			const parentShown = () => { const v = app().state().details; return v?.kind === 'commit' && v.details.hash === parent; };
+			check(await settles(parentShown), 'the parent\'s link shows the parent');
+			check(app().state().data?.commits[app().table()?.stats().selected ?? -1]?.hash === parent, 'and selects its row');
+			app().closeDetails();
+			app().selectRow(row);
+			await settles(() => document.querySelector('.gg-gap .gg-fields') !== null);
+		}
+		await location('bottom');
 		await pause(300);
 		check(document.querySelector('.gg-gap .gg-details') !== null, 'an open panel stays where it is when the setting changes');
 		esc();
@@ -299,6 +323,7 @@ async function checkPanelsAndMore(check: Check): Promise<void> {
 		app().selectRow(row);
 		check(await settles(() => document.querySelector('.gg-details') !== null && document.querySelector('.gg-gap') === null), 'the next one opens docked');
 		app().closeDetails();
+		await location(null);
 	} else await location(null);
 	// Find.
 	const word = (data.commits.find((c) => c.hash !== '*')?.message.split(/\s+/)[0] ?? 'a').toLowerCase();

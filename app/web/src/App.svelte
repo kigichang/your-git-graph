@@ -387,6 +387,22 @@
 		table?.select(row);
 		return true;
 	}
+	/** A parent's link in the details: its row, loading up to it when it is further down; its
+	 * details alone when the graph does not list it (filtered out, or off the first-parent line). */
+	async function showParent(hash: string) {
+		if (showCommit(hash) || repo === null || data === null) return;
+		const r = repo;
+		if (data.more) {
+			const before = await countCommitsBefore(r, hash, branches, showRemoteBranches).catch(() => null);
+			if (before !== null) await load(Math.max(maxCommits, before + 50));
+			if (showCommit(hash)) return;
+		}
+		void showDetails(hash, hash, async () => {
+			const d = await commitDetails(r, hash);
+			void countLines(hash, d.parents[0] ?? null, hash, d.files);
+			return { kind: 'commit', details: d, stash: null };
+		});
+	}
 	async function openSettings() {
 		if (repo !== null) repoConfig = await readRepoConfig(repo).catch(() => null);
 		settingsOpen = true;
@@ -779,8 +795,8 @@
 			{/if}
 			{#snippet inlineDetails()}
 				{#if details !== null}
-					<DetailsPanel view={details} inline fileView={settings.current.details.fileView} compactFolders={settings.current.details.compactFolders} dateFormat={settings.current.commits.dateFormat}
-						markdown={settings.current.commits.markdown} bind:height={detailsHeight} onClose={closeDetails} onOpenFile={openFile} {onFileMenu} />
+					<DetailsPanel view={details} inline fileView={settings.current.details.fileView} compactFolders={settings.current.details.compactFolders}
+						markdown={settings.current.commits.markdown} bind:height={detailsHeight} onClose={closeDetails} onOpenFile={openFile} {onFileMenu} onShowCommit={showParent} />
 				{/if}
 			{/snippet}
 			{#if data}
@@ -806,8 +822,8 @@
 					onPrune={() => { void operate({ kind: 'worktreePrune' }).then(() => { worktreeVersion++; }); }} onOpen={(path) => { void addAndShow([path]); }} onClose={() => { panel = null; }} />
 			{/if}
 			{#if details !== null && inlineRow < 0}
-				<DetailsPanel view={details} fileView={settings.current.details.fileView} compactFolders={settings.current.details.compactFolders} dateFormat={settings.current.commits.dateFormat}
-					markdown={settings.current.commits.markdown} bind:height={detailsHeight} onClose={closeDetails} onOpenFile={openFile} {onFileMenu} />
+				<DetailsPanel view={details} fileView={settings.current.details.fileView} compactFolders={settings.current.details.compactFolders}
+					markdown={settings.current.commits.markdown} bind:height={detailsHeight} onClose={closeDetails} onOpenFile={openFile} {onFileMenu} onShowCommit={showParent} />
 			{/if}
 		{/if}
 	</div>

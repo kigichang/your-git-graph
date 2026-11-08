@@ -7,7 +7,7 @@
 
 	let { layout, width, height, rowHeight, scrollTop, gap = NO_GAP, head = -1, selected = -1, palette, style = 'rounded' }: {
 		layout: Layout; width: number; height: number; rowHeight: number; scrollTop: number;
-		/** The space of the details shown inline: the lines run on below it, nothing is drawn over it. */
+		/** The space of the details shown inline, which sit beside the graph: the lines run on through it. */
 		gap?: Gap;
 		head?: number; selected?: number; palette?: string[]; style?: GraphStyle;
 	} = $props();
@@ -30,7 +30,6 @@
 		ctx.lineCap = 'round';
 		const first = rowAt(scrollTop, rowHeight, gap), last = rowAt(scrollTop + height, rowHeight, gap) + 1;
 		drawRows(ctx, layout, { first, last, yOf: (row) => rowTop(row, rowHeight, gap) + rowHeight / 2 - scrollTop, rowHeight, head, selected, palette, style });
-		if (gap.row >= 0) ctx.clearRect(0, (gap.row + 1) * rowHeight - scrollTop, width, gap.height);
 		drawn++;
 	});
 </script>

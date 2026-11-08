@@ -1,10 +1,11 @@
 <script lang="ts">
-	// The files of a commit, as a tree of folders or a flat list. A click opens the change
-	// (a diff window); ⌘-click the file as the change leaves it.
-	import { buildTree, folderPaths, countsText, type TreeNode } from '../filetree';
+	// The files of a commit, as a flat list or a tree of folders: an icon, the name in the colour
+	// of its status, the lines added and removed. A click opens the change (a diff window);
+	// ⌘-click the file as the change leaves it.
+	import { buildTree, flatFiles, folderPaths, lineCounts, type TreeNode } from '../filetree';
 	import type { FileChange } from '../api/client';
 
-	let { files, view = 'tree', compact = true, onOpen, onMenu }: {
+	let { files, view = 'list', compact = true, onOpen, onMenu }: {
 		files: FileChange[]; view?: 'tree' | 'list'; compact?: boolean;
 		onOpen: (change: FileChange, fileOnly: boolean) => void;
 		onMenu?: (e: MouseEvent, change: FileChange) => void;
@@ -20,11 +21,12 @@
 </script>
 
 {#snippet file(change: FileChange, name: string, depth: number)}
-	<button class="gg-file" style:padding-left="{8 + depth * 14}px" title={title(change)} onclick={(e) => open(e, change)}
+	{@const counts = lineCounts(change)}
+	<button class="gg-file" style:padding-left="{8 + depth * 14}px" title={title(change)} aria-label="{change.status} {name}{counts ? ` +${counts.added} -${counts.removed}` : ''}" onclick={(e) => open(e, change)}
 		oncontextmenu={(e) => { if (onMenu) { e.preventDefault(); onMenu(e, change); } }}>
-		<span class="gg-status gg-status-{change.status}">{change.status}</span>
-		<span class="gg-name">{name}</span>
-		<span class="gg-counts">{countsText(change)}</span>
+		<svg class="gg-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill-rule="evenodd" d="M3 1h6.5L13 4.5V15H3V1Zm2 6v1h6V7H5Zm0 2.5v1h6v-1H5ZM5 12v1h4v-1H5Z" /></svg>
+		<span class="gg-name gg-status-{change.status}">{name}</span>
+		{#if counts}<span class="gg-counts">( <span class="gg-added">+{counts.added}</span> | <span class="gg-removed">-{counts.removed}</span> )</span>{/if}
 	</button>
 {/snippet}
 
@@ -45,7 +47,7 @@
 	{#if view === 'tree'}
 		{@render nodes(tree, 0)}
 	{:else}
-		{#each files as change (change.newPath)}{@render file(change, change.newPath, 0)}{/each}
+		{#each flatFiles(files) as change (change.newPath)}{@render file(change, change.newPath, 0)}{/each}
 	{/if}
 </div>
 
@@ -60,10 +62,12 @@
 	.gg-twisty { width: 10px; flex: none; }
 	.gg-twisty::before { content: '▾'; font-size: 10px; color: var(--gg-descriptionForeground); }
 	.gg-folder.folded .gg-twisty::before { content: '▸'; }
-	.gg-status { flex: none; width: 1ch; font-family: var(--gg-editor-font-family); font-weight: 600; font-size: 12px; }
+	.gg-icon { flex: none; width: 14px; height: 14px; fill: var(--gg-descriptionForeground); }
 	.gg-status-A, .gg-status-U { color: var(--gg-gitDecoration-addedResourceForeground); }
 	.gg-status-M { color: var(--gg-gitDecoration-modifiedResourceForeground); }
 	.gg-status-D { color: var(--gg-gitDecoration-deletedResourceForeground); }
 	.gg-status-R { color: var(--gg-gitDecoration-renamedResourceForeground); }
-	.gg-counts { margin-left: auto; padding-left: 12px; font-size: 11px; color: var(--gg-descriptionForeground); font-family: var(--gg-editor-font-family); }
+	.gg-counts { flex: none; padding-left: 4px; }
+	.gg-added { color: var(--gg-gitDecoration-addedResourceForeground); }
+	.gg-removed { color: var(--gg-gitDecoration-deletedResourceForeground); }
 </style>

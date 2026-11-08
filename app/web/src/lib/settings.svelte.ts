@@ -16,7 +16,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	graph: { style: 'rounded', rowHeight: 24, fontSize: 13, colours: ['#2f80ed', '#eb5757', '#27ae60', '#d9a400', '#9b51e0', '#1aa39a', '#f2994a', '#e0409a'], combineLocalAndRemoteLabels: true, stickyHeader: true },
 	commits: { initialLoad: 300, loadMore: 100, loadMoreAutomatically: true, order: 'date', showUncommitted: true, showUntracked: true, includeReflog: false, dateType: 'author', dateFormat: 'date-time', markdown: true },
 	repository: { showRemoteBranches: true, showRemoteHeads: true, fetchAndPrune: false, fetchAndPruneTags: false },
-	details: { location: 'bottom', fileView: 'tree', compactFolders: true, autoCenter: true },
+	details: { location: 'inline', fileView: 'list', compactFolders: true, autoCenter: true },
 	dialogs: {},
 	authors: [],
 	plantumlJar: null,

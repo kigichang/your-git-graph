@@ -50,8 +50,15 @@ export function folderPaths(nodes: TreeNode[]): string[] {
 	return out;
 }
 
-/** `+a −d` of a change, or '' while not counted; a binary file is 'binary'. */
-export function countsText(change: FileChange): string {
-	if (change.additions === null && change.deletions === null) return '';
-	return `+${change.additions ?? 0} −${change.deletions ?? 0}`;
+/** The files in the order of the tree (a folder's folders, then its files), for the flat list:
+ * the files of a folder stay together. */
+export function flatFiles(files: FileChange[]): FileChange[] {
+	const flat = (nodes: TreeNode[]): FileChange[] => nodes.flatMap((n) => (n.kind === 'folder' ? flat(n.children) : [n.change]));
+	return flat(buildTree(files, false));
+}
+
+/** The lines a change adds and removes, or null while not counted (and for a binary file). */
+export function lineCounts(change: FileChange): { added: number; removed: number } | null {
+	if (change.additions === null && change.deletions === null) return null;
+	return { added: change.additions ?? 0, removed: change.deletions ?? 0 };
 }

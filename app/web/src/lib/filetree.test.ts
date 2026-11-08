@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest';
-import { buildTree, folderPaths, countsText } from './filetree';
+import { buildTree, flatFiles, folderPaths, lineCounts } from './filetree';
 import type { FileChange } from './api/client';
 
 const change = (path: string, status: FileChange['status'] = 'M'): FileChange => ({ oldPath: path, newPath: path, status, additions: null, deletions: null });
@@ -19,8 +19,13 @@ test('a folder holding only one folder is shown as one entry', () => {
 	expect(folderPaths(tree)).toEqual(['a/b', 'a/b/c', 'd/e']);
 });
 
-test('the counts text', () => {
-	expect(countsText(change('f'))).toBe('');
-	expect(countsText({ ...change('f'), additions: 3, deletions: 0 })).toBe('+3 −0');
-	expect(countsText({ ...change('f'), additions: null, deletions: 2 })).toBe('+0 −2');
+test('the flat list keeps the files of a folder together, folders first', () => {
+	const paths = ['src/engine.rs', 'src/export/mod.rs', 'README', 'src-tauri/lib.rs', 'src/ffmpeg/mod.rs', 'crates/main.rs'];
+	expect(flatFiles(paths.map((p) => change(p))).map((f) => f.newPath)).toEqual(['crates/main.rs', 'src/export/mod.rs', 'src/ffmpeg/mod.rs', 'src/engine.rs', 'src-tauri/lib.rs', 'README']);
+});
+
+test('the line counts', () => {
+	expect(lineCounts(change('f'))).toBe(null);
+	expect(lineCounts({ ...change('f'), additions: 3, deletions: 0 })).toEqual({ added: 3, removed: 0 });
+	expect(lineCounts({ ...change('f'), additions: null, deletions: 2 })).toEqual({ added: 0, removed: 2 });
 });

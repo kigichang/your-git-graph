@@ -99,4 +99,6 @@ export function defaultLoadOptions(maxCommits = 300): LoadOptions {
 /** A diff window for `spec` (web/diff.html). */
 export const openDiffWindow = (spec: DiffSpec): Promise<void> => invoke<void>('open_diff_window', { spec: JSON.stringify(spec), title: spec.title });
 
+export const openUrl = (url: string): Promise<void> => invoke<void>('open_url', { url });
+
 export const log = (line: string): Promise<void> => invoke<void>('host_log', { line }).catch(() => {});

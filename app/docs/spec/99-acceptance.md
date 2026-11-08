@@ -31,6 +31,7 @@
 | 14d | 表頭：預設固定在表格頂端；`graph.stickyHeader` 關掉後表頭跟著列一起捲、第一列緊接在它下方；改回預設又固定 | M8 | ✅ |
 | 14e | 線條風格：`graph.style` 改成 `angular` 後 graph 重畫；改回預設 | M8 | ✅ |
 | 14f | session log：打開 `log.enabled` 時寫一行記號再關掉；`scripts/selftest.sh` 檢查 `session.log` 有那一行、其他時候的 log 行（例如 graph 載入時的）沒有寫進去 | M8 | ✅ |
-| 3b | 詳細資料 inline：緊接在選取列下方、下一列在面板下方、沒有同時停靠底部；設定改回 `bottom` 時已開的不動；Esc 關閉；下一次打開停靠底部 | M8 | ✅ |
+| 3b | 詳細資料 inline：緊接在選取列下方、下一列在面板下方、在 graph 欄右邊、graph 的線在旁邊繼續畫、沒有同時停靠底部；設定改成 `bottom` 時已開的不動；Esc 關閉；下一次打開停靠底部 | M8 | ✅ |
+| 3d | 詳細資料的內容：hash、committer、完整日期都顯示，作者 email 是 `mailto:` 連結，檔案有 `( +n \| -m )`；點父 commit 的連結選取它那一列並顯示它的詳細資料（要先載入更多、graph 沒有列出的兩種情況沒有自動測試） | M8 | ✅ |
 | 3c | Enter：Esc 關掉詳細資料後，在 graph 按 Enter 重新打開選取列的詳細資料（同一個 commit），再 Esc 關閉 | M8 | ✅ |
 | 20 | 遠端 repo（假 ssh）：加入、側欄顯示主機、graph 與詳細資料經 helper、建立與刪除分支、拒絕 archive、遠端 git 的帳密提示（第 8 項的一輪）、斷線後請求失敗、再顯示即重連、移除；背後變動的刷新只有手動 | M5／M7 | ✅ |

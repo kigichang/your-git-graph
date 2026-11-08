@@ -53,7 +53,7 @@ export async function runPreview(scenes: string): Promise<void> {
 	const third = () => app().state().data?.commits[2];
 	for (const scene of scenes.split(',')) {
 		if ((scene === 'details' || scene === 'inline') && rows > 2) {
-			if (scene === 'inline') await invoke('settings_set', { key: 'details.location', value: 'inline' });
+			await invoke('settings_set', { key: 'details.location', value: scene === 'inline' ? 'inline' : 'bottom' });
 			await pause(200); // the setting reaches the window
 			app().selectRow(2);
 			await until(() => app().state().details?.kind !== 'loading');
