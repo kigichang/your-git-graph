@@ -577,8 +577,8 @@
 			case 'copyPath': return void copy(target.kind === 'file' ? target.change.newPath : '');
 			case 'compare': if (commit && selected) onCompare(selected, commit); return;
 			case 'viewTag': if (target.kind === 'tag') onTag(target.name); return;
-			case 'openTerminal': return void invoke('open_terminal', { cwd: r, gitArgs: null }).catch((e) => log('terminal: ' + errorText(e)));
-			case 'revealFinder': return void invoke('open_path', { path: r, text: null }).catch((e) => log('reveal: ' + errorText(e)));
+			case 'openTerminal': return void invoke('open_terminal', { repo: r }).catch((e) => log('terminal: ' + errorText(e)));
+			case 'revealFinder': return void invoke('reveal_repo', { repo: r }).catch((e) => log('reveal: ' + errorText(e)));
 			case 'checkoutCommit': return void operate({ kind: 'checkoutCommit', commit: commit?.hash ?? '' });
 			case 'checkoutBranch': if (target.kind === 'branch') void operate({ kind: 'checkoutBranch', branch: target.name, remoteBranch: null, pullAfterwards: null }); return;
 			case 'fixup': return void operate({ kind: 'commitFixup', commit: commit?.hash ?? '' });
@@ -596,7 +596,7 @@
 				if (revs === null) return;
 				const at = revisions(revs.from, revs.to).right;
 				if (action === 'viewFile') openFile(target.change, true);
-				else if (action === 'openFile') void invoke('open_path', { path: r + '/' + target.change.newPath, text: null }).catch((e) => log('open: ' + errorText(e)));
+				else if (action === 'openFile') void invoke('open_repo_file', { repo: r, path: target.change.newPath }).catch((e) => log('open: ' + errorText(e)));
 				else if (action === 'diffWithWorking') void openDiffWindow(workingFileSpec(r, at === UNCOMMITTED ? 'HEAD' : at, target.change.newPath)).catch((e) => log('diff window: ' + errorText(e)));
 				else askOp(resetFileDialog(target.change.newPath, at === UNCOMMITTED ? 'HEAD' : at));
 				return;
@@ -711,8 +711,8 @@
 		items.push({ id: 'remove' as MenuAction, label: t('sidebar.remove'), danger: true });
 		showMenu(e, items, (id) => {
 			if (id === 'newWindow' && one) void invoke('open_new_window', { repo: one }).catch((e2) => log('new window: ' + errorText(e2)));
-			else if (id === 'reveal' && one) void invoke('open_path', { path: one, text: null }).catch(() => {});
-			else if (id === 'terminal' && one) void invoke('open_terminal', { cwd: one, gitArgs: null }).catch(() => {});
+			else if (id === 'reveal' && one) void invoke('reveal_repo', { repo: one }).catch(() => {});
+			else if (id === 'terminal' && one) void invoke('open_terminal', { repo: one }).catch(() => {});
 			else if (id === 'remove') void removeRepos(repos);
 			else if (id.startsWith('moveTo:')) {
 				const group = id.slice('moveTo:'.length) || null;

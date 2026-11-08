@@ -47,21 +47,67 @@ pub fn open_url(url: String) -> Result<(), String> {
     run(Command::new("/usr/bin/open").arg(&url))
 }
 
-/// Open an existing file with its default app; with `text`, with the default text editor
-/// (the settings file and the session log: `.json`/`.log` may belong to anything).
+/// What macOS runs instead of showing when it is opened: scripts, installers, and links to
+/// anything. A repository can hold any of them, and a clone has no quarantine flag, so nothing
+/// warns before it runs. Directories (`.app` and other bundles) are never opened at all.
+const RUNS_WHEN_OPENED: [&str; 30] = [
+    "app", "command", "tool", "terminal", "term", "pkg", "mpkg", "jar", "jnlp", "shortcut", "wflow", "mobileconfig", "sh", "bash", "zsh", "csh", "ksh", "tcsh", "fish", "py", "pyw", "pl",
+    "rb", "webloc", "inetloc", "fileloc", "mailloc", "ftploc", "afploc", "url",
+];
+
+/// Whether opening the file `path` would run something: by its extension, or an executable with
+/// none (one with an extension opens by that extension; on a share every file looks executable).
+fn runs_when_opened(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    match path.extension().and_then(|e| e.to_str()) {
+        Some(extension) => RUNS_WHEN_OPENED.contains(&extension.to_ascii_lowercase().as_str()),
+        None => path.metadata().is_ok_and(|m| m.permissions().mode() & 0o111 != 0),
+    }
+}
+
+/// Show `path` in the Finder, selected. `open` on the folder itself would start it if it is
+/// named like an app.
+fn reveal(path: &Path) -> Result<(), String> {
+    run(Command::new("/usr/bin/open").args(["-R", "--"]).arg(path))
+}
+
+/// Open a file of this app's own (the settings, the session log) in the default text editor:
+/// `.json` and `.log` may belong to anything.
+pub fn open_as_text(path: &Path) -> Result<(), String> {
+    run(Command::new("/usr/bin/open").args(["-t", "--"]).arg(path))
+}
+
+/// Open File: a file of the working tree of `repo`, with its default app. What leaves the
+/// repository is refused; what would run instead of being shown opens as text; a directory (a
+/// submodule) is revealed. Names and links in a repository are whatever its author chose:
+/// `README.md` can be a link to an application.
 #[tauri::command]
-pub fn open_path(path: String, text: Option<bool>) -> Result<(), String> {
-    if crate::remote::parse(&path)?.is_some() {
+pub fn open_repo_file(state: tauri::State<'_, crate::state::State>, repo: String, path: String) -> Result<(), String> {
+    state.listed(&repo)?;
+    if crate::remote::parse(&repo)?.is_some() {
         return Err("Files of a repository on another machine cannot be opened on this Mac.".into());
     }
-    if !Path::new(&path).exists() {
-        return Err(format!("{path} does not exist."));
+    let real = gg_backend::files::inside_repo(Path::new(&repo), &path)?.ok_or_else(|| format!("{path} does not exist."))?;
+    if real.is_dir() {
+        return reveal(&real);
     }
-    let mut open = Command::new("/usr/bin/open");
-    if text == Some(true) {
-        open.arg("-t");
+    if runs_when_opened(&real) {
+        return open_as_text(&real);
     }
-    run(open.arg("--").arg(&path))
+    run(Command::new("/usr/bin/open").arg("--").arg(&real))
+}
+
+/// Reveal in Finder: the folder of a repository of the sidebar.
+#[tauri::command]
+pub fn reveal_repo(state: tauri::State<'_, crate::state::State>, repo: String) -> Result<(), String> {
+    state.listed(&repo)?;
+    if crate::remote::parse(&repo)?.is_some() {
+        return Err("A repository on another machine cannot be shown in the Finder.".into());
+    }
+    if !Path::new(&repo).exists() {
+        return Err(format!("{repo} does not exist."));
+    }
+    reveal(Path::new(&repo))
 }
 
 /// Quote for a POSIX shell: everything inside single quotes, `'` as `'\''`.
@@ -102,10 +148,17 @@ fn terminal_do(line: &str) -> Result<(), String> {
     run(Command::new("/usr/bin/osascript").args(["-e", &script]))
 }
 
+/// Open in Terminal: a repository of the sidebar. The page names no command to run: that is
+/// [`terminal`], which only the operations reach, with arguments they checked.
+#[tauri::command]
+pub fn open_terminal(state: tauri::State<'_, crate::state::State>, repo: String) -> Result<(), String> {
+    state.listed(&repo)?;
+    terminal(repo, None)
+}
+
 /// Open Terminal in `cwd`; with `args`, also run `git <args>` there (interactive rebase needs a
 /// real terminal for its editor). For a repository on another machine: over ssh.
-#[tauri::command]
-pub fn open_terminal(cwd: String, git_args: Option<Vec<String>>) -> Result<(), String> {
+pub fn terminal(cwd: String, git_args: Option<Vec<String>>) -> Result<(), String> {
     if let Some(remote) = crate::remote::parse(&cwd)? {
         return terminal_do(&remote_line(&remote, git_args.as_deref()));
     }
@@ -225,6 +278,25 @@ mod tests {
         assert_eq!(shell_quote("a b"), "'a b'");
         assert_eq!(shell_quote("it's"), r"'it'\''s'");
         assert_eq!(applescript_quote(r#"say "hi" \ bye"#), r#""say \"hi\" \\ bye""#);
+    }
+
+    #[test]
+    fn what_runs_when_opened() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let file = |name: &str, mode: u32| {
+            let path = dir.path().join(name);
+            std::fs::write(&path, "x").unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+            path
+        };
+        for runs in [file("a.command", 0o644), file("b.COMMAND", 0o755), file("c.terminal", 0o644), file("d.pkg", 0o644), file("e.webloc", 0o644), file("f.py", 0o644), file("run", 0o755)] {
+            assert!(runs_when_opened(&runs), "{}", runs.display());
+        }
+        // A share reports every file as executable: its documents still open as documents.
+        for shown in [file("g.png", 0o644), file("h.md", 0o755), file("LICENSE", 0o644), file("i.pdf", 0o700)] {
+            assert!(!runs_when_opened(&shown), "{}", shown.display());
+        }
     }
 
     #[test]

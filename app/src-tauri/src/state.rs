@@ -184,14 +184,14 @@ pub fn write_setting(file: &Path, key: &str, value: Option<Value>) -> Result<(),
     write_atomic(file, text.as_bytes()).map_err(|e| format!("Cannot write {}: {e}", file.display()))
 }
 
-/// The settings file, created (empty) if missing - to open it in an editor.
+/// Open the settings file in the text editor, created (empty) if missing.
 #[tauri::command]
-pub fn settings_path(app: AppHandle) -> Result<String, String> {
+pub fn open_settings_file(app: AppHandle) -> Result<(), String> {
     let file = settings_file(&app)?;
     if !file.exists() {
         write_atomic(&file, b"{\n}\n").map_err(|e| e.to_string())?;
     }
-    Ok(file.display().to_string())
+    crate::system::open_as_text(&file)
 }
 
 /* ---------- session.log ---------- */
@@ -219,14 +219,14 @@ impl SessionLog {
     }
 }
 
-/// The session log, created (empty) if nothing was logged yet - to open it.
+/// Open the session log in the text editor, created (empty) if nothing was logged yet.
 #[tauri::command]
-pub fn session_log_path(log: tauri::State<'_, SessionLog>) -> Result<String, String> {
+pub fn open_session_log(log: tauri::State<'_, SessionLog>) -> Result<(), String> {
     let file = log.0.clone().ok_or("no application data directory")?;
     if !file.exists() {
         write_atomic(&file, b"").map_err(|e| e.to_string())?;
     }
-    Ok(file.display().to_string())
+    crate::system::open_as_text(&file)
 }
 
 #[cfg(test)]

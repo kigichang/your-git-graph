@@ -165,7 +165,7 @@
 		}
 	}
 
-	const openFile = (command: 'settings_path' | 'session_log_path') => invoke<string>(command).then((path) => invoke('open_path', { path, text: true })).catch(() => {});
+	const openFile = (command: 'open_settings_file' | 'open_session_log') => invoke(command).catch(() => {});
 
 	function onKey(e: KeyboardEvent) {
 		if (e.key === 'Escape' && !(e.target as Element).closest('.gg-backdrop ~ *')) { onClose(); e.stopPropagation(); }
@@ -177,8 +177,8 @@
 <div class="gg-settings" role="dialog" aria-modal="false" aria-label={t('settings.title')}>
 	<div class="gg-head">
 		<h2>{t('settings.title')}</h2>
-		<button class="gg-link" onclick={() => openFile('settings_path')}>{t('settings.openFile')}</button>
-		<button class="gg-link" onclick={() => openFile('session_log_path')}>{t('settings.openLog')}</button>
+		<button class="gg-link" onclick={() => openFile('open_settings_file')}>{t('settings.openFile')}</button>
+		<button class="gg-link" onclick={() => openFile('open_session_log')}>{t('settings.openLog')}</button>
 		<button class="gg-close" title={t('details.close')} onclick={onClose}>✕</button>
 	</div>
 	<div class="gg-body">

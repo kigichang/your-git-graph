@@ -43,7 +43,7 @@ fn local_runtime(repo: &str, window: &str, askpass: &crate::askpass::Askpass, pr
     let git = PathBuf::from(&locate_git()?.path);
     let env: HashMap<String, String> = askpass.env(window).map_err(|e| format!("askpass unavailable: {e}"))?.into_iter().collect();
     let cwd = repo.to_string();
-    Ok(LocalRuntime::new(repo, git, env, progress, cancel).with_terminal(Arc::new(move |args| crate::system::open_terminal(cwd.clone(), Some(args)))))
+    Ok(LocalRuntime::new(repo, git, env, progress, cancel).with_terminal(Arc::new(move |args| crate::system::terminal(cwd.clone(), Some(args)))))
 }
 
 #[tauri::command]

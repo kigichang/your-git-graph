@@ -120,7 +120,7 @@ pub fn remote_quote(s: &str) -> String {
 const BOOTSTRAP: &str = concat!(
     r#"exec sh -c 'd="${XDG_CACHE_HOME:-$HOME/.cache}/your-git-graph"; echo; echo @@GG-BOOT@@ $(uname -s) $(uname -m); "#,
     r#"read id size raw || exit 96; f="$d/gg-remote-$id"; "#,
-    r#"if [ -x "$f" ]; then echo @@GG-HAVE@@; else echo @@GG-SEND@@; mkdir -p "$d" && head -c "$size" | gzip -dc > "$f.$$" "#,
+    r#"if [ -x "$f" ]; then echo @@GG-HAVE@@; else echo @@GG-SEND@@; mkdir -m 700 -p "$d" && head -c "$size" | gzip -dc > "$f.$$" "#,
     r#"&& [ "$(wc -c < "$f.$$")" -eq "$raw" ] && chmod 700 "$f.$$" && mv "$f.$$" "$f" || exit 97; fi; exec "$f"'"#
 );
 const BOOT: &str = "@@GG-BOOT@@";
@@ -568,8 +568,6 @@ mod tests {
         let root_json = session.call(session.next_id(), &json!({ "op": "engine", "repo": root, "request": "{\"method\":\"repoRoot\",\"params\":null}" }), |_| {}).await.unwrap();
         assert_eq!(serde_json::from_slice::<Value>(&root_json).unwrap(), json!(root));
         assert_eq!(ask(&fake.remotes, &remote, json!({ "op": "operationState" }), "repo").await.unwrap(), json!({ "type": null, "progress": null }));
-        let run = session.json(json!({ "op": "git", "request": { "args": ["rev-parse", "--show-toplevel"], "cwd": root } })).await.unwrap();
-        assert_eq!(run["stdout"], json!(format!("{root}\n")));
 
         // Connected: the same session. After a disconnect: a new one, and nothing is copied again.
         assert!(Arc::ptr_eq(&session, &fake.remotes.connect(&remote, fake.env("")).await.unwrap()));
@@ -596,7 +594,7 @@ mod tests {
         let session = fake.remotes.connect(&remote, fake.env("")).await.unwrap();
         let waiting = {
             let session = session.clone();
-            let request = json!({ "op": "git", "request": { "args": ["-c", "alias.s=!sleep 30", "s"], "cwd": root } });
+            let request = json!({ "op": "watch", "roots": [root] }); // stays open until cancelled
             tokio::spawn(async move { session.json(request).await })
         };
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;

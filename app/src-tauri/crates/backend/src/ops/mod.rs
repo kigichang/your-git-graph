@@ -139,7 +139,7 @@ pub fn argv_values(request: &OpRequest) -> Vec<&str> {
         OpRequest::StashApply { selector, .. } | OpRequest::StashPop { selector, .. } | OpRequest::StashDrop { selector } => vec![selector],
         OpRequest::BranchFromStash { branch, selector } => vec![branch, selector],
         OpRequest::ResetFile { commit, .. } => vec![commit],
-        OpRequest::CreateArchive { reference, .. } => vec![reference],
+        OpRequest::CreateArchive { reference, path } => vec![reference, path],
         OpRequest::WorktreeAdd { path, branch, new_branch } => [Some(path.as_str()), s(branch), s(new_branch)].into_iter().flatten().collect(),
         OpRequest::WorktreeRemove { path, .. } => vec![path],
         // `git config` reads no options after the key: a value may start with "-".

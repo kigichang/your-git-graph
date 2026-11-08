@@ -49,20 +49,26 @@ pub struct WorktreeFile {
     pub skipped: Option<String>,
 }
 
-/// Read `path` (relative to the repository root) from the working tree. Paths leaving the
-/// repository (`..`, absolute, or through a symlink pointing outside) are refused.
-pub fn read_worktree_file(repo: &Path, path: &str) -> Result<WorktreeFile, String> {
+/// Where `path` (relative to the repository root) really is, `None` when there is nothing
+/// there. Paths leaving the repository (`..`, absolute, or through a symlink pointing outside)
+/// are refused.
+pub fn inside_repo(repo: &Path, path: &str) -> Result<Option<PathBuf>, String> {
     let relative = Path::new(path);
     if relative.components().any(|c| !matches!(c, Component::Normal(_) | Component::CurDir)) {
         return Err(format!("{path} is not a path inside the repository."));
     }
-    let full = repo.join(relative);
-    let missing = WorktreeFile { exists: false, size: 0, binary: false, text: None, base64: None, skipped: None };
-    let Ok(real) = full.canonicalize() else { return Ok(missing) };
+    let Ok(real) = repo.join(relative).canonicalize() else { return Ok(None) };
     let root = repo.canonicalize().map_err(|e| e.to_string())?;
     if !real.starts_with(&root) {
         return Err(format!("{path} leads outside the repository."));
     }
+    Ok(Some(real))
+}
+
+/// Read `path` (relative to the repository root) from the working tree; see [`inside_repo`].
+pub fn read_worktree_file(repo: &Path, path: &str) -> Result<WorktreeFile, String> {
+    let missing = WorktreeFile { exists: false, size: 0, binary: false, text: None, base64: None, skipped: None };
+    let Some(real) = inside_repo(repo, path)? else { return Ok(missing) };
     let size = real.metadata().map_err(|e| e.to_string())?.len();
     if size > MAX_FILE_BYTES {
         return Ok(WorktreeFile { exists: true, size, binary: false, text: None, base64: None, skipped: Some(format!("The file is too large to show ({} MB).", size / (1024 * 1024))) });
@@ -139,6 +145,13 @@ mod tests {
         assert!(read_worktree_file(&repo, "../secret").is_err());
         assert!(read_worktree_file(&repo, "/etc/passwd").is_err());
         assert!(read_worktree_file(&repo, "link").is_err());
+        assert!(inside_repo(&repo, "link").is_err());
+        assert!(inside_repo(&repo, "../secret").is_err());
+        assert_eq!(inside_repo(&repo, "missing"), Ok(None));
+        // A link staying inside is where it leads: that file is what gets judged and opened.
+        std::fs::write(repo.join("run.command"), "x").unwrap();
+        std::os::unix::fs::symlink("run.command", repo.join("README.md")).unwrap();
+        assert_eq!(inside_repo(&repo, "README.md"), Ok(Some(repo.canonicalize().unwrap().join("run.command"))));
     }
 
     #[test]

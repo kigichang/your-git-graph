@@ -1,7 +1,18 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "diff",
-  "description": "Diff windows: core IPC, plus closing themselves (self-test) and setting their title",
+  "description": "Diff windows: core IPC, closing themselves (self-test) and setting their title, and the reads they show a file with. They render what a repository's author wrote, so nothing here writes, runs git, or changes the sidebar or the settings (main.rs has a test)",
   "windows": ["diff-*"],
-  "permissions": ["core:default", "core:window:allow-close", "core:window:allow-set-title"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-close",
+    "core:window:allow-set-title",
+    "allow-host-log",
+    "allow-self-test",
+    "allow-engine-request",
+    "allow-worktree-file",
+    "allow-open-url",
+    "allow-open-settings-file",
+    "allow-render-plantuml"
+  ]
 }

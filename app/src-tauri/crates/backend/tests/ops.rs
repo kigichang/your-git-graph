@@ -208,6 +208,36 @@ async fn arguments_that_look_like_options_are_refused_before_git_runs() {
     assert_eq!(f.git(&["status", "--porcelain"]), "M a");
 }
 
+#[tokio::test]
+async fn an_archive_path_that_looks_like_an_option_is_refused() {
+    let w = World::new();
+    let f = w.fixture();
+    let r = f.op(OpRequest::CreateArchive { reference: "HEAD".into(), path: "-evil.zip".into() }).await;
+    assert!(failed(&r).contains("must not start"));
+    assert!(!f.dir.join("-evil.zip").exists());
+}
+
+/// A repository's own config can name a program as `core.fsmonitor`: showing the repository
+/// must not start it.
+#[tokio::test]
+async fn reads_do_not_run_the_fsmonitor_a_repository_names() {
+    let w = World::new();
+    let f = w.fixture();
+    let marker = f.dir.join(".git/ran");
+    let program = f.dir.join(".git/monitor.sh");
+    std::fs::write(&program, format!("#!/bin/sh\ntouch '{}'\nexit 1\n", marker.display())).unwrap();
+    std::fs::set_permissions(&program, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    f.git(&["config", "core.fsmonitor", program.to_str().unwrap()]);
+    f.git(&["diff", "--cached", "--quiet", "--no-ext-diff"]);
+    assert!(marker.exists(), "plain git runs it: this test would show nothing otherwise");
+    std::fs::remove_file(&marker).unwrap();
+
+    let state = read_git(&f.rt(), ReadRequest::OperationState).await.unwrap();
+    assert!(matches!(state, ReadResponse::OperationState { staged: false, .. }));
+    assert!(done(&f.op(OpRequest::CreateBranch { branch: "side".into(), commit: "HEAD".into(), checkout: false, force: false }).await));
+    assert!(!marker.exists());
+}
+
 /* ---------- tags ---------- */
 
 #[tokio::test]

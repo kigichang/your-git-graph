@@ -24,9 +24,11 @@ pub async fn read_git(rt: &dyn Runtime, request: ReadRequest) -> Result<ReadResp
             };
             let mut conflicted_files = Vec::new();
             if operation.is_some() {
-                let r = exec(rt, args(&["diff", "--name-only", "--diff-filter=U", "-z"])).await?;
+                // The index alone: `git diff` would run the clean filters a repository's config
+                // names, on a read nobody asked for. An entry: `<mode> <hash> <stage>\t<path>`.
+                let r = exec(rt, args(&["ls-files", "--unmerged", "-z"])).await?;
                 if r.exit_code == Some(0) {
-                    for f in r.stdout.split('\0').filter(|f| !f.is_empty()) {
+                    for f in r.stdout.split('\0').filter_map(|entry| entry.split_once('\t')).map(|(_, path)| path) {
                         if !conflicted_files.iter().any(|x| x == f) {
                             conflicted_files.push(f.to_string());
                         }

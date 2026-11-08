@@ -1,6 +1,7 @@
 // The built-in end-to-end check (GG_SELFTEST=1, scripts/selftest.sh): drives the app the way a
 // person would and reports `selftest: PASS` or `selftest: FAIL …` on stderr (host_log). What it
 // covers is listed in docs/spec/99-acceptance.md; it grows with the milestones.
+import { cspViolations } from './lib/csp';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, emit } from '@tauri-apps/api/event';
 import { getAllWindows, getCurrentWindow } from '@tauri-apps/api/window';
@@ -47,10 +48,12 @@ const app = (): AppHandle => (window as unknown as { __gg: { app: AppHandle } })
 type PreviewReport = {
 	shown: boolean; error?: string; blocks?: number; coloured?: number; images?: number; katex?: number; mermaid?: number;
 	plantuml?: number; notes?: string[]; scripts?: number; synced?: boolean | null;
+	remoteWaiting?: number; remoteLoaded?: number; remoteAsked?: number;
 };
 type DiffReport = {
 	mode: string; title: string; result: { kind: string; error?: string; files?: number; dimensions?: string[]; preview?: PreviewReport };
 	workerProblems: string[]; theme: string | null; escape: { findFirst: boolean | null; closes: boolean };
+	refused: Record<string, string>; csp: string[];
 };
 
 /** A 1×1 PNG, for the image checks. */
@@ -85,6 +88,8 @@ function checkReport(check: Check, report: DiffReport, expectKinds: string[]) {
 	const what = report.mode + ' "' + report.title + '"';
 	check(expectKinds.includes(report.result.kind), what + ': drew ' + report.result.kind + (report.result.error ? ' (' + report.result.error + ')' : ''));
 	check(report.workerProblems.length === 0, what + ': Monaco worker problems ' + JSON.stringify(report.workerProblems));
+	check(report.csp.length === 0, what + ': refused by the content security policy: ' + JSON.stringify(report.csp));
+	for (const [command, said] of Object.entries(report.refused)) check(said.includes('not allowed'), what + ': a diff window may not call ' + command + ': ' + said);
 	check(report.escape.closes, what + ': Esc does not close the window');
 	check(report.escape.findFirst !== false, what + ': Esc with the find widget open closed more than the widget');
 }
@@ -501,11 +506,16 @@ async function checkOps(check: Check): Promise<void> {
 		['read', operationState(other)],
 		['operation', repoOp(other, { kind: 'deleteBranch', branch: 'gg-selftest-none', force: false, deleteOnRemotes: [] }).result],
 		['engine', invoke('engine_request', { repo: other, request: '{"method":"close"}' })],
-		['file', invoke('worktree_file', { repo: other, path: 'README.md' })]
+		['file', invoke('worktree_file', { repo: other, path: 'README.md' })],
+		['open file', invoke('open_repo_file', { repo: other, path: 'README.md' })],
+		['reveal', invoke('reveal_repo', { repo: other })],
+		['terminal', invoke('open_terminal', { repo: other })]
 	] as [string, Promise<unknown>][]) {
 		const said = await refusal(p);
 		check(said.includes('is not in the sidebar'), 'a repository not in the sidebar is refused (' + what + '): ' + said);
 	}
+	const engineMethod = await refusal(invoke('engine_request', { repo, request: '{"method":"submodules"}' }));
+	check(engineMethod.includes('not available'), 'a page only reads what a diff window needs of the engine: ' + engineMethod);
 	try {
 		check((await run({ kind: 'createBranch', branch, commit: head, checkout: true, force: false })).kind === 'done', 'create and check out the branch');
 		const revert = await run({ kind: 'revert', commit: head, parentIndex: 0 });
@@ -658,7 +668,7 @@ async function checkPreview(check: Check, config: Record<string, unknown>): Prom
 	const repo = app().state().repo;
 	if (repo === null) return;
 	const dir = 'gg-selftest';
-	const doc = '# Self-test\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```js\nconst answer = 42;\n```\n\n$E = mc^2$\n\n![a pixel](pic.png)\n\n```mermaid\ngraph TD; A-->B;\n```\n\n```plantuml\nA -> B\n```\n\n<script>alert(1)</script>\n\n'
+	const doc = '# Self-test\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```js\nconst answer = 42;\n```\n\n$E = mc^2$\n\n![a pixel](pic.png)\n\n![from the web](http://127.0.0.1:9/gg-selftest.png)\n\n```mermaid\ngraph TD; A-->B;\n```\n\n```plantuml\nA -> B\n```\n\n<script>alert(1)</script>\n\n'
 		+ Array.from({ length: 80 }, (_, i) => `Paragraph ${i + 1} of the self-test document, long enough for both panes to scroll.\n`).join('\n');
 	const jar = config['plantumlJava'] === true ? repo + '/' + dir + '/plantuml.jar' : typeof config['plantumlJar'] === 'string' ? config['plantumlJar'] : null;
 	const write = (path: string, contents: number[]) => invoke('selftest_write', { repo, path: dir + '/' + path, contents });
@@ -691,6 +701,8 @@ async function checkPreview(check: Check, config: Record<string, unknown>): Prom
 			check((p.coloured ?? 0) > 0, 'the code is coloured');
 			check(p.katex === 1, 'the maths is typeset: ' + p.katex);
 			check(p.images === 1, 'the image of the repository is shown: ' + p.images);
+			check(p.remoteWaiting === 1 && p.remoteLoaded === 0, 'an image from the web waits: ' + JSON.stringify(p));
+			check(p.remoteAsked === 1, 'asked for, it loads: ' + p.remoteAsked);
 			check(p.mermaid === 1, 'the Mermaid diagram is drawn: ' + p.mermaid);
 			if (jar !== null) check(p.plantuml === 1, 'the PlantUML diagram is drawn: ' + p.plantuml + ' ' + JSON.stringify(p.notes));
 			else check(p.notes?.length === 1, 'without a jar, the PlantUML block says so: ' + JSON.stringify(p.notes));
@@ -804,6 +816,13 @@ export async function selfTest(config: Record<string, unknown>): Promise<void> {
 		await checkSettings(check);
 		await checkPreview(check, config);
 		await checkTheme(check);
+		// Last, with everything drawn: the policy holds and refused nothing else.
+		let evaluated = false;
+		try { evaluated = new Function('return true')() === true; } catch { /* as it should */ }
+		check(!evaluated, 'the content security policy refuses eval');
+		await pause(100);
+		const refused = cspViolations.filter((v) => !v.endsWith(': eval'));
+		check(refused.length === 0, 'refused by the content security policy: ' + JSON.stringify(refused));
 	} catch (e) {
 		failures.push(errorText(e));
 	}

@@ -1,9 +1,12 @@
 //! Your Git Graph: a macOS git graph app (Tauri 2) around the git-graph-core engine.
 //!
-//! The front end (web/, Svelte) runs in the Tauri windows and reaches the engine through
-//! `engine_request`, the engine's single JSON entry point (`git_graph_core::dispatch::request`)
-//! called in-process. Writes go through the `git` CLI (`git` module); `repo`, `repos` and
-//! `system` cover the app's own concerns: repositories, windows, menus, macOS integration.
+//! The front end (web/, Svelte) runs in the Tauri windows and reaches a repository through the
+//! typed commands of `api`, which run the engine (`git_graph_core`) in-process and the `git` CLI
+//! for writes; the diff windows read through `engine_request`. `repo`, `repos` and `system`
+//! cover the app's own concerns: repositories, windows, menus, macOS integration.
+//!
+//! What a window may call is in `capabilities/`: a diff window shows a repository's documents,
+//! and reads only (build.rs lists every command, which makes each one opt-in).
 
 mod api;
 mod askpass;
@@ -66,12 +69,26 @@ fn opened(app: &tauri::AppHandle, urls: Vec<tauri::Url>) {
     }
 }
 
+/// The engine methods a page may call: what a diff window reads. Everything else goes through
+/// the typed `repo_read`, so the engine's other methods (`submodules` follows paths named by a
+/// repository's `.gitmodules` out of it, say) are not within a page's reach.
+const PAGE_ENGINE_METHODS: [&str; 5] = ["loadCommitFile", "fileBytes", "loadCommitDetails", "loadUncommittedDetails", "compareCommits"];
+
+fn page_may_call(request: &str) -> Result<(), String> {
+    let request: serde_json::Value = serde_json::from_str(request).map_err(|e| e.to_string())?;
+    match request["method"].as_str() {
+        Some(method) if PAGE_ENGINE_METHODS.contains(&method) => Ok(()),
+        method => Err(format!("The engine method {} is not available here.", method.unwrap_or("(none)"))),
+    }
+}
+
 /// One engine call: `{"method", "params"}` in, the method's JSON answer out. Failures ride
 /// in-band as `{"error": "Kind: message"}`. A remote repository's go to its machine. Runs off the main thread - a large repository's
 /// first graph page takes long enough to stall the UI otherwise.
 #[tauri::command]
 async fn engine_request(state: tauri::State<'_, state::State>, remotes: tauri::State<'_, std::sync::Arc<remote::Remotes>>, repo: String, request: String) -> Result<String, String> {
     state.listed(&repo)?;
+    page_may_call(&request)?;
     if let Some(remote) = remote::parse(&repo)? {
         let session = remotes.session(&remote)?;
         let body = serde_json::json!({ "op": "engine", "repo": remote.path, "request": request });
@@ -225,7 +242,8 @@ fn main() {
             repo::export_repo_config,
             system::clipboard_write,
             system::open_url,
-            system::open_path,
+            system::open_repo_file,
+            system::reveal_repo,
             system::open_terminal,
             system::mount_volume,
             system::network_volume,
@@ -246,8 +264,8 @@ fn main() {
             state::state_set,
             settings::settings_get,
             settings::settings_set,
-            state::settings_path,
-            state::session_log_path
+            state::open_settings_file,
+            state::open_session_log
         ])
         .build(tauri::generate_context!())
         .expect("error while building Your Git Graph")
@@ -260,4 +278,45 @@ fn main() {
                 _ => {}
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn quoted(text: &str) -> Vec<String> {
+        text.split('"').skip(1).step_by(2).map(String::from).collect()
+    }
+
+    /// A command missing from build.rs would be open to every window, so the lists are compared.
+    #[test]
+    fn every_command_is_opt_in() {
+        let source = include_str!("main.rs");
+        let handler = source.split_once("generate_handler![").unwrap().1.split_once(']').unwrap().0;
+        let mut registered: Vec<&str> = handler.split(',').map(str::trim).filter(|c| !c.is_empty()).map(|c| c.rsplit("::").next().unwrap()).collect();
+        registered.sort();
+        let build = include_str!("../build.rs");
+        let listed = build.split_once("COMMANDS: &[&str] = &[").unwrap().1.split_once("];").unwrap().0;
+        let mut listed = quoted(listed);
+        listed.sort();
+        assert_eq!(registered, listed);
+    }
+
+    /// A diff window renders what a repository's author wrote: no command of it writes, runs git
+    /// or a program a page names, or changes what the others trust (the sidebar, the settings).
+    #[test]
+    fn a_diff_window_only_reads() {
+        let capability: serde_json::Value = serde_json::from_str(include_str!("../capabilities/diff.json")).unwrap();
+        let mut allowed: Vec<&str> = capability["permissions"].as_array().unwrap().iter().filter_map(|p| p.as_str()?.strip_prefix("allow-")).collect();
+        allowed.sort();
+        assert_eq!(allowed, ["engine-request", "host-log", "open-settings-file", "open-url", "render-plantuml", "self-test", "worktree-file"]);
+    }
+
+    #[test]
+    fn a_page_reads_only_what_a_diff_window_needs() {
+        assert!(page_may_call(r#"{"method":"loadCommitFile","params":{"commitHash":"HEAD","file":"a"}}"#).is_ok());
+        assert!(page_may_call(r#"{"method":"submodules"}"#).unwrap_err().contains("submodules"));
+        assert!(page_may_call(r#"{"params":{}}"#).is_err());
+        assert!(page_may_call("not json").is_err());
+    }
 }

@@ -7,12 +7,11 @@
 //! | from   | kind    | body                                                       |
 //! |--------|---------|------------------------------------------------------------|
 //! | app    | `Q`     | the request, JSON `{"op": ..}`                             |
-//! | app    | `C`     | empty: cancel request `id` (a git run, a watch)            |
+//! | app    | `C`     | empty: cancel request `id` (an operation, a watch)         |
 //! | helper | `P`     | a part of the result, at most [`CHUNK`] bytes              |
 //! | helper | `R`     | the last part: all parts together are the result (JSON)    |
 //! | helper | `E`     | the request failed: the message                            |
-//! | helper | `O` `S` | git's stdout / stderr as it arrives (a streamed run)       |
-//! | helper | `V`     | an event of a request that stays open (a watch), JSON      |
+//! | helper | `V`     | an event of a request still open (a watch, an operation)   |
 //!
 //! Results travel in parts so that a large one (a file of the work tree) does not hold up the
 //! answers to other requests.

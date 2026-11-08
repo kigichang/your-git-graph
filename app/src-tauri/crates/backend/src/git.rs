@@ -99,6 +99,19 @@ fn git_version(path: &Path) -> Option<String> {
 
 /* ---------- Running git ---------- */
 
+/// Environment that turns `core.fsmonitor` off for one git run. It names a program, and a
+/// repository's own `.git/config` can set it: `git diff --cached` and `git check-ignore` start
+/// it just because the repository is shown or a file in it changed, before the person did
+/// anything. The environment outranks every config file. Config already passed this way stays.
+pub fn config_overrides() -> [(String, String); 3] {
+    let n: u32 = std::env::var("GIT_CONFIG_COUNT").ok().and_then(|n| n.parse().ok()).unwrap_or(0);
+    [
+        ("GIT_CONFIG_COUNT".into(), (n + 1).to_string()),
+        (format!("GIT_CONFIG_KEY_{n}"), "core.fsmonitor".into()),
+        (format!("GIT_CONFIG_VALUE_{n}"), "false".into()),
+    ]
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct GitExecRequest {
@@ -161,6 +174,7 @@ where
         .current_dir(&request.cwd)
         // Never prompt on a terminal nobody can see; prompts go through askpass (git_exec adds it).
         .env("GIT_TERMINAL_PROMPT", "0")
+        .envs(config_overrides())
         .envs(&request.env)
         .stdin(if request.stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())

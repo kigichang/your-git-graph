@@ -93,8 +93,16 @@ fn repo() -> (tempfile::TempDir, PathBuf) {
     (dir, root)
 }
 
-fn git_request(root: &Path, args: &[&str]) -> Value {
-    json!({ "op": "git", "request": { "args": args, "cwd": root } })
+/// An operation that takes as long as `script`, which runs as git's post-checkout hook: checking
+/// out `side`, created here.
+fn checkout_running(root: &Path, script: &str) -> Value {
+    use std::os::unix::fs::PermissionsExt;
+    git(root, &["branch", "-f", "side"]);
+    let hook = root.join(".git/hooks/post-checkout");
+    std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
+    std::fs::write(&hook, format!("#!/bin/sh\n{script}\n")).unwrap();
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    json!({ "op": "op", "repo": root, "confirmed": true, "request": { "kind": "checkoutBranch", "branch": "side", "remoteBranch": null, "pullAfterwards": null } })
 }
 
 #[tokio::test]
@@ -127,42 +135,25 @@ async fn says_hello_and_answers_the_engine_and_the_file_requests() {
 }
 
 #[tokio::test]
-async fn runs_git_with_its_environment_streaming_when_asked() {
+async fn an_operation_ends_when_cancelled() {
     let (_d, root) = repo();
     let mut helper = Helper::start().await;
-    let top = helper.result(git_request(&root, &["rev-parse", "--show-toplevel"])).await;
-    assert_eq!((top["exitCode"].as_i64(), top["stdout"].as_str()), (Some(0), Some(format!("{}\n", root.display()).as_str())));
-
-    let mut request = git_request(&root, &["-c", "alias.e=!printf \"$FOO\\n\"; printf 'err\\n' >&2", "e"]);
-    request["request"]["env"] = json!({ "FOO": "bar" });
-    let id = helper.ask(request.clone()).await;
-    let (result, others) = helper.answer(id).await;
-    let result: Value = serde_json::from_slice(&result.unwrap()).unwrap();
-    assert_eq!((result["stdout"].as_str(), result["stderr"].as_str()), (Some("bar\n"), Some("err\n")));
-    assert!(others.is_empty(), "nothing is streamed unless asked: {others:?}");
-
-    request["request"]["stream"] = json!(true);
-    let id = helper.ask(request).await;
-    let (_, others) = helper.answer(id).await;
-    assert!(others.contains(&Frame::new(id, b'O', "bar\n")) && others.contains(&Frame::new(id, b'S', "err\n")), "{others:?}");
-}
-
-#[tokio::test]
-async fn a_git_run_ends_by_timeout_or_cancel() {
-    let (_d, root) = repo();
-    let mut helper = Helper::start().await;
-    let mut request = git_request(&root, &["-c", "alias.s=!sleep 30", "s"]);
-    request["request"]["timeoutMs"] = json!(200);
-    let timed = helper.result(request).await;
-    assert_eq!((timed["timedOut"].as_bool(), timed["exitCode"].is_null()), (Some(true), true));
-
     let started = Instant::now();
-    let id = helper.ask(git_request(&root, &["-c", "alias.s=!sleep 30", "s"])).await;
+    let id = helper.ask(checkout_running(&root, "exec sleep 30")).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     helper.send(b'C', id, Vec::new()).await;
     let cancelled: Value = serde_json::from_slice(&helper.answer(id).await.0.unwrap()).unwrap();
-    assert_eq!(cancelled["cancelled"], true);
+    assert_eq!((cancelled["kind"].as_str(), cancelled["message"].as_str()), (Some("failed"), Some("Cancelled.")));
     assert!(started.elapsed() < Duration::from_secs(5));
+}
+
+/// A request with no such op (a run of git with any arguments): there is none to reach.
+#[tokio::test]
+async fn git_cannot_be_run_with_arbitrary_arguments() {
+    let (_d, root) = repo();
+    let mut helper = Helper::start().await;
+    let id = helper.ask(json!({ "op": "git", "request": { "args": ["rev-parse", "HEAD"], "cwd": root } })).await;
+    assert!(helper.answer(id).await.0.unwrap_err().contains("not a request"));
 }
 
 #[tokio::test]
@@ -201,8 +192,7 @@ async fn the_end_of_the_connection_ends_the_helper_and_its_git_runs() {
     let (dir, root) = repo();
     let pid_file = dir.path().join("pid");
     let mut helper = Helper::start().await;
-    let alias = format!("alias.s=!echo $$ > '{}'; exec sleep 30", pid_file.display());
-    helper.ask(git_request(&root, &["-c", &alias, "s"])).await;
+    helper.ask(checkout_running(&root, &format!("echo $$ > '{}'; exec sleep 30", pid_file.display()))).await;
     let deadline = Instant::now() + Duration::from_secs(5);
     while !pid_file.exists() && Instant::now() < deadline {
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -220,9 +210,10 @@ async fn the_end_of_the_connection_ends_the_helper_and_its_git_runs() {
 
 #[tokio::test]
 async fn git_asks_the_app_for_credentials() {
-    let (_d, root) = repo();
+    let (dir, root) = repo();
+    let answer_file = dir.path().join("answer");
     let mut helper = Helper::start().await;
-    let ask = git_request(&root, &["-c", "alias.ap=!\"$GIT_ASKPASS\" 'Password for the test: '", "ap"]);
+    let ask = checkout_running(&root, &format!("\"$GIT_ASKPASS\" 'Password for the test: ' > '{}'", answer_file.display()));
     let event = |frame: &Frame, id: u64| {
         assert_eq!((frame.id, frame.kind), (id, b'V'));
         serde_json::from_slice::<Value>(&frame.body).unwrap()
@@ -234,8 +225,8 @@ async fn git_asks_the_app_for_credentials() {
     assert_eq!(question["prompt"], "Password for the test: ");
     let answering = helper.ask(json!({ "op": "answer", "ask": question["askpass"], "answer": "s3cret" })).await;
     let (result, others) = helper.answer(id).await;
-    let result: Value = serde_json::from_slice(&result.unwrap()).unwrap();
-    assert_eq!((result["exitCode"].as_i64(), result["stdout"].as_str()), (Some(0), Some("s3cret\n")));
+    assert_eq!(serde_json::from_slice::<Value>(&result.unwrap()).unwrap()["kind"], "done");
+    assert_eq!(std::fs::read_to_string(&answer_file).unwrap(), "s3cret\n");
     assert!(others.contains(&Frame::new(answering, b'R', "true")), "{others:?}");
 
     // Cancelled: git's askpass fails.
@@ -243,15 +234,15 @@ async fn git_asks_the_app_for_credentials() {
     let question = event(&helper.frame().await, id);
     helper.ask(json!({ "op": "answer", "ask": question["askpass"], "answer": null })).await;
     let result: Value = serde_json::from_slice(&helper.answer(id).await.0.unwrap()).unwrap();
-    assert_ne!(result["exitCode"].as_i64(), Some(0));
+    assert_eq!(result["kind"], "failed");
 
-    // git goes away first (a timeout): the question is taken back, and a late answer is nobody's.
-    let mut timed = ask;
-    timed["request"]["timeoutMs"] = json!(500);
-    let id = helper.ask(timed).await;
+    // git goes away first (the operation is cancelled): the question is taken back, and a late
+    // answer is nobody's.
+    let id = helper.ask(ask).await;
     let question = event(&helper.frame().await, id);
+    helper.send(b'C', id, Vec::new()).await;
     let (result, others) = helper.answer(id).await;
-    assert_eq!(serde_json::from_slice::<Value>(&result.unwrap()).unwrap()["timedOut"], true);
+    assert_eq!(serde_json::from_slice::<Value>(&result.unwrap()).unwrap()["message"], "Cancelled.");
     let closed = match others.first() {
         Some(frame) => event(frame, id),
         None => event(&helper.frame().await, id), // it may also arrive just after the result

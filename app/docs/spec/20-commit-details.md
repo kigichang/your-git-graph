@@ -27,5 +27,5 @@
 - 每個檔案：檔案圖示、名稱（顏色表示狀態：新增與未追蹤綠、修改橘、刪除紅、改名綠）、`( +12 | -0 )`（+ 綠、- 紅；二進位檔沒有這段）。狀態字母（A／M／D／R／U）只給螢幕閱讀器。
 - **點一下**：打開 diff 視窗（這個 commit 的父 ↔ 這個 commit；比較時是兩個 commit；未 commit 時是 HEAD ↔ 工作目錄）。
 - **⌘-click**：打開檔案在「結果那一邊」的內容（刪除的檔案仍是 diff）。
-- 右鍵選單（見 40）：View File at this Revision、Open File（用系統預設的 App 開工作目錄裡的檔案；遠端 repo 不提供）、Diff with Working File（這個版本 ↔ 工作目錄）、Reset File to this Revision…（先確認，`checkout <rev> -- <path>`）、Copy File Path（repo 內的相對路徑）。刪除的檔案只能 Reset 與 Copy；未 commit 列裡未追蹤的檔案不能 Reset。沒有外部 diff 工具。
+- 右鍵選單（見 40）：View File at this Revision、Open File（用系統預設的 App 開工作目錄裡的檔案；指到 repo 外的 symlink 拒絕，打開會執行的檔案——腳本、安裝檔、捷徑、沒有副檔名的可執行檔——改用文字編輯器開，資料夾（submodule）在 Finder 裡顯示；遠端 repo 不提供）、Diff with Working File（這個版本 ↔ 工作目錄）、Reset File to this Revision…（先確認，`checkout <rev> -- <path>`）、Copy File Path（repo 內的相對路徑）。刪除的檔案只能 Reset 與 Copy；未 commit 列裡未追蹤的檔案不能 Reset。沒有外部 diff 工具。
 - 檔案清單不做虛擬捲動：全部列出，在自己的欄裡捲動。換一個 commit 時資料夾全部展開；行數隨後補上時不影響已收合的資料夾。

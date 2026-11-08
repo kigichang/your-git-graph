@@ -79,6 +79,7 @@ fn not_ignored(git: Option<&Path>, root: &Path, paths: &[PathBuf]) -> bool {
             .args(["check-ignore", "--stdin", "-z"])
             .current_dir(root)
             .env("GIT_OPTIONAL_LOCKS", "0")
+            .envs(crate::git::config_overrides())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -219,6 +220,20 @@ mod tests {
         assert!(Command::new(git_path()).args(["init", "-q"]).current_dir(&root).status().unwrap().success());
         std::fs::write(root.join(".gitignore"), "target/\n*.log\n").unwrap();
         (dir, root)
+    }
+
+    /// A change in the working tree asks `git check-ignore`, unasked by anyone: a repository's
+    /// own config must not get a program started that way.
+    #[test]
+    fn asking_what_is_ignored_does_not_run_the_fsmonitor_a_repository_names() {
+        let (_d, root) = repo();
+        let marker = root.join(".git/ran");
+        let program = root.join(".git/monitor.sh");
+        std::fs::write(&program, format!("#!/bin/sh\ntouch '{}'\nexit 1\n", marker.display())).unwrap();
+        std::fs::set_permissions(&program, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        assert!(Command::new(git_path()).args(["config", "core.fsmonitor", program.to_str().unwrap()]).current_dir(&root).status().unwrap().success());
+        assert!(not_ignored(git(), &root, &[PathBuf::from("a.txt")]));
+        assert!(!marker.exists());
     }
 
     #[test]

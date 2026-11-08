@@ -2,6 +2,7 @@
  * with its rendered page beside it), an image / binary comparison, or a file list with a diff
  * beside it. Bundled by scripts/build-diff.mjs into web/public/diff-dist/. What to show arrives as window.__GG_DIFF_SPEC (see web/src/lib/diffspec.ts); the
  * contents are read here, from the engine (revisions) and the worktree_file command (disk). */
+import { cspViolations } from '../web/src/lib/csp';
 import * as monaco from 'monaco-editor/editor';
 import 'monaco-editor/features/register.all';
 import 'monaco-editor/languages/definitions/register.all'; // syntax colouring only, no language services
@@ -217,13 +218,19 @@ async function colourCode(page) {
 	}));
 }
 
-/** Images: one of the repository is read where the file itself comes from; http(s) and data:
- * images load as they are; anything else is not loaded. Called before the page is attached. */
-function repositoryImages(page, side) {
+/** Images: one of the repository is read where the file itself comes from; data: images load as
+ * they are; http(s) ones wait in `remote`, as { img, src }, until the person asks (a document
+ * must not tell a server who reads it and when, or knock on this machine's own services);
+ * anything else is not loaded. Called before the page is attached. */
+function repositoryImages(page, side, remote) {
 	return Promise.all(Array.from(page.querySelectorAll('img')).map(async (img) => {
 		const src = img.getAttribute('src') || '';
-		if (/^(https?:|data:image\/)/i.test(src)) return;
+		if (/^data:image\//i.test(src)) return;
 		img.removeAttribute('src');
+		if (/^https?:/i.test(src)) {
+			remote.push({ img, src });
+			return;
+		}
 		const path = resolveRelative(side.path, src);
 		const mime = path === null ? undefined : IMAGE_TYPES[(path.split('.').pop() || '').toLowerCase()];
 		if (mime === undefined) return;
@@ -256,7 +263,7 @@ async function drawMermaid(page, appearance) {
 	}
 }
 
-const openSettings = () => invoke('settings_path').then((path) => invoke('open_path', { path, text: true })).catch((e) => log('settings: ' + e));
+const openSettings = () => invoke('open_settings_file').catch((e) => log('settings: ' + e));
 
 /** PlantUML blocks not drawn yet, through the jar of the settings; one that cannot be drawn
  * keeps its source, with the reason and a way to the settings below it. */
@@ -282,6 +289,23 @@ function drawPlantuml(page) {
 			node.replaceChildren(document.createTextNode(node.dataset.source), note);
 		}
 	}));
+}
+
+/** Above the page: how many images are waiting, and a way to load them. */
+function offerRemoteImages(page, remote) {
+	if (remote.length === 0) return;
+	const note = document.createElement('div');
+	note.className = 'diagramNote remoteImages';
+	const said = document.createElement('span');
+	said.textContent = remote.length === 1 ? '1 image from the web is not loaded.' : remote.length + ' images from the web are not loaded.';
+	const button = document.createElement('button');
+	button.textContent = 'Load';
+	button.addEventListener('click', () => {
+		for (const { img, src } of remote) img.src = src;
+		note.remove();
+	});
+	note.append(said, button);
+	page.prepend(note);
 }
 
 let preview = null; // { pane, page, sync } once a Markdown file is shown with its preview
@@ -312,7 +336,9 @@ async function renderPreview(pane, side, text) {
 	const page = document.createElement('div');
 	page.className = 'md';
 	page.appendChild(template.content);
-	const images = repositoryImages(page, side);
+	const remote = [];
+	const images = repositoryImages(page, side, remote);
+	offerRemoteImages(page, remote);
 	pane.replaceChildren(page);
 	// Links never navigate this window: web and mail links open in their apps.
 	page.addEventListener('click', (e) => {
@@ -332,10 +358,12 @@ async function renderPreview(pane, side, text) {
 		blocks: page.querySelectorAll('[data-line]').length,
 		coloured: page.querySelectorAll('pre > code span[class*="mtk"]').length,
 		images: page.querySelectorAll('img[src^="data:image/"]:not(pre img)').length,
+		remoteWaiting: remote.length,
+		remoteLoaded: page.querySelectorAll('img[src^="http"]').length,
 		katex: page.querySelectorAll('.katex').length,
 		mermaid: page.querySelectorAll('pre.mermaid svg').length,
 		plantuml: page.querySelectorAll('pre.plantuml.rendered img').length,
-		notes: Array.from(page.querySelectorAll('.diagramNote span')).map((n) => n.textContent),
+		notes: Array.from(page.querySelectorAll('.diagramNote:not(.remoteImages) span')).map((n) => n.textContent),
 		scripts: page.querySelectorAll('script').length
 	};
 }
@@ -521,8 +549,18 @@ async function main() {
 	log(spec.mode + ' ' + JSON.stringify(result));
 	if (await invoke('self_test') !== null) {
 		if (result.preview && result.preview.shown && !result.preview.error) result.preview.synced = await checkSync();
+		if (result.preview && result.preview.remoteWaiting > 0) {
+			document.querySelector('.remoteImages button').click();
+			result.preview.remoteAsked = preview.page.querySelectorAll('img[src^="http"]').length;
+			await new Promise((resolve) => setTimeout(resolve, 200)); // the policy would have said no by now
+		}
+		// Each of these writes or runs something when a window may call it.
+		const refused = {};
+		for (const command of ['open_terminal', 'open_repo_file', 'reveal_repo', 'repo_op', 'repo_read', 'settings_set', 'state_set', 'open_diff_window', 'scan_repos', 'clipboard_write']) {
+			refused[command] = await invoke(command, {}).then(() => 'allowed', (e) => String(e));
+		}
 		const escape = await checkEscape();
-		await window.__TAURI__.event.emit('diff-selftest', { mode: spec.mode, title: spec.title, result, workerProblems, theme: editorTheme, escape });
+		await window.__TAURI__.event.emit('diff-selftest', { mode: spec.mode, title: spec.title, result, workerProblems, theme: editorTheme, escape, refused, csp: cspViolations });
 		// Closed the way a person would: Esc.
 		setTimeout(() => document.body.dispatchEvent(escapeKey()), 200);
 	}

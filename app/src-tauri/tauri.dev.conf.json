@@ -3,5 +3,10 @@
   "build": {
     "devUrl": "http://localhost:1420",
     "beforeDevCommand": "npm run dev"
+  },
+  "app": {
+    "security": {
+      "csp": null
+    }
   }
 }

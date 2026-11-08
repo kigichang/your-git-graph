@@ -41,7 +41,7 @@ app/
   package.json            scripts：dev、build、build:diff、check（svelte-check）、test（check-cleanroom ＋ vitest）
   src-tauri/              Rust（獨立 Cargo workspace：App、crates/backend、crates/remote）
     tauri.conf.json       frontendDist ../web/dist；beforeBuildCommand npm run build
-    tauri.dev.conf.json   cargo tauri dev --config tauri.dev.conf.json：devUrl 指到 Vite（不放進主設定，否則 cargo build 的 debug 版會去連 dev server）
+    tauri.dev.conf.json   cargo tauri dev --config tauri.dev.conf.json：devUrl 指到 Vite（不放進主設定，否則 cargo build 的 debug 版會去連 dev server）、關掉 CSP（HMR 要連 ws）
     crates/backend/       gg-backend：不依賴 Tauri 的核心，App 與遠端 helper 共用。api.rs（ReadRequest／ReadResponse／OpRequest／OpResult／OpProgress／Reason 的型別，ts-rs 輸出；引擎讀取 read_engine）、runtime.rs（Runtime trait、LocalRuntime）、ops/（操作：remote、branch、history、stash、identity）、loss.rs（執行前的詢問）、reads.rs（CLI 讀取）、reflogged.rs（只剩 reflog 記得的 commit）、graph.rs（lane 配置）、settings.rs、git.rs（run、locate_git）、repo.rs（operation state、寫 .your-git-graph.json）、files.rs（讀工作目錄、掃描、write_atomic）、watch.rs、wire.rs（App ↔ helper 協定）、askpass.rs、engine()；tests/ops.rs 對真的 git 測所有操作
     crates/remote/        gg-remote：遠端機器上的 helper
     remote-dist/          build-remote.sh 的輸出（gitignore），remote.rs 以 include_bytes! 嵌入；沒建時 build.rs 放空檔
@@ -73,7 +73,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 
 - **改了 `app/web/`、`app/diff/` 要先 `npm run build` 再 `cargo build`**：前端是編譯時嵌入執行檔的。
 - `cd app && npm test`：check-cleanroom ＋ vitest（目前 63 個、15 個檔案：diffspec、errors、remote、theme、markdown、marks、draw、filetree、menus、dialogs、sidebar、dates、find、repoconfig、i18n）。`npm run check`：svelte-check。
-- `cd app/src-tauri && cargo test --workspace`（目前 167 個：backend 93 ＋ `tests/ops.rs` 36、remote 8、App 30；App 的遠端測試用 `target/debug/gg-remote`，所以要 `--workspace`）。`tests/ops.rs` 對真的 git 測每個操作、data-loss 規則、CLI 讀取與全域作者同步，`GIT_CONFIG_GLOBAL` 指向臨時檔，不會動到你的全域設定。
+- `cd app/src-tauri && cargo test --workspace`（目前 174 個：backend 94 ＋ `tests/ops.rs` 38、remote 8、App 34；App 的遠端測試用 `target/debug/gg-remote`，所以要 `--workspace`）。`tests/ops.rs` 對真的 git 測每個操作、data-loss 規則、CLI 讀取與全域作者同步，`GIT_CONFIG_GLOBAL` 指向臨時檔，不會動到你的全域設定。
 - **self-test**：`app/scripts/selftest.sh <執行檔> <repo 或含多個 repo 的資料夾> [log]`（`GG_SELFTEST=1`，`GG_DATA_DIR` 指到臨時目錄）。檢查項目與狀態在 `docs/spec/99-acceptance.md`（除了第 13 項的監看之外全部自動）。它會寫入目標 repo（臨時分支、`gg-selftest/` 目錄、`gg-selftest-*` remote，都會清掉），對 scratch 的 clone 跑；單一 repo 與含多個 repo 的資料夾各跑一次。每次改動前端或 host 都要跑。遠端段落用假 ssh（`GG_REMOTE_SSH=tests/fake-ssh.sh`，helper 在本機跑）；真 ssh 是 Docker（`tests/ssh-server.sh`、`GG_SELFTEST_SSH=…`、`GG_REMOTE_SSH=tests/real-ssh.sh`）。帳密提示：腳本自己起 `tests/basic_auth_server.py`（401 → 記下帳密 → 403），結束時要看到 `auth: gg-selftest:secret` 兩次（本機 git 一次、helper 一次）；`GG_SELFTEST_HTTP` 可指定別的位址。PlantUML 用 `tests/fake-java.sh`（`GG_SELFTEST_PLANTUML_JAR` 換成真的 jar）。**腳本裡的 `pkill -f "$app"` 會殺掉命令列含執行檔路徑的任何 process**——從別的腳本呼叫時，不要把路徑放在自己的命令列上（把呼叫寫進檔案再執行）。`preview.sh` 找視窗時要接受 floating 的 layer（always-on-top 的視窗不在 layer 0）。**被蓋住的視窗**：打包成 `.app` 後 macOS 把它當一般 App 管理，視窗被終端機蓋住、App 不在前景時，WebKit 會把頁面凍住（timer、IPC、畫面全停；切換外觀時必定發生，否則過幾秒也會）——self-test 在最後一個 diff 視窗關掉後就停住、Rust 這邊全部閒置、截圖是空的，把 App 叫到前景才恢復；裸的 `target/debug` 執行檔不受管理，開發時看不到。所以 `GG_SELFTEST`／`GG_PREVIEW` 時（`main.rs` 的 `kept_in_front`）主視窗與 diff 視窗都 always-on-top，並以 `system::no_app_nap` 關掉 App Nap；關掉 App Nap 本身不夠。對 release 的 `.app` 也要跑一次 self-test。
 - **看畫面**：`app/scripts/preview.sh <執行檔> <repo> <場景> <light|dark|system> <輸出前綴>`（`GG_PREVIEW`；場景列在 `web/src/preview.ts` 開頭：details、inline、compare、branches、authors、menu、dialog、error、settings、find、reflog、worktrees、addmenu、addremote、addserver、diff、markdown、resize、zh，加 `contrast` 強制增強對比）。需要螢幕錄製權限。
 - **監看的手動檢查**：開著 App 閒置幾秒應該 0 次刷新；終端機 `git commit`、`git checkout -b` 各剛好刷新一次。
@@ -132,14 +132,19 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 - **不要直接修改 `vendor/`**。引擎的方法和參數看 `native/core/src/dispatch.rs`（42 個方法，全部唯讀）。
 - **gix 不支援 push、fetch**：所有寫入一律走 `git` CLI。
 - **使用者輸入的值進 git 的 argv 前一律檢查**，以 `-` 開頭就拒絕（防止被當成選項，例如 `--upload-pack=…`）。
-- **收 repo 的 command 只接受側欄清單裡的 repo**（`state.json` 的 `sidebar.repos`，所有視窗共用）：`repo_read`、`repo_op`、`engine_request`、`worktree_file`、`repo_operation_state`、`export_repo_config` 一開頭 `state.listed(&repo)?`（`state.rs`），否則回 `… is not in the sidebar`。新增收 repo 的 command 也要加。所以前端加入 repo 時要**等** `saveSidebar`（`appState.set` 回 Promise，`state_set` 完成後 Rust 才認得）再 `show`。
+- **收 repo 的 command 只接受側欄清單裡的 repo**（`state.json` 的 `sidebar.repos`，所有視窗共用）：`repo_read`、`repo_op`、`engine_request`、`worktree_file`、`repo_operation_state`、`export_repo_config`、`open_repo_file`、`reveal_repo`、`open_terminal` 一開頭 `state.listed(&repo)?`（`state.rs`），否則回 `… is not in the sidebar`。新增收 repo 的 command 也要加。所以前端加入 repo 時要**等** `saveSidebar`（`appState.set` 回 Promise，`state_set` 完成後 Rust 才認得）再 `show`。
+- **視窗能呼叫什麼**：diff 視窗渲染的是 repo 作者寫的內容，不能被信任。`build.rs` 的 `COMMANDS` 列出所有 command（`AppManifest::commands`：列了才變成要授權，沒列的所有視窗都能叫），`capabilities/default.json` 給主視窗全部，`capabilities/diff.json` 只給讀取。**新增 command 要同時加進 `build.rs` 與 capability**（`main.rs` 的測試比對 `generate_handler!` 與清單、固定 diff 視窗的清單）。diff 視窗拿到 `settings_set` 或 `state_set` 就等於任意執行（`plantuml.jar` 換掉；側欄白名單自己加）。
+- **command 不收任意路徑或命令**：開檔、開 Finder、開 Terminal 都以 repo 加相對路徑為單位，自己的檔案由 Rust 決定路徑（`open_settings_file`、`open_session_log`）；git 參數只由 `ops` 給內部的 `system::terminal`。`open_repo_file` 用 `files::inside_repo`（canonicalize，拒絕逃出 repo 的 symlink），會執行的檔案（`system.rs` 的 `RUNS_WHEN_OPENED`、沒有副檔名的可執行檔）改用文字編輯器開——clone 下來的檔案沒有 quarantine，`open` 會直接執行。
+- **CSP**（`tauri.conf.json`）：`script-src 'self'`、`connect-src` 只有 IPC。`style-src` 要 `'unsafe-inline'`（Monaco、KaTeX、Mermaid 都用 inline style），而 Tauri 自動加的 nonce 會讓瀏覽器忽略 `'unsafe-inline'`，所以 `dangerousDisableAssetCspModification: ["style-src"]`。`img-src` 含 `http: https:` 是為了 Markdown 預覽的「Load」按鈕；擋圖片的是 `diff/main.js`，不是 CSP。self-test 收集 `securitypolicyviolation`（`lib/csp.ts`），有被擋的就失敗：**加依賴或動態載入資源後要跑**。
+- **`engine_request` 只給 diff 視窗要讀的方法**（`main.rs` 的 `PAGE_ENGINE_METHODS`）；其他讀取走 `repo_read`。`vendor/` 不能改，引擎裡的 `submodules`（`.gitmodules` 的路徑可以指到 repo 外）靠這個擋在頁面之外。
+- **repo 自己的設定可以指定要執行的程式**（`.git/config` 不隨 clone 傳，但下載的壓縮檔、共用磁碟上的 repo 會帶）。自動的讀取不能跑到它們：`git::config_overrides` 對每次 git 關掉 `core.fsmonitor`（`git diff --cached`、`git check-ignore` 都會啟動它；環境變數優先於所有設定檔），衝突檔案用 `ls-files --unmerged`（`git diff` 會跑 clean filter）。使用者發動的操作照常跑 hook、filter、merge driver，這是 git 的語意。`predictConflicts`（`git merge-tree --write-tree`）會執行 `merge.<driver>.driver`，目前前端沒有呼叫者；**接上 UI 時要先關掉 driver**，否則打開對話框就會跑：用 `git config --get-regexp` 列出名稱，逐一加 `-c merge.<name>.driver=false`（實測不會執行且仍回報衝突；不能用 `true`，它會回 exit 0，誤判成沒有衝突）。
 - **data-loss 規則**（git 語意，自己寫的）：離開 detached HEAD 時 HEAD 上有不在任何分支、tag、remote-tracking 分支裡的 commit；reset 讓目前分支的 commit 不在其他 ref 上（hard reset 時已追蹤檔案有未 commit 的修改，`git status --porcelain --untracked-files=no`）；強制移動既有分支讓它的 commit 不在其他 ref 上（`rev-list <branch> --not <target> --exclude=<branch> --branches --tags --remotes`）；force／force-with-lease push 時 remote-tracking 分支上有本地分支沒有的 commit。檢查只讀；不安全的值不檢查、照原本的錯誤回應。
-- **git 一律 `GIT_EDITOR=true`**：沒有終端機可以編輯，`rebase --continue`、`commit --squash`、`merge --no-ff` 採用預設訊息。互動式 rebase 在 Terminal.app 執行（`system.rs` 的 `open_terminal`）。
+- **git 一律 `GIT_EDITOR=true`**：沒有終端機可以編輯，`rebase --continue`、`commit --squash`、`merge --no-ff` 採用預設訊息。互動式 rebase 在 Terminal.app 執行（`system.rs` 的 `terminal`）。
 - **改寫歷史（drop commit、改舊訊息）**：自己產生 rebase todo，經環境變數 `GG_TODO` 給 `GIT_SEQUENCE_EDITOR`；新訊息與作者走 `GG_MESSAGE`、`GG_AUTHOR`，由 `exec git commit --amend` 讀取，所以不必跳脫。範圍內有 merge commit 就拒絕。
 - `GIT_OPTIONAL_LOCKS=0`：避免 `git diff` 之類順手改寫 index 觸發監看而無限刷新。
 - **呼叫 git 一律經 `Runtime::git`**（`crates/backend/src/runtime.rs`；底層是 `gg_backend::git::run`）：回 `GitExecResult { exit_code, stdout, stderr, timed_out, cancelled, duration_ms }`，非 0 不是 `Err`（`ops::error_of` 轉成訊息）。`LocalRuntime` 每次都帶 `GIT_EDITOR=true`、`GIT_OPTIONAL_LOCKS=0`、`GIT_TERMINAL_PROMPT=0` 與 askpass 的環境變數；`GitOpts { stream: true }` 才串流（fetch、pull、push）。取消是 `watch` 旗標：殺掉正在跑的 git，之後的 git 不再啟動（`Err("Cancelled.")`）。前端不直接組 git 參數：只有 `repo_read`／`repo_op`。
 - **操作的結果**是 `OpResult`：`Done`、`NeedsConfirmation { reasons }`（沒帶 `confirmed` 時先檢查 `loss.rs`；前端顯示原因、使用者同意後帶 `confirmed: true` 重送）、`Failed { message, step }`（多步驟操作失敗在哪一步，例如 tag 建好了但 push 失敗）。進度 `OpProgress::Output { stderr, text }`／`Step { index, total, label }` 經 Tauri `Channel`（遠端經 `V` 事件 `{ progress }`）。同一時間每個 id 只有一個操作（`api::Jobs`）。
-- **互動式 rebase** 由 `Runtime::terminal` 打開 Terminal（App 的 `system::open_terminal`，遠端是 `ssh -t`）；`CreateArchive` 的路徑由前端先用存檔對話框問好再送，遠端拒絕。
+- **互動式 rebase** 由 `Runtime::terminal` 打開 Terminal（App 的 `system::terminal`，遠端是 `ssh -t`）；`CreateArchive` 的路徑由前端先用存檔對話框問好再送，遠端拒絕。
 - **git 的選擇順序**：`GIT_GRAPH_GIT` → `PATH`（略過 `/usr/bin/git`）→ Homebrew → `/usr/bin/git`（只有 `xcode-select -p` 成功時）。每個 process 只解析一次。
 - **每次執行 git 都在獨立的 process group**：逾時或取消時 `killpg` 連同 hook、ssh 一起終止。
 - **事件要指定視窗**：Rust 的 `emit` 送給所有視窗；只給單一視窗的事件（`open-repo`、`menu-command`、`askpass`）用 `app.emit_to(label, …)`，JS 用 `getCurrentWindow().listen`。
@@ -167,7 +172,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 - spec 由主視窗算好（`diffspec.ts`），經 `open_diff_window` 以 `initialization_script` 注入 `window.__GG_DIFF_SPEC`（不放 URL query）。內容由 diff 視窗自己讀：revision 走引擎 `loadCommitFile`／`fileBytes`，工作目錄走 `worktree_file`（拒絕 `..`、絕對路徑、指向 repo 外的 symlink；超過 50 MB 不載入）。
 - `from === to` 代表「那一個 commit」（父 ↔ 它）；`*` 代表 HEAD ↔ 工作目錄。A/U 狀態左側為空，D 狀態右側為空。
 - 偏好存在 diff 視窗的 `localStorage`（`gg.diffPrefs`）。
-- Markdown 預覽：`diff/markdown.js`（markdown-it `html: false`、task list、KaTeX）與 Mermaid 各是延後載入的 bundle（`loadBundle`）；不要把 `markdown.js` import 進 `main.js`。程式碼用 `monaco.editor.colorize()` 上色。圖片相對路徑用 `mdview.js` 的 `resolveRelative` 從顯示的那個 revision 讀成 data URL；HTML 先放進 `<template>` 處理完圖片才接上頁面。連結不導覽，`http(s)`、`mailto` 交給 `open_url`。
+- Markdown 預覽：`diff/markdown.js`（markdown-it `html: false`、task list、KaTeX）與 Mermaid 各是延後載入的 bundle（`loadBundle`）；不要把 `markdown.js` import 進 `main.js`。程式碼用 `monaco.editor.colorize()` 上色。圖片相對路徑用 `mdview.js` 的 `resolveRelative` 從顯示的那個 revision 讀成 data URL；`http(s)` 圖片不載入，頁面上方顯示數量與 Load 按鈕（只影響這份文件）；HTML 先放進 `<template>` 處理完圖片才接上頁面。連結不導覽，`http(s)`、`mailto` 交給 `open_url`。
 - PlantUML（`plantuml.rs`）：只用本機 jar（設定 `plantuml.jar`，經 `settings::load` 讀型別化的設定，不要直接讀 settings.json 的 map——Stage 1 的 key 已搬走），`-DPLANTUML_SECURITY_PROFILE=SANDBOX`，30 秒逾時，結果快取，輸出放 `<img>` 的 data URL。`GG_PLANTUML_JAVA`、`GG_SELFTEST_PLANTUML_JAR` 只給測試。
 - 捲動同步：區塊帶 `data-line`，`mdview.js` 內插；只有使用者正在操作的那一邊帶動另一邊。
 - Esc 關閉視窗（Monaco 處理過的按鍵不關；`isComposing` 不關）。不要改成 capture 階段。
@@ -189,13 +194,13 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 - 安全：user、host 只允許 `[A-Za-z0-9._-]+`（或方括號 IPv6），不能以 `-` 開頭；ssh 的 argv 用陣列，目的地前有 `--`；repo 路徑只放在協定的 JSON 裡。終端機（`ssh -t`）用 `remote_quote` 再套 `shell_quote`、`applescript_quote`。
 - bootstrap（`BOOTSTRAP`）：`exec sh -c '…'`，內容不能有 `'`、`\`、`!`、換行（有測試）。流程：`@@GG-BOOT@@ <uname -s> <uname -m>` → App 送 `<id> <gzip 大小> <原始大小>` → `@@GG-HAVE@@` 或 `@@GG-SEND@@` → `exec` helper → `@@GG-READY@@ <hello JSON>`。雙方一來一往，不能預先多送。
 - ssh 選項：`-T -o RemoteCommand=none -o ClearAllForwardings=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -o ConnectTimeout=15`，不用 ControlMaster、BatchMode。連線是整個 App 共用的。
-- 協定（`wire.rs`）：frame 是 `<id> <kind> <len>\n` 加 body。App 送 `Q`、`C`；helper 回 `P`／`R`（結果的片段，每片最多 64 KiB）、`E`、`O`／`S`（git 的串流）、`V`（事件：監看、askpass）。op：`engine`、`git`、`operationState`、`worktreeFile`、`exportRepoConfig`、`scan`、`watch`、`answer`；M3 加 `read`、`op`。
+- 協定（`wire.rs`）：frame 是 `<id> <kind> <len>\n` 加 body。App 送 `Q`、`C`；helper 回 `P`／`R`（結果的片段，每片最多 64 KiB）、`E`、`V`（事件：監看、askpass、操作的進度）。op：`engine`、`operationState`、`worktreeFile`、`exportRepoConfig`、`scan`、`watch`、`answer`、`read`、`op`。沒有直接跑 git 的 op：都經 `op`，參數已檢查。
 - helper 的 id 是內容的 sha256 前 16 碼；新的 helper 啟動時刪掉同目錄的舊版；stdin EOF 時取消所有 git 後結束。`GG_REMOTE_SSH`、`GG_REMOTE_HELPER` 只給測試。
 - helper 只監看 git 目錄（inotify 的上限），工作目錄的修改在視窗取得焦點時刷新。
 - 遠端 git 的帳密：helper 自己當 askpass（`GG_REMOTE_ASKPASS_SOCKET`），問題以 `V` 事件送回，App 顯示在發出請求的視窗，以 `answer` 回覆；git 先結束時送 `{askpassClosed}`。
 - 不提供：Reveal in Finder、開啟檔案、外部 diff、archive。`git_info` 看本機的 git；遠端沒有 git 時連線失敗並說明。
 - 平台：Linux x86_64、arm64（musl 靜態），macOS arm64。遠端需要 git、gzip、sh。
-- 還沒做／沒驗證：helper 被強制終止時 askpass socket 目錄不會清掉；引擎請求不能取消；`safe.directory` 的行為；`open_terminal` 的 `ssh -t` 沒在真的 Terminal 跑過。
+- 還沒做／沒驗證：helper 被強制終止時 askpass socket 目錄不會清掉；引擎請求不能取消；`safe.directory` 的行為；`system::terminal` 的 `ssh -t` 沒在真的 Terminal 跑過。
 
 ### 網路磁碟（SMB）（`system.rs`）
 

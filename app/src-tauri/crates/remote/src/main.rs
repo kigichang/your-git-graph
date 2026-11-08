@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use gg_backend::git::{GitExecRequest, GitOutput};
 use gg_backend::wire::{self, Frame};
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
@@ -28,7 +27,6 @@ enum Request {
     /// A typed operation (`gg_backend::ops`): its progress and the questions of its git are
     /// events (`V`) of the request; `C` cancels it.
     Op { repo: String, request: gg_backend::api::OpRequest, confirmed: bool },
-    Git { request: GitExecRequest },
     OperationState { repo: String },
     WorktreeFile { repo: String, path: String },
     ExportRepoConfig { repo: String, contents: String },
@@ -39,7 +37,7 @@ enum Request {
     Answer { ask: u64, answer: Option<String> },
 }
 
-/// What can be cancelled (git runs, operations, watches), by request id.
+/// What can be cancelled (operations, watches), by request id.
 enum Cancel {
     Once(oneshot::Sender<()>),
     Flag(watch::Sender<bool>),
@@ -121,7 +119,6 @@ impl Session {
                 })
                 .await
             }
-            Request::Git { request } => self.git(id, request).await,
             Request::Watch { roots } => self.watch(id, roots).await,
             Request::Answer { ask, answer } => json(&self.askpass.as_ref().is_some_and(|a| a.answer(ask, answer))),
         }
@@ -156,46 +153,6 @@ impl Session {
             }
         });
         Ok(gg_backend::runtime::LocalRuntime::new(repo, git, env, progress, rx).remote())
-    }
-
-    async fn git(&self, id: u64, mut request: GitExecRequest) -> Result<Vec<u8>, String> {
-        let git = self.git.clone().ok_or("Git was not found on the remote machine.")?;
-        // Credential prompts go to the app, as events of this request; a caller may override.
-        if let Some(env) = self.askpass.as_ref().and_then(|a| a.env(id).ok()) {
-            for (key, value) in env {
-                request.env.entry(key).or_insert(value);
-            }
-        }
-        let cancel = self.cancellable(id);
-        // run's callback cannot wait for the connection; this task does.
-        let (chunks, mut pending) = mpsc::unbounded_channel::<GitOutput>();
-        let out = self.out.clone();
-        let forward = tokio::spawn(async move {
-            while let Some(chunk) = pending.recv().await {
-                let frame = match chunk {
-                    GitOutput::Stdout(text) => Frame::new(id, b'O', text),
-                    GitOutput::Stderr(text) => Frame::new(id, b'S', text),
-                };
-                if out.send(frame).await.is_err() {
-                    break;
-                }
-            }
-        });
-        let result = gg_backend::git::run(
-            &git,
-            &request,
-            move |chunk| {
-                let _ = chunks.send(chunk);
-            },
-            cancel,
-        )
-        .await;
-        self.cancels.lock().unwrap().remove(&id);
-        if let Some(askpass) = &self.askpass {
-            askpass.done(id);
-        }
-        let _ = forward.await; // every chunk before the result
-        json(&result?)
     }
 
     async fn watch(&self, id: u64, roots: Vec<String>) -> Result<Vec<u8>, String> {
