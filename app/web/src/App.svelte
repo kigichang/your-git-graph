@@ -20,7 +20,7 @@
 	import { menuFor, type MenuAction, type MenuItem, type MenuTarget } from './lib/menus';
 	import { dialogFor, resetFileDialog, type DialogSpec, type Values } from './lib/dialogs';
 	import { addRemoteDialog, connectServerDialog, groupNameDialog, remoteName, remoteRoot, type RemoteAnswer } from './lib/addremote';
-	import { addRepos, removeRepos as removeFromList, removeGroup, renameGroup, moveManyToGroup, DEFAULT_GROUP, type SidebarState } from './lib/sidebar';
+	import { addReposTo, groupOfRepo, removeRepos as removeFromList, removeGroup, renameGroup, moveManyToGroup, DEFAULT_GROUP, type SidebarState } from './lib/sidebar';
 	import { ops, runOperation } from './lib/ops.svelte';
 	import { settings, watchSettings } from './lib/settings.svelte';
 	import { appState, loadState } from './lib/state.svelte';
@@ -260,7 +260,9 @@
 			if (inside.length === 0) found.push(path); else found.push(...inside);
 		}
 		if (found.length === 0) return;
-		await saveSidebar({ ...sidebar, repos: addRepos(sidebar.repos, found) });
+		// New repositories join the group of the one shown (default when none, or it is in none).
+		const added = addReposTo(sidebar.repos, sidebar.groupOf, found, groupOfRepo(sidebar.groups, sidebar.groupOf, repo));
+		await saveSidebar({ ...sidebar, repos: added.list, groupOf: added.groupOf });
 		await show(found[found.length - 1] as string);
 	}
 

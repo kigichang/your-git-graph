@@ -1,5 +1,5 @@
 import { test, expect } from 'vitest';
-import { avatarOf, labelsOf, addRepos, removeRepos, moveRepo, badgeOf, baseName, groupsOf, moveToGroup, moveManyToGroup, invalidGroupName, renameGroup, removeGroup, sidebarFrom } from './sidebar';
+import { avatarOf, labelsOf, addRepos, addReposTo, groupOfRepo, removeRepos, moveRepo, badgeOf, baseName, groupsOf, moveToGroup, moveManyToGroup, invalidGroupName, renameGroup, removeGroup, sidebarFrom } from './sidebar';
 
 test('avatars: the first letter or digit, a colour that stays with the name', () => {
 	expect(avatarOf('/r/git-graph').letter).toBe('G');
@@ -23,6 +23,17 @@ test('labels: the folder name, with where it is only when names collide; the mac
 test('adding keeps the order and never doubles', () => {
 	expect(addRepos(['/a', '/b'], ['/b', '/c', '/c', '/d'])).toEqual(['/a', '/b', '/c', '/d']);
 	expect(addRepos([], [])).toEqual([]);
+});
+
+test('added repositories join the group of the one shown, default when it is in none', () => {
+	const groups = ['work'];
+	const groupOf = { '/a': 'work', '/b': 'gone' };
+	expect(groupOfRepo(groups, groupOf, '/a')).toBe('work');
+	expect(groupOfRepo(groups, groupOf, '/b')).toBe(null);
+	expect(groupOfRepo(groups, groupOf, '/c')).toBe(null);
+	expect(groupOfRepo(groups, groupOf, null)).toBe(null);
+	expect(addReposTo(['/a', '/c'], { '/a': 'work' }, ['/c', '/d', '/d'], 'work')).toEqual({ list: ['/a', '/c', '/d'], groupOf: { '/a': 'work', '/d': 'work' } });
+	expect(addReposTo(['/a'], { '/a': 'work' }, ['/a', '/d'], null)).toEqual({ list: ['/a', '/d'], groupOf: { '/a': 'work' } });
 });
 
 test('removing the shown repository shows the one that took its place, else the one before', () => {

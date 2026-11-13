@@ -65,6 +65,21 @@ export function groupsOf(repos: string[], groups: string[], groupOf: GroupOf): {
 	return [null, ...groups].map((group) => ({ group, repos: repos.filter((repo) => of(repo) === group) }));
 }
 
+/** The group `repo` is in (null: default; also when `repo` is null). */
+export function groupOfRepo(groups: string[], groupOf: GroupOf, repo: string | null): string | null {
+	const g = repo === null ? undefined : groupOf[repo];
+	return g !== undefined && groups.includes(g) ? g : null;
+}
+
+/** `list` with `repos` added at the end (those not in it yet), the new ones in `group` (null:
+ * default); those already in the list stay where they are. */
+export function addReposTo(list: string[], groupOf: GroupOf, repos: string[], group: string | null): { list: string[]; groupOf: GroupOf } {
+	const added = addRepos(list, repos).slice(list.length);
+	const next = { ...groupOf };
+	for (const repo of added) if (group === null) delete next[repo]; else next[repo] = group;
+	return { list: list.concat(added), groupOf: next };
+}
+
 /** `repo` dropped into `group` (null: default) just before `before` (null: at its end). */
 export function moveToGroup(list: string[], groupOf: GroupOf, repo: string, group: string | null, before: string | null): { list: string[]; groupOf: GroupOf } {
 	const next = { ...groupOf };

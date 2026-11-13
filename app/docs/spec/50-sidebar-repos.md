@@ -13,6 +13,7 @@
 - ＋ 選單：Add Local Repository…（可一次選多個資料夾）、Add SSH Repository…、Connect to Server (SMB)…。
 - File > Open Repository…（⌘O）、Open Recent、命令列路徑、拖到視窗、拖到 Dock 圖示、`open -a`。
 - 路徑在某個 repo 裡就加那個 repo；否則往下掃最多 3 層（找到的 repo 不再往裡找；略過隱藏資料夾、`node_modules`、`target`、`build`、`dist`），全部加入，最後一個留在畫面上。
+- 新加入的 repo（本機與 `ssh://`）放進目前顯示的 repo 所在的群組；沒有顯示中的 repo、或它不在任何群組時放進 default。已在清單裡的 repo 不動。
 
 ## 切換、移除、排序、群組
 
