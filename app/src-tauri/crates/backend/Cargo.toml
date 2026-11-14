@@ -1,6 +1,6 @@
 [package]
 name = "gg-backend"
-version = "0.8.2"
+version = "0.8.3"
 description = "Your Git Graph: repository access shared by the app and its remote helper"
 edition = "2021"
 license = "MIT"
