@@ -4,6 +4,7 @@
 import type { OpRequest, Details } from './api/client';
 import type { Settings } from './settings.svelte';
 import { t, type Key } from './i18n';
+import { shortHash } from './names';
 import type { MenuAction, MenuTarget } from './menus';
 
 export type Field =
@@ -35,8 +36,6 @@ export type DialogContext = {
 	details: Details | null;
 };
 
-const short = (hash: string) => hash.slice(0, 8);
-
 /** A dialog default from the settings (`dialogs.<dialog>.<field>`), else `fallback`. */
 export function dialogDefault<T extends string | boolean>(settings: Settings, key: string, fallback: T): T {
 	const v = (settings.dialogs as Record<string, unknown>)[key];
@@ -53,7 +52,7 @@ function remoteOptions(remotes: string[], none: string): { value: string; label:
 
 /** Which parents a merge commit can be picked or reverted against. */
 function parentOptions(commit: { parents: string[] }): { value: string; label: string }[] {
-	return commit.parents.map((p, i) => ({ value: String(i + 1), label: `${i + 1}: ${short(p)}` }));
+	return commit.parents.map((p, i) => ({ value: String(i + 1), label: `${i + 1}: ${shortHash(p)}` }));
 }
 
 export function dialogFor(action: MenuAction, target: MenuTarget, ctx: DialogContext): DialogSpec | null {
@@ -61,7 +60,7 @@ export function dialogFor(action: MenuAction, target: MenuTarget, ctx: DialogCon
 	const d = <T extends string | boolean>(key: string, fallback: T) => dialogDefault(s, key, fallback);
 	const commit = 'commit' in target ? target.commit : null;
 	const hash = commit?.hash ?? '';
-	const name = target.kind === 'commit' || target.kind === 'uncommitted' ? short(hash) : 'name' in target ? target.name : target.kind === 'stash' ? target.selector : '';
+	const name = target.kind === 'commit' || target.kind === 'uncommitted' ? shortHash(hash) : 'name' in target ? target.name : target.kind === 'stash' ? target.selector : '';
 	const needName = (v: Values, id: string): string | null => (trimmed(v, id) === '' ? t('dialog.name') + '?' : null);
 
 	switch (action) {

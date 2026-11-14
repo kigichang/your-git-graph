@@ -7,11 +7,9 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { sidebarFrom, type SidebarState } from './sidebar';
 
 let snapshot = $state.raw<Record<string, unknown>>({});
-let loaded = $state(false);
 const listeners: ((key: string) => void)[] = [];
 
 export const appState = {
-	get loaded() { return loaded; },
 	get<T = unknown>(key: string): T | undefined { return snapshot[key] as T | undefined; },
 	/** Set a key (`null` removes it): here at once, in the file shortly, in the other windows.
 	 * Settles when Rust has it (callers that need that, such as adding to the sidebar, wait). */
@@ -32,7 +30,6 @@ export const appState = {
 /** Take the snapshot and follow the other windows' changes. */
 export async function loadState(): Promise<void> {
 	snapshot = await invoke<Record<string, unknown>>('state_snapshot');
-	loaded = true;
 	const me = getCurrentWindow().label;
 	void listen<{ from: string; key: string; value: unknown }>('state-changed', (event) => {
 		if (event.payload.from === me) return;

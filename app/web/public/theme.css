@@ -16,9 +16,7 @@
 	--gg-descriptionForeground: #6e6e73;
 	--gg-errorForeground: #d70015;
 	--gg-focusBorder: AccentColor;
-	--gg-contrastBorder: transparent;
 	--gg-widget-shadow: rgba(0, 0, 0, 0.18);
-	--gg-selection-background: color-mix(in srgb, AccentColor 30%, transparent);
 
 	--gg-editor-background: #ffffff;
 	--gg-editor-foreground: #1d1d1f;
@@ -27,10 +25,6 @@
 	--gg-editorWidget-background: #f5f5f7;
 	--gg-editorWidget-foreground: #1d1d1f;
 	--gg-editorWidget-border: #d2d2d7;
-	--gg-editorSuggestWidget-foreground: #1d1d1f;
-	--gg-editorWarning-foreground: #b25000;
-	--gg-editorInfo-foreground: #0068da;
-	--gg-editorLightBulb-foreground: #a37800;
 
 	--gg-menu-background: #f5f5f7;
 	--gg-menu-foreground: #1d1d1f;
@@ -70,13 +64,9 @@
 	--gg-gitDecoration-modifiedResourceForeground: #b25000;
 	--gg-gitDecoration-renamedResourceForeground: #1f7a35;
 	--gg-charts-green: #1f7a35;
-	--gg-charts-red: #d70015;
 	--gg-charts-blue: #0068da;
 	--gg-charts-yellow: #b28600;
-	--gg-charts-orange: #c93400;
 	--gg-charts-purple: #8944ab;
-	--gg-testing-iconPassed: #1f7a35;
-	--gg-testing-iconFailed: #d70015;
 
 	/* The repository sidebar (sidebar.css). */
 	--gg-sidebar-background: #f5f5f7;
@@ -95,10 +85,6 @@
 	--gg-editorWidget-background: #2a2a2c;
 	--gg-editorWidget-foreground: #e5e5e7;
 	--gg-editorWidget-border: #3a3a3c;
-	--gg-editorSuggestWidget-foreground: #e5e5e7;
-	--gg-editorWarning-foreground: #ffb340;
-	--gg-editorInfo-foreground: #409cff;
-	--gg-editorLightBulb-foreground: #ffd426;
 
 	--gg-menu-background: #2a2a2c;
 	--gg-menu-foreground: #e5e5e7;
@@ -129,30 +115,24 @@
 	--gg-gitDecoration-modifiedResourceForeground: #e2c08d;
 	--gg-gitDecoration-renamedResourceForeground: #73c991;
 	--gg-charts-green: #30d158;
-	--gg-charts-red: #ff453a;
 	--gg-charts-blue: #0a84ff;
 	--gg-charts-yellow: #ffd60a;
-	--gg-charts-orange: #ff9f0a;
 	--gg-charts-purple: #bf5af2;
-	--gg-testing-iconPassed: #30d158;
-	--gg-testing-iconFailed: #ff453a;
 
 	--gg-sidebar-background: #171719;
 	--gg-sidebar-selected: rgba(255, 255, 255, 0.08);
 }
 
-/* Increase Contrast, light: black text, borders that show (contrastBorder), outlines on hovered
- * and selected menu items (menu-selectionBorder). */
+/* Increase Contrast, light: black text, borders that show, outlines on hovered and selected
+ * menu items (menu-selectionBorder). */
 :root.gg-contrast {
 	--gg-foreground: #000000;
 	--gg-descriptionForeground: #3a3a3c;
-	--gg-contrastBorder: #6e6e73;
 	--gg-widget-shadow: rgba(0, 0, 0, 0.35);
 	--gg-editor-findMatchHighlightBorder: #b25000;
 	--gg-editor-foreground: #000000;
 	--gg-editorWidget-foreground: #000000;
 	--gg-editorWidget-border: #6e6e73;
-	--gg-editorSuggestWidget-foreground: #000000;
 	--gg-menu-foreground: #000000;
 	--gg-menu-selectionBorder: #000000;
 	--gg-menu-border: #6e6e73;
@@ -172,13 +152,11 @@
 :root.gg-dark.gg-contrast {
 	--gg-foreground: #ffffff;
 	--gg-descriptionForeground: #c7c7cc;
-	--gg-contrastBorder: #98989d;
 	--gg-widget-shadow: rgba(0, 0, 0, 0.7);
 	--gg-editor-findMatchHighlightBorder: #ffb340;
 	--gg-editor-foreground: #ffffff;
 	--gg-editorWidget-foreground: #ffffff;
 	--gg-editorWidget-border: #98989d;
-	--gg-editorSuggestWidget-foreground: #ffffff;
 	--gg-menu-foreground: #ffffff;
 	--gg-menu-selectionBorder: #ffffff;
 	--gg-menu-border: #98989d;

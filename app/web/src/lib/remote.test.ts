@@ -1,16 +1,11 @@
 import { test, expect } from 'vitest';
-import { isRemote, parseRemote, hostOf, pathOf, withPath, invalidRemote, absolutePath, remoteId, invalidShare } from './remote';
+import { isRemote, parseRemote, invalidRemote, absolutePath, remoteId, invalidShare } from './remote';
 
 test('a remote repository is told from a local one, and taken apart', () => {
 	expect(isRemote('/Users/me/repo')).toBe(false);
 	expect(isRemote(null)).toBe(false);
 	expect(parseRemote('/a/ssh://h/p')).toBe(null);
 	expect(parseRemote('ssh://me@build:2222/srv/git/app')).toEqual({ host: 'ssh://me@build:2222', authority: 'me@build:2222', path: '/srv/git/app' });
-	expect(hostOf('ssh://nas/volume1/x')).toBe('ssh://nas');
-	expect(hostOf('/local')).toBe(null);
-	expect(pathOf('ssh://nas/volume1/a b')).toBe('/volume1/a b');
-	expect(pathOf('/local/repo')).toBe('/local/repo');
-	expect(withPath('ssh://me@nas/any/where', '/srv/repo')).toBe('ssh://me@nas/srv/repo');
 });
 
 test('what was typed is checked before anything reaches ssh', () => {

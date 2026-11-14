@@ -1,5 +1,6 @@
 import { test, expect } from 'vitest';
-import { avatarOf, labelsOf, addRepos, addReposTo, groupOfRepo, removeRepos, moveRepo, badgeOf, baseName, groupsOf, moveToGroup, moveManyToGroup, invalidGroupName, renameGroup, removeGroup, sidebarFrom } from './sidebar';
+import { avatarOf, labelsOf, addRepos, addReposTo, groupOfRepo, removeRepos, moveRepo, badgeOf, groupsOf, moveToGroup, moveManyToGroup, invalidGroupName, renameGroup, removeGroup, sidebarFrom } from './sidebar';
+import { baseName } from './names';
 
 test('avatars: the first letter or digit, a colour that stays with the name', () => {
 	expect(avatarOf('/r/git-graph').letter).toBe('G');

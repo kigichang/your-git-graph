@@ -9,6 +9,7 @@
 	import { errorText } from '../errors';
 	import { setSetting } from '../settings.svelte';
 	import { t } from '../i18n';
+	import { shortHash } from '../names';
 
 	export type DetailsView =
 		| { kind: 'loading' }
@@ -31,7 +32,7 @@
 	function showFilesAs(as: 'tree' | 'list') {
 		setSetting('details.fileView', as).catch((err) => log('file view: ' + errorText(err)));
 	}
-	const short = (hash: string) => (hash === UNCOMMITTED ? t('details.workingTree') : hash.slice(0, 8));
+	const short = (hash: string) => (hash === UNCOMMITTED ? t('details.workingTree') : shortHash(hash));
 	/** The whole date with the time zone, whatever the graph's Date column is set to show. */
 	const date = (seconds: number) => new Date(seconds * 1000).toString();
 	const label = (text: string) => t('details.label', { label: text });
@@ -57,7 +58,7 @@
 	function onKeydown(e: KeyboardEvent) {
 		if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return;
 		const target = e.target as Element | null;
-		if (target?.closest('input, textarea, [contenteditable], .gg-branch-filter')) return;
+		if (target?.closest('input, textarea, [contenteditable], .gg-multi-filter')) return;
 		onClose();
 		e.preventDefault();
 	}

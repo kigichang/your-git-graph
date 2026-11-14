@@ -1,10 +1,9 @@
 // The repository sidebar's pure helpers: names, the list and its groups, ahead/behind badges.
 // The list is shared by every window (state.json "sidebar"). Tested in sidebar.test.ts.
 import { parseRemote } from './remote';
+import { baseName } from './names';
 
 const AVATAR_COLOURS = ['#1a9e8f', '#e0773a', '#7b61ff', '#d64f73', '#3d8bfd', '#b8860b', '#3a9a52', '#a05cd6'];
-
-export const baseName = (path: string): string => path.replace(/\/+$/, '').split('/').pop() || path;
 
 /** The letter and colour of a repository's avatar: the first letter or digit of its name, a
  * colour that stays the same for the same name. */
@@ -120,8 +119,6 @@ export function badgeOf(status: { ahead?: number | null; behind?: number | null 
 
 /** The sidebar as state.json keeps it. */
 export type SidebarState = { repos: string[]; collapsed: boolean; groups: string[]; groupOf: GroupOf; foldedGroups: string[] };
-
-export const EMPTY_SIDEBAR: SidebarState = { repos: [], collapsed: false, groups: [], groupOf: {}, foldedGroups: [] };
 
 /** A saved sidebar value made whole (older versions lack the group fields). */
 export function sidebarFrom(value: unknown): SidebarState {

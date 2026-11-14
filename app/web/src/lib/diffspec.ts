@@ -10,6 +10,8 @@
  * A change is named by two revisions: `from === to` means "that one commit" (its parent against
  * it); UNCOMMITTED names the uncommitted state (HEAD against the working tree). */
 
+import { baseName, shortHash } from './names';
+
 export const UNCOMMITTED = '*';
 export const WORKTREE = '*';
 
@@ -22,8 +24,7 @@ export type DiffSpec =
 	| { mode: 'compare'; repo: string; title: string; from: string; to: string };
 
 const short = (rev: string): string =>
-	rev === WORKTREE ? 'Working Tree' : /^[0-9a-f]{40}$/i.test(rev) ? rev.slice(0, 8) : rev.replace(/^([0-9a-f]{40})\^$/i, (_, h: string) => h.slice(0, 8) + '^');
-const basename = (path: string): string => path.split('/').pop() ?? path;
+	rev === WORKTREE ? 'Working Tree' : /^[0-9a-f]{40}$/i.test(rev) ? shortHash(rev) : rev.replace(/^([0-9a-f]{40})\^$/i, (_, h: string) => shortHash(h) + '^');
 
 /** The two revisions a change between `from` and `to` is shown with. */
 export function revisions(from: string, to: string): { left: string; right: string } {
@@ -44,7 +45,7 @@ export function fileSides(from: string, to: string, oldPath: string, newPath: st
 
 function diffTitle(left: Side | null, right: Side | null): string {
 	const side = (left ?? right) as Side;
-	const name = left !== null && right !== null && left.path !== right.path ? basename(left.path) + ' → ' + basename(right.path) : basename(side.path);
+	const name = left !== null && right !== null && left.path !== right.path ? baseName(left.path) + ' → ' + baseName(right.path) : baseName(side.path);
 	return name + ' (' + (left ? short(left.rev) : 'added') + ' ↔ ' + (right ? short(right.rev) : 'deleted') + ')';
 }
 
@@ -62,7 +63,7 @@ export function workingFileSpec(repo: string, rev: string, path: string): DiffSp
 
 /** The file as it is at `rev` (WORKTREE: on disk). */
 export function fileSpec(repo: string, rev: string, path: string): DiffSpec {
-	return { mode: 'file', repo, title: basename(path) + ' (' + short(rev) + ')', side: { rev, path } };
+	return { mode: 'file', repo, title: baseName(path) + ' (' + short(rev) + ')', side: { rev, path } };
 }
 
 /** Every changed file between two revisions, or of one commit (`from === to`). */

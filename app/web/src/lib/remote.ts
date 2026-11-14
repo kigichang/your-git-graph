@@ -16,15 +16,6 @@ export function parseRemote(repo: unknown): Remote | null {
 	return m === null ? null : { host: SCHEME + m[1], authority: m[1] as string, path: m[2] as string };
 }
 
-/** The machine of a remote repository (the prefix its repositories share), else null. */
-export const hostOf = (repo: string): string | null => parseRemote(repo)?.host ?? null;
-
-/** The path of a repository on its own machine. */
-export const pathOf = (repo: string): string => parseRemote(repo)?.path ?? repo;
-
-/** The repository at `path` on the machine of the remote repository `repo`. */
-export const withPath = (repo: string, path: string): string => (parseRemote(repo) as Remote).host + path;
-
 /** What is wrong with what was typed for a remote repository, or null. `destination` is what
  * ssh takes: [user@]host, or a Host of ~/.ssh/config. */
 export function invalidRemote({ destination, port }: { destination: string; port: string }): string | null {

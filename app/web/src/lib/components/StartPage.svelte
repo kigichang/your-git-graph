@@ -1,7 +1,7 @@
 <script lang="ts">
 	// What a window shows with no repository: the ways to open one, and the recent ones.
 	import { t } from '../i18n';
-	import { baseName } from '../sidebar';
+	import { baseName } from '../names';
 
 	let { recent, error = '', onOpen, onAddLocal, onAddRemote, onConnectServer }: {
 		recent: string[]; error?: string; onOpen: (repo: string) => void; onAddLocal: () => void; onAddRemote: () => void; onConnectServer: () => void;

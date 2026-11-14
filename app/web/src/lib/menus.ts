@@ -80,5 +80,3 @@ export function menuFor(target: MenuTarget, ctx: MenuContext): MenuItem[] {
 	}
 }
 
-/** The name the menu shows for a stash row. */
-export const stashName = (commit: Commit): string => commit.stash?.selector ?? '';

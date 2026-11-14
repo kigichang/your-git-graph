@@ -4,6 +4,7 @@
 	// settings; a status line.
 	import MultiFilter from './MultiFilter.svelte';
 	import { t } from '../i18n';
+	import { baseName } from '../names';
 
 	let { repo, branches, selected, authors, selectedAuthors, showRemoteBranches, firstParentOnly, status, sidebarCollapsed = false,
 		onBranches, onAuthors, onShowRemoteBranches, onFirstParent, onRefresh, onFetch, onFind, onReflog, onWorktrees, onSettings, onExpandSidebar }: {
@@ -14,7 +15,7 @@
 		onRefresh: () => void; onFetch: () => void; onFind: () => void; onReflog: () => void; onWorktrees: () => void; onSettings: () => void; onExpandSidebar?: () => void;
 	} = $props();
 
-	const name = $derived(repo.replace(/\/+$/, '').split('/').pop() ?? repo);
+	const name = $derived(baseName(repo));
 	/** The names as the engine has them (`remotes/origin/x`), shown as the graph labels them
 	 * (`origin/x`); a remote's HEAD is a pointer to another branch, not one to pick. */
 	const shownBranch = (b: string) => b.replace(/^remotes\//, '');
@@ -24,9 +25,9 @@
 <div class="gg-toolbar">
 	{#if sidebarCollapsed}<button class="gg-button gg-expand" onclick={onExpandSidebar} title={t('sidebar.expand')}>☰</button>{/if}
 	<span class="gg-repo" title={repo}>{name}</span>
-	<MultiFilter items={listedBranches} {selected} allLabel={t('toolbar.showAll')} placeholder={t('toolbar.filterBranches')} severalLabel={(n) => t('toolbar.branches', { count: n })}
+	<MultiFilter kind="branch" items={listedBranches} {selected} allLabel={t('toolbar.showAll')} placeholder={t('toolbar.filterBranches')} severalLabel={(n) => t('toolbar.branches', { count: n })}
 		display={shownBranch} muted={(b) => b.startsWith('remotes/')} onChange={onBranches} />
-	<MultiFilter items={authors} selected={selectedAuthors} allLabel={t('toolbar.allAuthors')} placeholder={t('toolbar.filterAuthors')} severalLabel={(n) => t('toolbar.authors', { count: n })} onChange={onAuthors} />
+	<MultiFilter kind="author" items={authors} selected={selectedAuthors} allLabel={t('toolbar.allAuthors')} placeholder={t('toolbar.filterAuthors')} severalLabel={(n) => t('toolbar.authors', { count: n })} onChange={onAuthors} />
 	<label class="gg-check" title={t('toolbar.remoteBranches')}><input type="checkbox" checked={showRemoteBranches} onchange={(e) => onShowRemoteBranches((e.target as HTMLInputElement).checked)} /> {t('toolbar.remoteBranches')}</label>
 	<label class="gg-check" title={t('toolbar.firstParent')}><input type="checkbox" checked={firstParentOnly} onchange={(e) => onFirstParent((e.target as HTMLInputElement).checked)} /> {t('toolbar.firstParent')}</label>
 	<button class="gg-button" onclick={onFetch} title="⌘⇧F">{t('toolbar.fetch')}</button>

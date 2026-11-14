@@ -63,7 +63,7 @@ export async function runPreview(scenes: string): Promise<void> {
 		} else if (scene === 'branches') {
 			click('.gg-branch-filter .gg-current');
 		} else if (scene === 'authors') {
-			click('.gg-multi-filter:not(.gg-branch-filter) .gg-current');
+			click('.gg-author-filter .gg-current');
 		} else if (scene === 'menu' && rows > 2) {
 			const row = document.querySelector('.gg-row[aria-rowindex="3"]');
 			row?.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 420, clientY: 160 }));

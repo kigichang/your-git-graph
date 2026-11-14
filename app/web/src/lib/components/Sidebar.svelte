@@ -26,8 +26,6 @@
 	let drag = $state<{ repos: string[]; x: number; y: number; over: { repo: string | null; group: string | null } | null } | null>(null);
 	let groupDrag = $state<{ name: string; before: string | null } | null>(null);
 
-	export const pickedRepos = () => picked;
-
 	function onRowPointerDown(e: PointerEvent, repo: string) {
 		if (e.button !== 0) return;
 		if (e.metaKey) {

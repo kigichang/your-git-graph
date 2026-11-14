@@ -61,7 +61,7 @@
 	];
 
 	/** The value of a dotted key in the typed settings. */
-	export function valueOf(s: Settings, key: string): unknown {
+	function valueOf(s: Settings, key: string): unknown {
 		switch (key) {
 			case 'language': return s.language;
 			case 'plantuml.jar': return s.plantumlJar ?? '';

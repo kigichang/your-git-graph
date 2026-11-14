@@ -22,6 +22,7 @@
 	import { addRemoteDialog, connectServerDialog, groupNameDialog, remoteName, remoteRoot, type RemoteAnswer } from './lib/addremote';
 	import { addReposTo, groupOfRepo, removeRepos as removeFromList, removeGroup, renameGroup, moveManyToGroup, DEFAULT_GROUP, type SidebarState } from './lib/sidebar';
 	import { ops, runOperation } from './lib/ops.svelte';
+	import { baseName, shortHash } from './lib/names';
 	import { settings, watchSettings } from './lib/settings.svelte';
 	import { appState, loadState } from './lib/state.svelte';
 	import { t, setLanguage, languageFor } from './lib/i18n';
@@ -613,7 +614,7 @@
 			case 'squash': return void operate({ kind: 'commitSquash', commit: commit?.hash ?? '' });
 			case 'createArchive': {
 				const ref = target.kind === 'tag' ? target.name : (commit?.hash ?? '');
-				const name = r.replace(/\/+$/, '').split('/').pop() + '-' + ref.slice(0, target.kind === 'tag' ? undefined : 8).replace(/[^\w.-]+/g, '-') + '.zip';
+				const name = baseName(r) + '-' + (target.kind === 'tag' ? ref : shortHash(ref)).replace(/[^\w.-]+/g, '-') + '.zip';
 				const path = await save({ defaultPath: name, filters: [{ name: 'Zip archive', extensions: ['zip'] }] }).catch(() => null);
 				if (path !== null) void operate({ kind: 'createArchive', reference: ref, path });
 				return;

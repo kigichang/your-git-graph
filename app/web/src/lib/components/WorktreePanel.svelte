@@ -3,6 +3,7 @@
 	import { worktrees as readWorktrees, log, type Worktree } from '../api/client';
 	import { errorText } from '../errors';
 	import { t } from '../i18n';
+	import { shortHash } from '../names';
 
 	let { repo, onAdd, onRemove, onPrune, onOpen, onClose, version = 0 }: {
 		repo: string; onAdd: () => void; onRemove: (w: Worktree) => void; onPrune: () => void; onOpen: (path: string) => void; onClose: () => void;
@@ -23,7 +24,6 @@
 		}
 	}
 	$effect(() => { void repo; void version; void load(); });
-	export const count = () => worktrees.length;
 </script>
 
 <section class="gg-panel" aria-label={t('worktree.title')}>
@@ -41,7 +41,7 @@
 			{#each worktrees as w (w.path)}
 				<div class="gg-row">
 					<span class="gg-path" title={w.path}>{w.path}</span>
-					<span class="gg-branch">{w.branch ?? w.hash.slice(0, 8)}</span>
+					<span class="gg-branch">{w.branch ?? shortHash(w.hash)}</span>
 					<span class="gg-tags">
 						{#if w.isMain}<span class="gg-tag">{t('worktree.main')}</span>{/if}
 						{#if w.detached}<span class="gg-tag">{t('worktree.detached')}</span>{/if}

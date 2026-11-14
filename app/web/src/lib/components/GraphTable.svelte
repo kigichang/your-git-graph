@@ -12,6 +12,7 @@
 	import type { DateFormat } from '../api/generated/DateFormat';
 	import type { MenuTarget } from '../menus';
 	import { t } from '../i18n';
+	import { shortHash } from '../names';
 
 	const relativeWords = (n: number, unit: string, ago: boolean) => {
 		if (n === 0) return t('relative.justNow');
@@ -173,7 +174,7 @@
 		return true;
 	}
 
-	const shortHash = (hash: string) => (hash === UNCOMMITTED ? '' : hash.slice(0, 8));
+	const hashCell = (hash: string) => (hash === UNCOMMITTED ? '' : shortHash(hash));
 </script>
 
 {#snippet header()}
@@ -210,7 +211,7 @@
 						</div>
 						<div class="gg-cell gg-col-date">{commit.hash === UNCOMMITTED ? '' : dateText(commit.date)}</div>
 						<div class="gg-cell gg-col-author">{commit.author}</div>
-						<div class="gg-cell gg-col-hash">{shortHash(commit.hash)}</div>
+						<div class="gg-cell gg-col-hash">{hashCell(commit.hash)}</div>
 					</div>
 					<!-- The rows below the inline details start below them. -->
 					{#if row === g.row}<div class="gg-gap-space" style:height="{g.height}px"></div>{/if}

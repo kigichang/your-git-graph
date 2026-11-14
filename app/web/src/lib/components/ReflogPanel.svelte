@@ -28,7 +28,6 @@
 		}
 	}
 	$effect(() => { void reference; void limit; void load(); });
-	export const count = () => entries.length;
 
 	function show(entry: ReflogEntry) {
 		note = onShow(entry.hash) ? '' : t('reflog.notLoaded');

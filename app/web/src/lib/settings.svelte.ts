@@ -25,13 +25,11 @@ export const DEFAULT_SETTINGS: Settings = {
 
 let current = $state.raw<Settings>(DEFAULT_SETTINGS);
 let ignored = $state.raw<Ignored[]>([]);
-let loaded = $state(false);
 const listeners: ((s: Settings) => void)[] = [];
 
 export const settings = {
 	get current() { return current; },
 	get ignored() { return ignored; },
-	get loaded() { return loaded; },
 	/** Runs `fn` after every reload (not now). */
 	onChange(fn: (s: Settings) => void) { listeners.push(fn); }
 };
@@ -46,7 +44,6 @@ export async function reloadSettings(): Promise<Settings> {
 	} catch (e) {
 		void log('settings: cannot read: ' + String(e));
 	}
-	loaded = true;
 	for (const fn of listeners) fn(current);
 	return current;
 }

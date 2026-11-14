@@ -20,10 +20,6 @@ export function setLanguage(next: Language): void {
 	language = next;
 }
 
-export function currentLanguage(): Language {
-	return language;
-}
-
 /** The text for `key`, with `{name}` placeholders filled from `values`. */
 export function t(key: Key, values: Record<string, string | number> = {}): string {
 	const text = DICTIONARIES[language][key] ?? en[key];
