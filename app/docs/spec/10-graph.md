@@ -19,7 +19,7 @@
 
 ## 列
 
-- 一般 commit、merge commit（多個父）、stash（顯示為一列）、未 commit 的修改（最上面一列，`commits.showUncommitted`；未追蹤檔案依 `commits.showUntracked`）。
+- 一般 commit、merge commit（多個父）、stash（顯示為一列）、未 commit 的修改（最上面一列，`commits.showUncommitted`；未追蹤檔案依 `commits.showUntracked`）。repo 自己的設定（`.git/config`，不是使用者的全域設定）指定了讀檔時要執行的 clean filter 時（Git LFS 的標準設定除外），這一列不讀也不顯示，graph 下方說明是哪個設定；按「顯示（會執行它）」後，這個 repo 到 App 結束前照常讀取。
 - HEAD 的列：標題粗體、節點是空心圈；目前分支的標籤粗體。detached HEAD 時沒有粗體的分支標籤，HEAD 的列一樣標示。
 
 ## ref 標籤

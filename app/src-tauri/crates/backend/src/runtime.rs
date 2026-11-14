@@ -50,6 +50,12 @@ pub trait Runtime: Send + Sync {
         false
     }
 
+    /// Whether the person allowed the filters the repository's own configuration names to run
+    /// when the uncommitted changes are read (`filters`).
+    fn filters_allowed(&self) -> bool {
+        false
+    }
+
     /// Whether the person gave up on the operation: the next git run is not started.
     fn cancelled(&self) -> bool;
 
@@ -68,16 +74,23 @@ pub struct LocalRuntime {
     cancel: watch::Receiver<bool>,
     terminal: Option<Arc<dyn Fn(Vec<String>) -> Result<(), String> + Send + Sync>>,
     remote: bool,
+    filters_allowed: bool,
 }
 
 impl LocalRuntime {
     /// `cancel` turns true when the operation is to stop; `progress` sees git's live output.
     pub fn new(repo: &str, git: PathBuf, base_env: HashMap<String, String>, progress: Arc<dyn Fn(OpProgress) + Send + Sync>, cancel: watch::Receiver<bool>) -> LocalRuntime {
-        LocalRuntime { repo: repo.to_string(), git, base_env, progress, cancel, terminal: None, remote: false }
+        LocalRuntime { repo: repo.to_string(), git, base_env, progress, cancel, terminal: None, remote: false, filters_allowed: false }
     }
 
     pub fn with_terminal(mut self, terminal: Arc<dyn Fn(Vec<String>) -> Result<(), String> + Send + Sync>) -> LocalRuntime {
         self.terminal = Some(terminal);
+        self
+    }
+
+    /// The person allowed the repository's own filters (`Runtime::filters_allowed`).
+    pub fn allow_filters(mut self, allowed: bool) -> LocalRuntime {
+        self.filters_allowed = allowed;
         self
     }
 
@@ -149,6 +162,10 @@ impl Runtime for LocalRuntime {
 
     fn is_remote(&self) -> bool {
         self.remote
+    }
+
+    fn filters_allowed(&self) -> bool {
+        self.filters_allowed
     }
 
     fn cancelled(&self) -> bool {

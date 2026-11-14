@@ -19,6 +19,7 @@ mod repos;
 mod settings;
 mod state;
 mod system;
+mod webimage;
 
 use tauri::{Emitter, Manager};
 
@@ -184,6 +185,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(api::Jobs::default())
+        .manage(api::AllowedFilters::default())
         .manage(repos::Windows::default())
         .manage(Launch::default())
         .manage(plantuml::Cache::default())
@@ -233,6 +235,7 @@ fn main() {
             api::repo_read,
             api::repo_op,
             api::repo_op_cancel,
+            api::trust_filters,
             engine_request,
             host_log,
             self_test,
@@ -253,6 +256,7 @@ fn main() {
             diff::open_diff_window,
             diff::worktree_file,
             plantuml::render_plantuml,
+            webimage::fetch_image,
             repos::scan_repos,
             repos::recent_repos,
             repos::repo_opened,
@@ -307,7 +311,7 @@ mod tests {
         let capability: serde_json::Value = serde_json::from_str(include_str!("../capabilities/diff.json")).unwrap();
         let mut allowed: Vec<&str> = capability["permissions"].as_array().unwrap().iter().filter_map(|p| p.as_str()?.strip_prefix("allow-")).collect();
         allowed.sort();
-        assert_eq!(allowed, ["engine-request", "host-log", "open-settings-file", "open-url", "render-plantuml", "self-test", "worktree-file"]);
+        assert_eq!(allowed, ["engine-request", "fetch-image", "host-log", "open-settings-file", "open-url", "render-plantuml", "self-test", "worktree-file"]);
     }
 
     #[test]

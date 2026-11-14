@@ -17,6 +17,12 @@ use tokio::io::AsyncWriteExt;
 pub const JAR_SETTING: &str = "plantuml.jar";
 const TIMEOUT: Duration = Duration::from_secs(30);
 const CACHE_LIMIT: usize = 64;
+/// A diagram's source longer than this is not drawn.
+const MAX_SOURCE: usize = 256 * 1024;
+/// JVMs at a time: a document of many diagrams (all asked for at once) waits its turn instead of
+/// starting a JVM for each.
+const AT_ONCE: usize = 2;
+static RUNNING: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(AT_ONCE);
 
 /// Rendered diagrams by (jar, source): a JVM start per diagram is slow, and the same file is
 /// opened again and again.
@@ -130,6 +136,9 @@ fn jar_of(setting: Option<&str>) -> Result<PathBuf, String> {
 /// The SVG of a PlantUML diagram of the Markdown preview.
 #[tauri::command]
 pub async fn render_plantuml(app: AppHandle, cache: tauri::State<'_, Cache>, code: String) -> Result<String, String> {
+    if code.len() > MAX_SOURCE {
+        return Err(format!("The diagram is too long to draw ({} KiB; at most {} KiB).", code.len() / 1024, MAX_SOURCE / 1024));
+    }
     let jar = jar_of(crate::settings::load(&crate::state::settings_file(&app)?)?.settings.plantuml_jar.as_deref())?;
     let key = {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -140,6 +149,11 @@ pub async fn render_plantuml(app: AppHandle, cache: tauri::State<'_, Cache>, cod
         return Ok(svg.clone());
     }
     let java = find_java().ok_or("Java not found: PlantUML needs a JDK (for example `brew install openjdk`).")?;
+    let _turn = RUNNING.acquire().await.map_err(|e| e.to_string())?;
+    // Drawn meanwhile by another request for the same diagram.
+    if let Some(svg) = cache.0.lock().unwrap().get(&key) {
+        return Ok(svg.clone());
+    }
     let svg = render(&java, &jar, &code, TIMEOUT).await?;
     let mut cache = cache.0.lock().unwrap();
     if cache.len() >= CACHE_LIMIT {

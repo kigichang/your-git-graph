@@ -15,7 +15,10 @@
 #   GG_SELFTEST_PLANTUML_JAR=…    PlantUML blocks through that jar and the real java
 set -u
 app="$1"; repo="$2"; log="${3:-$(mktemp -t gg-selftest).log}"
-data="${GG_DATA_DIR:-$(mktemp -d -t gg-selftest-data)}"
+# What this script makes is removed when it ends, however it ends (not a GG_DATA_DIR given).
+made=()
+trap 'rm -rf ${made[@]+"${made[@]}"}' EXIT # bash 3.2 with set -u: an empty array is unbound
+if [ -n "${GG_DATA_DIR:-}" ]; then data="$GG_DATA_DIR"; else data="$(mktemp -d -t gg-selftest-data)"; made+=("$data"); fi
 tests="$(cd "$(dirname "$0")/../tests" && pwd)"
 
 # The repository is also opened as one on another machine, through a stand-in for ssh that runs
@@ -24,7 +27,7 @@ tests="$(cd "$(dirname "$0")/../tests" && pwd)"
 # With GG_SELFTEST_SSH set (tests/ssh-server.sh prints how) the caller chose the real ssh.
 if [ -z "${GG_SELFTEST_SSH:-}" ]; then
 	export GG_REMOTE_SSH="$tests/fake-ssh.sh"
-	export GG_FAKE_HOME="$(mktemp -d -t gg-selftest-home)"
+	export GG_FAKE_HOME="$(mktemp -d -t gg-selftest-home)"; made+=("$GG_FAKE_HOME")
 	[ -x "$(dirname "$app")/gg-remote" ] && export GG_REMOTE_HELPER="$(dirname "$app")/gg-remote"
 fi
 
@@ -38,7 +41,7 @@ fi
 # given (decoded) and refuses it. The test must have typed gg-selftest / secret into the dialog.
 httppid=""; authlog=""
 if [ -z "${GG_SELFTEST_HTTP:-}" ] && command -v python3 >/dev/null; then
-	portfile="$(mktemp -t gg-selftest-port)"; authlog="$(mktemp -t gg-selftest-auth)"
+	portfile="$(mktemp -t gg-selftest-port)"; authlog="$(mktemp -t gg-selftest-auth)"; made+=("$portfile" "$authlog")
 	python3 -I "$tests/basic_auth_server.py" "$portfile" "$authlog" &
 	httppid=$!
 	for _ in $(seq 1 50); do [ -s "$portfile" ] && break; sleep 0.1; done

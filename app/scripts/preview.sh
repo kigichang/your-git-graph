@@ -12,8 +12,12 @@
 #           Contrast. One PNG per window: <out prefix>-0.png, -1.png, ...
 set -euo pipefail
 app="$1"; repo="$2"; scenes="$3"; appearance="$4"; out="$5"
+case "$appearance" in light | dark | system) ;; *) echo "appearance: light, dark or system (not $appearance)" >&2; exit 2 ;; esac
 
-helper="${TMPDIR:-/tmp}/gg-window-ids-2"
+# Compiled once into this user's own cache (not a shared directory another user could fill).
+cache="$HOME/Library/Caches/your-git-graph-dev"
+mkdir -p "$cache" && chmod 700 "$cache"
+helper="$cache/gg-window-ids-2"
 if [ ! -x "$helper" ]; then
 	cat > "$helper.swift" <<'SWIFT'
 import CoreGraphics

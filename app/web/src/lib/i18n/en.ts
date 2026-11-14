@@ -176,6 +176,8 @@ export const en = {
 	'status.conflicts': '{count} conflicted file(s)',
 	'status.continue': 'Continue',
 	'status.abort': 'Abort',
+	'filters.notice': "Uncommitted changes aren't shown: this repository's own settings run a program on its files when they are read ({names}).",
+	'filters.allow': 'Show Them (Runs It)',
 	'status.merge': 'Merge',
 	'status.rebase': 'Rebase',
 	'status.cherryPick': 'Cherry pick',

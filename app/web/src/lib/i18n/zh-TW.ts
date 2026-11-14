@@ -178,6 +178,8 @@ export const zhTW: Record<Key, string> = {
 	'status.conflicts': '{count} 個檔案有衝突',
 	'status.continue': '繼續',
 	'status.abort': '中止',
+	'filters.notice': '未顯示未 commit 的變更：這個 repo 自己的設定會在讀取檔案時執行程式（{names}）。',
+	'filters.allow': '顯示（會執行它）',
 	'status.merge': '合併',
 	'status.rebase': '重定基底',
 	'status.cherryPick': '揀選',

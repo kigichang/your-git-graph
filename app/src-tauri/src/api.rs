@@ -38,12 +38,34 @@ impl Jobs {
     }
 }
 
+/// The repositories whose own filters the person allowed to run (`gg_backend::filters`), for as
+/// long as the app runs; every window shares it.
+#[derive(Default)]
+pub struct AllowedFilters(Mutex<std::collections::HashSet<String>>);
+
+impl AllowedFilters {
+    fn has(&self, repo: &str) -> bool {
+        self.0.lock().unwrap().contains(repo)
+    }
+}
+
+/// Let the filters `repo`'s own configuration names run when its uncommitted changes are read
+/// (the person asked to see them anyway), until the app quits.
+#[tauri::command]
+pub fn trust_filters(state: tauri::State<'_, crate::state::State>, allowed: tauri::State<'_, AllowedFilters>, repo: String) -> Result<(), String> {
+    state.listed(&repo)?;
+    allowed.0.lock().unwrap().insert(repo);
+    Ok(())
+}
+
 /// A runtime for a local repository, in the name of `window` (git's questions go there).
-fn local_runtime(repo: &str, window: &str, askpass: &crate::askpass::Askpass, progress: Arc<dyn Fn(OpProgress) + Send + Sync>, cancel: watch::Receiver<bool>) -> Result<LocalRuntime, String> {
+fn local_runtime(repo: &str, window: &str, askpass: &crate::askpass::Askpass, filters_allowed: bool, progress: Arc<dyn Fn(OpProgress) + Send + Sync>, cancel: watch::Receiver<bool>) -> Result<LocalRuntime, String> {
     let git = PathBuf::from(&locate_git()?.path);
     let env: HashMap<String, String> = askpass.env(window).map_err(|e| format!("askpass unavailable: {e}"))?.into_iter().collect();
     let cwd = repo.to_string();
-    Ok(LocalRuntime::new(repo, git, env, progress, cancel).with_terminal(Arc::new(move |args| crate::system::terminal(cwd.clone(), Some(args)))))
+    Ok(LocalRuntime::new(repo, git, env, progress, cancel)
+        .allow_filters(filters_allowed)
+        .with_terminal(Arc::new(move |args| crate::system::terminal(cwd.clone(), Some(args)))))
 }
 
 type OpenTerminal = Arc<dyn Fn(Vec<String>) -> Result<(), String> + Send + Sync>;
@@ -98,16 +120,18 @@ pub async fn repo_read(
     state: tauri::State<'_, crate::state::State>,
     askpass: tauri::State<'_, Arc<crate::askpass::Askpass>>,
     remotes: tauri::State<'_, Arc<Remotes>>,
+    allowed: tauri::State<'_, AllowedFilters>,
     repo: String,
     request: ReadRequest,
 ) -> Result<ReadResponse, String> {
     state.listed(&repo)?;
+    let filters_allowed = allowed.has(&repo);
     if let Some(remote) = remote::parse(&repo)? {
-        let answer = remote::ask(&remotes, &remote, json!({ "op": "read", "request": request }), "repo").await?;
+        let answer = remote::ask(&remotes, &remote, json!({ "op": "read", "request": request, "filtersAllowed": filters_allowed }), "repo").await?;
         return serde_json::from_value(answer).map_err(|e| e.to_string());
     }
     let (_tx, rx) = watch::channel(false);
-    let rt = local_runtime(&repo, window.label(), &askpass, Arc::new(|_| {}), rx)?;
+    let rt = local_runtime(&repo, window.label(), &askpass, filters_allowed, Arc::new(|_| {}), rx)?;
     gg_backend::api::read(&rt, request).await
 }
 
@@ -121,6 +145,7 @@ pub async fn repo_op(
     jobs: tauri::State<'_, Jobs>,
     askpass: tauri::State<'_, Arc<crate::askpass::Askpass>>,
     remotes: tauri::State<'_, Arc<Remotes>>,
+    allowed: tauri::State<'_, AllowedFilters>,
     repo: String,
     request: OpRequest,
     confirmed: bool,
@@ -135,7 +160,7 @@ pub async fn repo_op(
         let session = remotes.session(&remote)?;
         let call = session.next_id();
         jobs.add(&id, Job::Remote(session.clone(), call))?;
-        let body = json!({ "op": "op", "repo": remote.path, "request": request, "confirmed": confirmed });
+        let body = json!({ "op": "op", "repo": remote.path, "request": request, "confirmed": confirmed, "filtersAllowed": allowed.has(&repo) });
         // The questions of the git over there (askpass events), by their number there.
         let asked: Arc<Mutex<HashMap<u64, u64>>> = Arc::default();
         let (label, prompts) = (window.label().to_string(), (*askpass).clone());
@@ -165,7 +190,7 @@ pub async fn repo_op(
     let progress = Arc::new(move |p| {
         let _ = on_progress.send(p);
     });
-    let result = match local_runtime(&repo, window.label(), &askpass, progress, rx) {
+    let result = match local_runtime(&repo, window.label(), &askpass, allowed.has(&repo), progress, rx) {
         Ok(rt) => gg_backend::ops::operate(&rt, request, confirmed).await,
         Err(e) => Err(e),
     };

@@ -16,13 +16,15 @@ fn regex_escape(s: &str) -> String {
     out
 }
 
+/// The old URL is the one the repository has, unchecked (only the new values are): `--` keeps a
+/// URL starting with "-" from being read as an option.
 fn set_url_args(name: &str, old: Option<&str>, new: Option<&str>, push: bool) -> Vec<String> {
     let mut v = args(&["remote", "set-url"]);
     v.extend(flag(push, &["--push"]).map(String::from));
     match (old, new) {
-        (Some(old), None) => v.extend([String::from("--delete"), name.into(), regex_escape(old)]),
-        (None, Some(new)) => v.extend([String::from("--add"), name.into(), new.into()]),
-        (Some(old), Some(new)) => v.extend([name.into(), new.into(), regex_escape(old)]),
+        (Some(old), None) => v.extend([String::from("--delete"), "--".into(), name.into(), regex_escape(old)]),
+        (None, Some(new)) => v.extend([String::from("--add"), "--".into(), name.into(), new.into()]),
+        (Some(old), Some(new)) => v.extend(["--".into(), name.into(), new.into(), regex_escape(old)]),
         (None, None) => {}
     }
     v
@@ -167,9 +169,9 @@ mod tests {
 
     #[test]
     fn set_url_arguments() {
-        assert_eq!(set_url_args("o", Some("a.b"), Some("c"), false), args(&["remote", "set-url", "o", "c", "a\\.b"]));
-        assert_eq!(set_url_args("o", Some("x"), None, true), args(&["remote", "set-url", "--push", "--delete", "o", "x"]));
-        assert_eq!(set_url_args("o", None, Some("y"), true), args(&["remote", "set-url", "--push", "--add", "o", "y"]));
+        assert_eq!(set_url_args("o", Some("a.b"), Some("c"), false), args(&["remote", "set-url", "--", "o", "c", "a\\.b"]));
+        assert_eq!(set_url_args("o", Some("x"), None, true), args(&["remote", "set-url", "--push", "--delete", "--", "o", "x"]));
+        assert_eq!(set_url_args("o", None, Some("y"), true), args(&["remote", "set-url", "--push", "--add", "--", "o", "y"]));
         assert_eq!(regex_escape("git@h:a/b.git"), "git@h:a/b\\.git");
     }
 

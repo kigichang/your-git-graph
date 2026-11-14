@@ -23,10 +23,22 @@ use tokio::task::JoinSet;
 enum Request {
     Engine { repo: String, request: String },
     /// A typed read (`gg_backend::api`): the same code the app runs for a local repository.
-    Read { repo: String, request: gg_backend::api::ReadRequest },
+    /// `filtersAllowed`: the person allowed the repository's own filters (`gg_backend::filters`).
+    Read {
+        repo: String,
+        request: gg_backend::api::ReadRequest,
+        #[serde(default, rename = "filtersAllowed")]
+        filters_allowed: bool,
+    },
     /// A typed operation (`gg_backend::ops`): its progress and the questions of its git are
     /// events (`V`) of the request; `C` cancels it.
-    Op { repo: String, request: gg_backend::api::OpRequest, confirmed: bool },
+    Op {
+        repo: String,
+        request: gg_backend::api::OpRequest,
+        confirmed: bool,
+        #[serde(default, rename = "filtersAllowed")]
+        filters_allowed: bool,
+    },
     WorktreeFile { repo: String, path: String },
     ExportRepoConfig { repo: String, contents: String },
     Scan { folder: String },
@@ -91,12 +103,12 @@ impl Session {
     async fn run(&self, id: u64, request: Request) -> Result<Vec<u8>, String> {
         match request {
             Request::Engine { repo, request } => blocking(move || Ok(gg_backend::engine(&repo, &request).into_bytes())).await,
-            Request::Read { repo, request } => {
-                let rt = self.runtime(id, &repo, false)?;
+            Request::Read { repo, request, filters_allowed } => {
+                let rt = self.runtime(id, &repo, false)?.allow_filters(filters_allowed);
                 json(&gg_backend::api::read(&rt, request).await?)
             }
-            Request::Op { repo, request, confirmed } => {
-                let rt = self.runtime(id, &repo, true)?;
+            Request::Op { repo, request, confirmed, filters_allowed } => {
+                let rt = self.runtime(id, &repo, true)?.allow_filters(filters_allowed);
                 let result = gg_backend::ops::operate(&rt, request, confirmed).await;
                 self.cancels.lock().unwrap().remove(&id);
                 if let Some(askpass) = &self.askpass {

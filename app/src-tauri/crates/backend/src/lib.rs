@@ -5,6 +5,7 @@
 pub mod api;
 pub mod askpass;
 pub mod files;
+pub mod filters;
 pub mod git;
 pub mod graph;
 pub mod loss;

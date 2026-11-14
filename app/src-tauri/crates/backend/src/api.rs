@@ -488,7 +488,9 @@ pub struct Timing {
 #[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
 pub enum ReadResponse {
     RepoInfo { branches: Vec<String>, head: Option<String>, remotes: Vec<String>, stashes: Vec<Stash>, tags: Vec<String> },
-    Commits { commits: Vec<Commit>, head: Option<String>, more: bool, layout: Layout, timing: Timing },
+    /// `blockedBy`: the filters of the repository's own configuration that kept the uncommitted
+    /// changes from being read (`filters`); empty when they were read or not asked for.
+    Commits { commits: Vec<Commit>, head: Option<String>, more: bool, layout: Layout, timing: Timing, blocked_by: Vec<String> },
     Details { details: Details },
     Compare { files: Vec<FileChange> },
     LineCounts { counts: BTreeMap<String, LineCounts> },
@@ -615,7 +617,21 @@ struct EngineTagDetails {
 
 /// Answer `request` for the repository `rt` runs in: the engine's reads in a blocking task,
 /// the CLI's through the runtime's git.
-pub async fn read(rt: &dyn crate::runtime::Runtime, request: ReadRequest) -> Result<ReadResponse, String> {
+pub async fn read(rt: &dyn crate::runtime::Runtime, mut request: ReadRequest) -> Result<ReadResponse, String> {
+    // The engine's status runs the repository's own filters: not until the person allows them.
+    let mut blocked: Vec<String> = Vec::new();
+    match &mut request {
+        ReadRequest::Commits { options } if options.show_uncommitted => {
+            blocked = crate::filters::blocking(rt).await?;
+            if !blocked.is_empty() {
+                options.show_uncommitted = false;
+            }
+        }
+        ReadRequest::UncommittedDetails => refuse_filters(rt).await?,
+        ReadRequest::Compare { from, to } | ReadRequest::LineCounts { to, from: Some(from), .. } if from == UNCOMMITTED || to == UNCOMMITTED => refuse_filters(rt).await?,
+        ReadRequest::LineCounts { to, from: None, .. } if to == UNCOMMITTED => refuse_filters(rt).await?,
+        _ => {}
+    }
     if request.is_engine() {
         let options = match &request {
             ReadRequest::Commits { options } => Some(options.clone()),
@@ -623,6 +639,9 @@ pub async fn read(rt: &dyn crate::runtime::Runtime, request: ReadRequest) -> Res
         };
         let repo = rt.repo().to_string();
         let mut response = tokio::task::spawn_blocking(move || read_engine(&repo, request)).await.map_err(|e| e.to_string())??;
+        if let ReadResponse::Commits { blocked_by, .. } = &mut response {
+            *blocked_by = blocked;
+        }
         if let (Some(o), ReadResponse::Commits { commits, timing, layout, more, .. }) = (options, &mut response) {
             // The engine's dates are the committer's: the reflog's commits go by them too.
             if o.include_reflog && o.branches.is_none() {
@@ -643,6 +662,16 @@ pub async fn read(rt: &dyn crate::runtime::Runtime, request: ReadRequest) -> Res
         return Ok(response);
     }
     crate::reads::read_git(rt, request).await
+}
+
+/// An error when reading the uncommitted changes would run filters the person has not allowed.
+async fn refuse_filters(rt: &dyn crate::runtime::Runtime) -> Result<(), String> {
+    let blocked = crate::filters::blocking(rt).await?;
+    if blocked.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("The uncommitted changes are not read: this repository's own configuration runs {} on its files.", blocked.join(", ")))
+    }
 }
 
 /// Author dates already read, by commit hash: a commit's date never changes, so a reload or a
@@ -727,6 +756,7 @@ pub fn read_engine(repo: &str, request: ReadRequest) -> Result<ReadResponse, Str
                 more: data.more_commits_available,
                 layout,
                 timing: Timing { engine_ms, layout_ms, dates_ms: 0.0, reflog_ms: 0.0 },
+                blocked_by: vec![],
             })
         }
         ReadRequest::CommitDetails { hash } => {
@@ -844,7 +874,7 @@ mod tests {
     fn commits_come_with_their_layout_and_the_uncommitted_row_on_top() {
         let dir = repository();
         let repo = dir.path().to_str().unwrap();
-        let ReadResponse::Commits { commits, head, more, layout, timing } = read_engine(repo, ReadRequest::Commits { options: options(300) }).unwrap() else { panic!() };
+        let ReadResponse::Commits { commits, head, more, layout, timing, .. } = read_engine(repo, ReadRequest::Commits { options: options(300) }).unwrap() else { panic!() };
         assert_eq!(commits.iter().map(|c| c.message.as_str()).collect::<Vec<_>>(), ["On main: kept", "merge", "three", "two", "one"]);
         assert!(commits[0].stash.is_some(), "the stash is a row");
         assert_eq!(commits[1].parents.len(), 2);

@@ -26,6 +26,24 @@ async fn moved_branch(rt: &dyn Runtime, branch: &str, target: &str) -> Result<u3
     count_commits(rt, &[&format!("refs/heads/{branch}"), "--not", target, &format!("--exclude={branch}"), "--branches", "--tags", "--remotes"]).await
 }
 
+/// How many tracked files have uncommitted changes (staged or not). `git status` hashes a file
+/// whose stat changed, through the repository's own filters: when they are not allowed
+/// (`filters`), the plumbing counts by stat alone - a touched but unchanged file counts too,
+/// which only asks once more than needed.
+async fn uncommitted_tracked(rt: &dyn Runtime) -> Result<u32, String> {
+    let lines = |r: &crate::git::GitExecResult| if r.exit_code == Some(0) { r.stdout.lines().filter(|l| !l.is_empty()).map(String::from).collect() } else { vec![] };
+    if crate::filters::blocking(rt).await?.is_empty() {
+        return Ok(lines(&exec(rt, args(&["status", "--porcelain", "--untracked-files=no"])).await?).len() as u32);
+    }
+    let mut files: Vec<String> = lines(&exec(rt, args(&["diff-files", "--name-only"])).await?);
+    for file in lines(&exec(rt, args(&["diff-index", "--cached", "--name-only", "HEAD"])).await?) {
+        if !files.contains(&file) {
+            files.push(file);
+        }
+    }
+    Ok(files.len() as u32)
+}
+
 /// The reasons `request` would lose work (empty: none).
 pub async fn reasons(rt: &dyn Runtime, request: &OpRequest) -> Result<Vec<Reason>, String> {
     match request {
@@ -57,8 +75,7 @@ pub async fn reasons(rt: &dyn Runtime, request: &OpRequest) -> Result<Vec<Reason
                 }
             };
             if *mode == ResetMode::Hard {
-                let status = exec(rt, args(&["status", "--porcelain", "--untracked-files=no"])).await?;
-                let count = if status.exit_code == Some(0) { status.stdout.lines().filter(|l| !l.is_empty()).count() as u32 } else { 0 };
+                let count = uncommitted_tracked(rt).await?;
                 if count > 0 {
                     out.push(Reason::UncommittedDiscarded { count });
                 }

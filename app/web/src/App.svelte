@@ -35,6 +35,7 @@
 	import FormDialog from './lib/components/FormDialog.svelte';
 	import OpDialogs from './lib/components/OpDialogs.svelte';
 	import StatusBar from './lib/components/StatusBar.svelte';
+	import FilterNotice from './lib/components/FilterNotice.svelte';
 	import Sidebar, { type RepoStatus, type SidebarTarget } from './lib/components/Sidebar.svelte';
 	import StartPage from './lib/components/StartPage.svelte';
 	import AskpassDialog from './lib/components/AskpassDialog.svelte';
@@ -182,6 +183,14 @@
 	}
 
 	/** Load again what is shown; during a load, once more right after it. */
+	/** The person wants the uncommitted changes of a repository whose own filters kept them
+	 * unread: allowed (Rust remembers it until the app quits), then loaded again. */
+	function allowFilters() {
+		const r = repo;
+		if (r === null) return;
+		invoke('trust_filters', { repo: r }).then(() => reload(), (e) => log('filters: ' + errorText(e)));
+	}
+
 	function reload(): Promise<boolean> {
 		if (loading) {
 			reloadAgain = true;
@@ -839,6 +848,9 @@
 					onLoadMore={loadMore} {onSelect} {onOpen} {onCompare} onEscape={() => { if (find.open) find = { ...find, open: false }; else closeDetails(); }} {onTag} {onContextMenu} />
 			{:else if error}
 				<p class="gg-error">{error}</p>
+			{/if}
+			{#if data !== null && data.blockedBy.length > 0}
+				<FilterNotice names={data.blockedBy} onAllow={allowFilters} />
 			{/if}
 			{#if inProgress}
 				<StatusBar operation={inProgress.operation} progress={inProgress.progress} conflicted={inProgress.conflicted}

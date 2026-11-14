@@ -44,7 +44,7 @@ pub fn open_url(url: String) -> Result<(), String> {
     if !allowed {
         return Err(format!("Refusing to open {url}: only http(s) and mailto links are opened."));
     }
-    run(Command::new("/usr/bin/open").arg(&url))
+    run(Command::new("/usr/bin/open").arg("--").arg(&url))
 }
 
 /// What macOS runs instead of showing when it is opened: scripts, installers, and links to

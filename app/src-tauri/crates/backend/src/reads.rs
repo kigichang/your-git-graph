@@ -47,7 +47,7 @@ pub async fn read_git(rt: &dyn Runtime, request: ReadRequest) -> Result<ReadResp
         ReadRequest::Reflog { reference, limit } => {
             crate::ops::unsafe_arg([reference.as_str()])?;
             let format = format!("--format=%H{UNIT}%h{UNIT}%gD{UNIT}%gs");
-            let r = exec(rt, args(&["reflog", "show", "--date=unix", &format, "-n", &(limit + 1).to_string(), &reference, "--"])).await?;
+            let r = exec(rt, args(&["reflog", "show", "--date=unix", &format, "-n", &limit.saturating_add(1).to_string(), &reference, "--"])).await?;
             if let Some(e) = error_of(&r) {
                 return Err(e);
             }

@@ -317,6 +317,11 @@ async fn add_edit_prune_and_delete_a_remote() {
     assert!(done(&f.op(edit).await));
     assert_eq!(f.git(&["config", "remote.up2.url"]), "/new/url");
     assert_eq!(w.git_status(&f.dir, &["config", "remote.up2.pushurl"]), 1, "push URL removed");
+    // A push URL the repository has that starts with "-": removed as a URL, not read as an option.
+    f.git(&["config", "remote.up2.pushurl", "-odd"]);
+    let edit = OpRequest::EditRemote { name_old: "up2".into(), name_new: "up2".into(), url_old: None, url_new: None, push_url_old: Some("-odd".into()), push_url_new: None };
+    assert!(done(&f.op(edit).await));
+    assert_eq!(w.git_status(&f.dir, &["config", "remote.up2.pushurl"]), 1, "the odd push URL removed");
     assert!(done(&f.op(OpRequest::PruneRemote { name: "origin".into() }).await));
     assert!(done(&f.op(OpRequest::DeleteRemote { name: "up2".into() }).await));
     assert_eq!(f.git(&["remote"]), "origin");
@@ -862,4 +867,54 @@ async fn commits_only_the_reflog_mentions_come_in_before_their_parents_without_t
     // A branch filter shows that branch's history: no reflog.
     let (filtered, _, _) = load(options(true, Some(vec!["main".into()]))).await;
     assert!(!subjects(&filtered).contains(&"add d".to_string()));
+}
+
+/* ---------- the repository's own filters ---------- */
+
+/// A filter the repository's .git/config names runs on the uncommitted changes' files: not
+/// while the graph loads, the details open, or a hard reset is weighed, until it is allowed.
+#[tokio::test]
+async fn the_repositorys_own_filters_run_only_once_allowed() {
+    let w = World::new();
+    let f = w.fixture();
+    f.write(".gitattributes", "*.txt filter=probe\n");
+    f.write("a.txt", "one\n");
+    f.git(&["add", "."]);
+    f.git(&["commit", "-qm", "a filtered file"]);
+    let marker = w.root.path().join("the filter ran");
+    f.git(&["config", "filter.probe.clean", &format!("sh -c 'touch \"{}\"; cat'", marker.display())]);
+    // Standard Git LFS in the repository's config does not count.
+    f.git(&["config", "filter.lfs.clean", "git-lfs clean -- %f"]);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    f.write("a.txt", "two\n"); // a new stat: git hashes it, through the filter
+
+    let options = LoadOptions {
+        max_commits: 10, branches: None, authors: None, filter_paths: vec![], order: CommitOrder::Date, first_parent_only: false,
+        show_tags: true, show_remote_branches: true, show_remote_heads: true, hide_remotes: vec![], show_uncommitted: true, show_untracked: true,
+        author_dates: false, include_reflog: false,
+    };
+    let load = |rt: LocalRuntime| {
+        let options = options.clone();
+        async move {
+            match gg_backend::api::read(&rt, ReadRequest::Commits { options }).await.unwrap() {
+                ReadResponse::Commits { commits, blocked_by, .. } => (commits.first().map(|c| c.hash.clone()), blocked_by),
+                other => panic!("{other:?}"),
+            }
+        }
+    };
+    let (first, blocked) = load(f.rt()).await;
+    assert_eq!(blocked, ["filter.probe.clean"]);
+    assert_ne!(first.as_deref(), Some(UNCOMMITTED), "no uncommitted row");
+    assert!(gg_backend::api::read(&f.rt(), ReadRequest::UncommittedDetails).await.unwrap_err().contains("filter.probe.clean"));
+    let compare = ReadRequest::Compare { from: "HEAD".into(), to: UNCOMMITTED.into() };
+    assert!(gg_backend::api::read(&f.rt(), compare).await.is_err());
+    let reset = OpRequest::Reset { commit: "HEAD".into(), mode: ResetMode::Hard };
+    let OpResult::NeedsConfirmation { reasons } = f.op(reset.clone()).await else { panic!("a hard reset asks first") };
+    assert_eq!(reasons, [Reason::UncommittedDiscarded { count: 1 }], "counted without the filter");
+    assert!(!marker.exists(), "nothing ran the filter");
+
+    let (first, blocked) = load(f.rt().allow_filters(true)).await;
+    assert!(blocked.is_empty());
+    assert_eq!(first.as_deref(), Some(UNCOMMITTED));
+    assert!(marker.exists(), "allowed, the engine's status runs it");
 }

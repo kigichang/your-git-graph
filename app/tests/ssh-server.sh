@@ -10,6 +10,7 @@
 #   GG_REMOTE_SSH=app/tests/real-ssh.sh app/scripts/selftest.sh <app binary> <a local repository>
 set -euo pipefail
 shell="${1:-sh}"
+case "$shell" in sh | bash | fish) ;; *) echo "shell: sh, bash or fish (not $shell)" >&2; exit 2 ;; esac
 docker rm -f gg-ssh-test >/dev/null 2>&1 || true
 docker run -d --name gg-ssh-test -p 127.0.0.1:2222:22 alpine sh -c "
 	apk add -q openssh git $([ "$shell" = sh ] || echo "$shell") &&

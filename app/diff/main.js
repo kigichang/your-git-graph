@@ -221,7 +221,8 @@ async function colourCode(page) {
 /** Images: one of the repository is read where the file itself comes from; data: images load as
  * they are; http(s) ones wait in `remote`, as { img, src }, until the person asks (a document
  * must not tell a server who reads it and when, or knock on this machine's own services);
- * anything else is not loaded. Called before the page is attached. */
+ * anything else is not loaded. Called on the inert template's content: every src is gone
+ * before the first await. */
 function repositoryImages(page, side, remote) {
 	return Promise.all(Array.from(page.querySelectorAll('img')).map(async (img) => {
 		const src = img.getAttribute('src') || '';
@@ -300,9 +301,24 @@ function offerRemoteImages(page, remote) {
 	said.textContent = remote.length === 1 ? '1 image from the web is not loaded.' : remote.length + ' images from the web are not loaded.';
 	const button = document.createElement('button');
 	button.textContent = 'Load';
-	button.addEventListener('click', () => {
-		for (const { img, src } of remote) img.src = src;
-		note.remove();
+	// The page may load nothing from the web (the CSP): the app fetches each one (webimage.rs).
+	button.addEventListener('click', async () => {
+		button.disabled = true;
+		const failed = [];
+		await Promise.all(remote.map(async ({ img, src }) => {
+			img.dataset.asked = 'true';
+			try {
+				img.src = await invoke('fetch_image', { url: src });
+			} catch (e) {
+				failed.push(String(e));
+				img.title = String(e);
+			}
+		}));
+		if (failed.length === 0) note.remove();
+		else {
+			said.textContent = failed.length === 1 ? '1 image could not be loaded: ' + failed[0] : failed.length + ' images could not be loaded: ' + failed[0];
+			button.remove();
+		}
 	});
 	note.append(said, button);
 	page.prepend(note);
@@ -333,11 +349,13 @@ async function renderPreview(pane, side, text) {
 	await loadBundle('preview', true);
 	const template = document.createElement('template'); // inert: its images do not load yet
 	template.innerHTML = window.__ggPreview.renderMarkdown(text);
+	// The images are taken care of while still inert: moved into this document, an <img> starts
+	// loading at once (attached or not), before repositoryImages could take its src away.
+	const remote = [];
+	const images = repositoryImages(template.content, side, remote);
 	const page = document.createElement('div');
 	page.className = 'md';
 	page.appendChild(template.content);
-	const remote = [];
-	const images = repositoryImages(page, side, remote);
 	offerRemoteImages(page, remote);
 	pane.replaceChildren(page);
 	// Links never navigate this window: web and mail links open in their apps.
@@ -359,7 +377,7 @@ async function renderPreview(pane, side, text) {
 		coloured: page.querySelectorAll('pre > code span[class*="mtk"]').length,
 		images: page.querySelectorAll('img[src^="data:image/"]:not(pre img)').length,
 		remoteWaiting: remote.length,
-		remoteLoaded: page.querySelectorAll('img[src^="http"]').length,
+		remoteLoaded: page.querySelectorAll('img[data-asked]').length,
 		katex: page.querySelectorAll('.katex').length,
 		mermaid: page.querySelectorAll('pre.mermaid svg').length,
 		plantuml: page.querySelectorAll('pre.plantuml.rendered img').length,
@@ -551,8 +569,11 @@ async function main() {
 		if (result.preview && result.preview.shown && !result.preview.error) result.preview.synced = await checkSync();
 		if (result.preview && result.preview.remoteWaiting > 0) {
 			document.querySelector('.remoteImages button').click();
-			result.preview.remoteAsked = preview.page.querySelectorAll('img[src^="http"]').length;
-			await new Promise((resolve) => setTimeout(resolve, 200)); // the policy would have said no by now
+			result.preview.remoteAsked = preview.page.querySelectorAll('img[data-asked]').length;
+			// The app fetched it (or said why not): the image's title holds the answer when it failed.
+			for (let i = 0; i < 50 && preview.page.querySelector('.remoteImages button') !== null; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+			const asked = preview.page.querySelector('img[data-asked]');
+			result.preview.remoteAnswer = asked === null ? null : asked.src.startsWith('data:') ? 'loaded' : asked.title;
 		}
 		// Each of these writes or runs something when a window may call it.
 		const refused = {};
