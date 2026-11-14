@@ -509,9 +509,18 @@ mod tests {
 
     fn fixtures() -> (PathBuf, PathBuf) {
         let ssh = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/fake-ssh.sh");
-        // target/debug/deps/<this test> → target/debug/gg-remote
-        let helper = std::env::current_exe().unwrap().parent().unwrap().parent().unwrap().join("gg-remote");
-        assert!(helper.is_file(), "{} is missing: run `cargo test --workspace` (or `cargo build -p gg-remote`)", helper.display());
+        // The helper is target/debug/gg-remote. This test sits below it at a depth that depends
+        // on cargo's version (target/debug/deps/<test>, or target/debug/build/<package>/<hash>/
+        // <test>), so look in each directory above it for the first `gg-remote` file.
+        let exe = std::env::current_exe().unwrap();
+        let helper = exe
+            .ancestors()
+            .skip(1)
+            .map(|dir| dir.join("gg-remote"))
+            .find(|helper| helper.is_file())
+            .unwrap_or_else(|| {
+                panic!("no gg-remote above {}: run `cargo test --workspace` (or `cargo build -p gg-remote`)", exe.display())
+            });
         (ssh, helper)
     }
 
