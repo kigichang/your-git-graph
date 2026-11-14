@@ -219,12 +219,6 @@ pub fn open_new_window(app: AppHandle, repo: String) -> Result<(), String> {
     new_window(&app, Some(&repo))
 }
 
-/// Show `folder` in a window (the same path as File > Open Recent).
-#[tauri::command]
-pub fn open_repo_folder(app: AppHandle, folder: String) -> Result<(), String> {
-    open_folder(&app, &folder)
-}
-
 /// A new graph window, on the start page or opening `folder`.
 pub fn new_window<R: Runtime>(app: &AppHandle<R>, folder: Option<&str>) -> Result<(), String> {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -379,11 +373,6 @@ pub fn apply_appearance<R: Runtime>(app: &AppHandle<R>, appearance: &str) -> Res
 #[tauri::command]
 pub fn set_appearance(app: AppHandle, appearance: String) -> Result<(), String> {
     apply_appearance(&app, &appearance)
-}
-
-#[tauri::command]
-pub fn get_appearance(app: AppHandle) -> String {
-    saved_appearance(&app)
 }
 
 pub fn on_menu_event<R: Runtime>(app: &AppHandle<R>, id: &str) {

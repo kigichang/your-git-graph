@@ -16,11 +16,10 @@ use crate::git::{self, GitExecRequest, GitExecResult, GitOutput};
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// What one git run may add to the usual: more environment, a time limit, live output.
+/// What one git run may add to the usual: more environment, live output, input.
 #[derive(Debug, Clone, Default)]
 pub struct GitOpts {
     pub env: HashMap<String, String>,
-    pub timeout_ms: Option<u64>,
     /// Report the output as it arrives (fetch, push: their progress).
     pub stream: bool,
     /// git's standard input (for its `--stdin` options).
@@ -88,12 +87,6 @@ impl LocalRuntime {
         self
     }
 
-    /// A runtime that cannot be cancelled and reports nothing (tests, one-off reads).
-    pub fn plain(repo: &str, git: PathBuf) -> LocalRuntime {
-        let (_tx, rx) = watch::channel(false);
-        // The sender is dropped: `changed()` errors, which the cancel task takes as "never".
-        LocalRuntime::new(repo, git, HashMap::new(), Arc::new(|_| {}), rx)
-    }
 }
 
 impl Runtime for LocalRuntime {
@@ -112,7 +105,7 @@ impl Runtime for LocalRuntime {
             env.insert("GIT_EDITOR".into(), "true".into());
             env.insert("GIT_OPTIONAL_LOCKS".into(), "0".into());
             env.extend(opts.env);
-            let request = GitExecRequest { args, cwd: self.repo.clone(), env, timeout_ms: opts.timeout_ms, id: None, stream: opts.stream, stdin: opts.stdin };
+            let request = GitExecRequest { args, cwd: self.repo.clone(), env, timeout_ms: None, stream: opts.stream, stdin: opts.stdin };
             // git::run takes a one-shot cancel: fire it when the operation's flag turns true.
             let (tx, rx) = oneshot::channel();
             let mut flag = self.cancel.clone();

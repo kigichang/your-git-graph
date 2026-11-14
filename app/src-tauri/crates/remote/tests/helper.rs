@@ -120,7 +120,6 @@ async fn says_hello_and_answers_the_engine_and_the_file_requests() {
     let failed = helper.result(json!({ "op": "engine", "repo": "/nonexistent", "request": "{\"method\":\"open\",\"params\":null}" })).await;
     assert!(failed["error"].is_string(), "engine failures stay in-band: {failed}");
 
-    assert_eq!(helper.result(json!({ "op": "operationState", "repo": root })).await, json!({ "type": null, "progress": null }));
     std::fs::create_dir_all(root.join("nested/.git")).unwrap();
     assert_eq!(helper.result(json!({ "op": "scan", "folder": root })).await, json!([root.join("nested").display().to_string()]));
     let written = helper.result(json!({ "op": "exportRepoConfig", "repo": root, "contents": "{\"a\":1}" })).await;
@@ -164,12 +163,12 @@ async fn a_large_file_arrives_whole_without_holding_up_a_small_request() {
     std::fs::write(root.join("big.bin"), &bytes).unwrap();
     let mut helper = Helper::start().await;
     let big = helper.ask(json!({ "op": "worktreeFile", "repo": root, "path": "big.bin" })).await;
-    let small = helper.ask(json!({ "op": "operationState", "repo": root })).await;
+    let small = helper.ask(json!({ "op": "scan", "folder": root })).await;
     let (result, others) = helper.answer(big).await;
     let file: Value = serde_json::from_slice(&result.unwrap()).unwrap();
     let got = base64::engine::general_purpose::STANDARD.decode(file["base64"].as_str().unwrap()).unwrap();
     assert!(got == bytes, "the file's bytes");
-    assert!(others.contains(&Frame::new(small, b'R', "{\"type\":null,\"progress\":null}")), "answered while the file was on its way");
+    assert!(others.contains(&Frame::new(small, b'R', "[]")), "answered while the file was on its way");
 }
 
 #[tokio::test]

@@ -118,7 +118,7 @@ pub async fn perform(rt: &dyn Runtime, request: OpRequest) -> Outcome {
             let total = remotes.len() as u32;
             for (i, remote) in remotes.iter().enumerate() {
                 if total > 1 {
-                    rt_progress(rt, OpProgress::Step { index: i as u32, total, label: remote.clone() });
+                    rt.progress(OpProgress::Step { index: i as u32, total, label: remote.clone() });
                 }
                 let mut v = args(&["push"]);
                 v.extend(flag(set_upstream, &["--set-upstream"]).map(String::from));
@@ -159,10 +159,6 @@ pub async fn perform(rt: &dyn Runtime, request: OpRequest) -> Outcome {
         }
         other => Err(Fail::from(format!("not a remote operation: {other:?}"))),
     }
-}
-
-fn rt_progress(rt: &dyn Runtime, progress: OpProgress) {
-    rt.progress(progress);
 }
 
 #[cfg(test)]

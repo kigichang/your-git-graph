@@ -27,7 +27,6 @@ enum Request {
     /// A typed operation (`gg_backend::ops`): its progress and the questions of its git are
     /// events (`V`) of the request; `C` cancels it.
     Op { repo: String, request: gg_backend::api::OpRequest, confirmed: bool },
-    OperationState { repo: String },
     WorktreeFile { repo: String, path: String },
     ExportRepoConfig { repo: String, contents: String },
     Scan { folder: String },
@@ -105,7 +104,6 @@ impl Session {
                 }
                 json(&result?)
             }
-            Request::OperationState { repo } => blocking(move || json(&gg_backend::repo::operation_state(Path::new(&repo)))).await,
             Request::WorktreeFile { repo, path } => {
                 blocking(move || json(&gg_backend::files::read_worktree_file(Path::new(&repo), &path)?)).await
             }

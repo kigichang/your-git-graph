@@ -565,7 +565,7 @@ mod tests {
         let fake = fake();
         let (_d, root) = repo();
         let remote = parse(&format!("ssh://tester@fake-host{root}")).unwrap().unwrap();
-        assert!(ask(&fake.remotes, &remote, json!({ "op": "operationState" }), "repo").await.unwrap_err().contains("Not connected"), "nothing connects by itself");
+        assert!(ask(&fake.remotes, &remote, json!({ "op": "read", "request": { "kind": "operationState" } }), "repo").await.unwrap_err().contains("Not connected"), "nothing connects by itself");
 
         let session = fake.remotes.connect(&remote, fake.env("Welcome to fake-host\n@@ not a marker\n")).await.unwrap();
         assert!(session.hello["git"]["version"].is_string(), "{}", session.hello);
@@ -576,7 +576,8 @@ mod tests {
 
         let root_json = session.call(session.next_id(), &json!({ "op": "engine", "repo": root, "request": "{\"method\":\"repoRoot\",\"params\":null}" }), |_| {}).await.unwrap();
         assert_eq!(serde_json::from_slice::<Value>(&root_json).unwrap(), json!(root));
-        assert_eq!(ask(&fake.remotes, &remote, json!({ "op": "operationState" }), "repo").await.unwrap(), json!({ "type": null, "progress": null }));
+        let state = ask(&fake.remotes, &remote, json!({ "op": "read", "request": { "kind": "operationState" } }), "repo").await.unwrap();
+        assert_eq!((&state["kind"], &state["operation"]), (&json!("operationState"), &json!(null)), "{state}");
 
         // Connected: the same session. After a disconnect: a new one, and nothing is copied again.
         assert!(Arc::ptr_eq(&session, &fake.remotes.connect(&remote, fake.env("")).await.unwrap()));

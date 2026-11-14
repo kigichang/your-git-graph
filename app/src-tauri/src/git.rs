@@ -1,10 +1,8 @@
-//! The `git` this Mac runs (git_info), and the questions a git on another machine asks,
-//! shown in the window that started the operation (api.rs routes them here).
+//! The questions a git on another machine asks, shown in the window that started the operation
+//! (api.rs routes them here).
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-
-use gg_backend::git::{locate_git, GitInfo};
 
 use crate::remote::Session;
 
@@ -30,10 +28,4 @@ pub fn remote_prompt(session: &Arc<Session>, prompts: &Arc<crate::askpass::Askpa
         asked.lock().unwrap().remove(&ask);
         let _ = session.json(serde_json::json!({ "op": "answer", "ask": ask, "answer": answer })).await;
     });
-}
-
-/// The git the app runs, or why there is none.
-#[tauri::command]
-pub fn git_info() -> Result<GitInfo, String> {
-    locate_git().cloned()
 }

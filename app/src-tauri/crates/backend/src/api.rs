@@ -87,8 +87,6 @@ pub enum ReadRequest {
     /// The reflog of `reference` (`HEAD`, a branch): at most `limit` entries.
     Reflog { reference: String, limit: u32 },
     WorktreeList,
-    /// Whether merging `theirs` into `ours` would conflict, and in which files.
-    PredictConflicts { ours: String, theirs: String },
     /// The repository's remotes, branch upstreams, user and tools, from its config.
     RepoConfig,
     /// How far the checked-out branch is ahead of / behind its upstream.
@@ -129,14 +127,6 @@ pub struct Worktree {
     pub locked: bool,
     pub prunable: bool,
     pub is_main: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
-pub struct ConflictPrediction {
-    pub conflicted: bool,
-    pub files: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -512,8 +502,6 @@ pub enum ReadResponse {
     OperationState { operation: Option<OperationKind>, progress: Option<OperationProgress>, conflicted_files: Vec<String>, staged: bool },
     Reflog { entries: Vec<ReflogEntry>, more: bool },
     Worktrees { worktrees: Vec<Worktree> },
-    /// `None` when git cannot tell.
-    ConflictPrediction { prediction: Option<ConflictPrediction> },
     RepoConfig { config: RepoConfig },
     /// `None` without an upstream.
     AheadBehind { ahead: Option<u32>, behind: Option<u32> },
@@ -524,7 +512,7 @@ impl ReadRequest {
     pub fn is_engine(&self) -> bool {
         !matches!(
             self,
-            ReadRequest::OperationState | ReadRequest::Reflog { .. } | ReadRequest::WorktreeList | ReadRequest::PredictConflicts { .. } | ReadRequest::RepoConfig | ReadRequest::AheadBehind
+            ReadRequest::OperationState | ReadRequest::Reflog { .. } | ReadRequest::WorktreeList | ReadRequest::RepoConfig | ReadRequest::AheadBehind
         )
     }
 }

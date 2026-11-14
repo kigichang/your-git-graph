@@ -17,7 +17,6 @@ export type { OperationKind } from './generated/OperationKind';
 export type { ReflogEntry } from './generated/ReflogEntry';
 export type { Worktree } from './generated/Worktree';
 export type { RepoConfig } from './generated/RepoConfig';
-export type { ConflictPrediction } from './generated/ConflictPrediction';
 
 export type { Commit } from './generated/Commit';
 export type { CommitStash } from './generated/CommitStash';
@@ -68,7 +67,6 @@ export const authors = async (repo: string) => (await expect(repo, { kind: 'auth
 export const operationState = (repo: string) => expect(repo, { kind: 'operationState' }, 'operationState');
 export const reflog = (repo: string, reference: string, limit: number) => expect(repo, { kind: 'reflog', reference, limit }, 'reflog');
 export const worktrees = async (repo: string) => (await expect(repo, { kind: 'worktreeList' }, 'worktrees')).worktrees;
-export const predictConflicts = async (repo: string, ours: string, theirs: string) => (await expect(repo, { kind: 'predictConflicts', ours, theirs }, 'conflictPrediction')).prediction;
 export const repoConfig = async (repo: string) => (await expect(repo, { kind: 'repoConfig' }, 'repoConfig')).config;
 export const aheadBehind = (repo: string) => expect(repo, { kind: 'aheadBehind' }, 'aheadBehind');
 

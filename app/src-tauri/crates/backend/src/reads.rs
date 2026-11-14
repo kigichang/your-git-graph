@@ -1,10 +1,10 @@
 //! The reads the engine does not offer, through the git CLI: what is in progress, the reflog,
-//! the worktrees, conflict prediction, the repository's configuration, ahead/behind.
+//! the worktrees, the repository's configuration, ahead/behind.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::api::{Author, BranchConfig, ConflictPrediction, LocalAndGlobal, OperationKind, OperationProgress, ReadRequest, ReadResponse, ReflogEntry, RemoteConfig, RepoConfig, Worktree};
+use crate::api::{Author, BranchConfig, LocalAndGlobal, OperationKind, OperationProgress, ReadRequest, ReadResponse, ReflogEntry, RemoteConfig, RepoConfig, Worktree};
 use crate::ops::{args, error_of, exec};
 use crate::runtime::Runtime;
 
@@ -113,19 +113,6 @@ pub async fn read_git(rt: &dyn Runtime, request: ReadRequest) -> Result<ReadResp
                 });
             }
             Ok(ReadResponse::Worktrees { worktrees })
-        }
-        ReadRequest::PredictConflicts { ours, theirs } => {
-            if crate::ops::unsafe_arg([ours.as_str(), theirs.as_str()]).is_err() {
-                return Ok(ReadResponse::ConflictPrediction { prediction: None });
-            }
-            // exit 0: clean; exit 1: conflicts (tree id, then one conflicted path per line); else: cannot tell.
-            let r = exec(rt, args(&["merge-tree", "--write-tree", "--name-only", "--no-messages", &ours, &theirs])).await?;
-            let prediction = match r.exit_code {
-                Some(0) => Some(ConflictPrediction { conflicted: false, files: vec![] }),
-                Some(1) => Some(ConflictPrediction { conflicted: true, files: r.stdout.lines().skip(1).filter(|l| !l.is_empty()).map(String::from).collect() }),
-                _ => None,
-            };
-            Ok(ReadResponse::ConflictPrediction { prediction })
         }
         ReadRequest::RepoConfig => {
             let local = config_entries(rt, "--local").await?;

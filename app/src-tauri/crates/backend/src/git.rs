@@ -160,8 +160,6 @@ pub struct GitExecRequest {
     pub env: HashMap<String, String>,
     /// Kill the run after this long; `None` = no limit.
     pub timeout_ms: Option<u64>,
-    /// A caller-chosen id that `git_cancel` can target; `None` = not cancellable.
-    pub id: Option<String>,
     /// Send each output chunk over the command's channel as it arrives (progress of fetch/push).
     /// Off by default: a large output would otherwise cross the IPC twice.
     pub stream: bool,

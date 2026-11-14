@@ -7,9 +7,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use gg_backend::api::{OpProgress, OpRequest, OpResult, ReadRequest, ReadResponse};
-use gg_backend::git::locate_git;
-use gg_backend::runtime::LocalRuntime;
-use serde_json::json;
+use gg_backend::git::{locate_git, GitExecResult};
+use gg_backend::runtime::{BoxFuture, GitOpts, LocalRuntime, Runtime};
+use serde_json::{json, Value};
 use tokio::sync::watch;
 
 use crate::remote::{self, Remotes, Session};
@@ -44,6 +44,52 @@ fn local_runtime(repo: &str, window: &str, askpass: &crate::askpass::Askpass, pr
     let env: HashMap<String, String> = askpass.env(window).map_err(|e| format!("askpass unavailable: {e}"))?.into_iter().collect();
     let cwd = repo.to_string();
     Ok(LocalRuntime::new(repo, git, env, progress, cancel).with_terminal(Arc::new(move |args| crate::system::terminal(cwd.clone(), Some(args)))))
+}
+
+type OpenTerminal = Arc<dyn Fn(Vec<String>) -> Result<(), String> + Send + Sync>;
+
+/// Where an interactive rebase of a repository on another machine runs: its todo editor needs a
+/// person at a terminal, which the helper over there cannot open. So the operation runs here, as
+/// for a local repository (the same checks and command line), and its terminal is one on this Mac
+/// that runs it over `ssh -t` (`system::terminal`). Nothing else is run here.
+struct RemoteTerminal {
+    repo: String,
+    open: OpenTerminal,
+}
+
+impl RemoteTerminal {
+    fn new(repo: &str) -> RemoteTerminal {
+        let cwd = repo.to_string();
+        RemoteTerminal { repo: repo.to_string(), open: Arc::new(move |args| crate::system::terminal(cwd.clone(), Some(args))) }
+    }
+
+    /// Whether `request` is one to run this way.
+    fn wanted(request: &OpRequest) -> bool {
+        matches!(request, OpRequest::Rebase { interactive: true, .. })
+    }
+}
+
+impl Runtime for RemoteTerminal {
+    fn repo(&self) -> &str {
+        &self.repo
+    }
+    fn git(&self, _args: Vec<String>, _opts: GitOpts) -> BoxFuture<'_, Result<GitExecResult, String>> {
+        Box::pin(async { Err("Git runs on the repository's machine.".to_string()) })
+    }
+    fn engine(&self, _method: &str, _params: Value) -> Result<Value, String> {
+        Err("The engine runs on the repository's machine.".to_string())
+    }
+    fn terminal(&self, args: Vec<String>) -> BoxFuture<'_, Result<(), String>> {
+        let opened = (self.open)(args);
+        Box::pin(async move { opened })
+    }
+    fn is_remote(&self) -> bool {
+        true
+    }
+    fn cancelled(&self) -> bool {
+        false
+    }
+    fn progress(&self, _progress: OpProgress) {}
 }
 
 #[tauri::command]
@@ -83,6 +129,9 @@ pub async fn repo_op(
 ) -> Result<OpResult, String> {
     state.listed(&repo)?;
     if let Some(remote) = remote::parse(&repo)? {
+        if RemoteTerminal::wanted(&request) {
+            return gg_backend::ops::operate(&RemoteTerminal::new(&repo), request, confirmed).await;
+        }
         let session = remotes.session(&remote)?;
         let call = session.next_id();
         jobs.add(&id, Job::Remote(session.clone(), call))?;
@@ -135,5 +184,32 @@ pub fn repo_op_cancel(jobs: tauri::State<'_, Jobs>, id: String) -> bool {
             true
         }
         None => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An interactive rebase of a repository on another machine: the terminal on this Mac gets
+    /// the same `git rebase -i …` as for a local one; the values are checked first.
+    #[tokio::test]
+    async fn an_interactive_rebase_over_ssh_opens_a_terminal_here() {
+        let opened: Arc<Mutex<Vec<Vec<String>>>> = Arc::default();
+        let seen = opened.clone();
+        let rt = RemoteTerminal {
+            repo: "ssh://me@host/srv/repo".into(),
+            open: Arc::new(move |args| {
+                seen.lock().unwrap().push(args);
+                Ok(())
+            }),
+        };
+        let rebase = |onto: &str, interactive| OpRequest::Rebase { onto: onto.into(), ignore_date: true, autosquash: false, interactive };
+        assert!(RemoteTerminal::wanted(&rebase("main", true)));
+        assert!(!RemoteTerminal::wanted(&rebase("main", false)), "the helper runs the others");
+        assert_eq!(gg_backend::ops::operate(&rt, rebase("main", true), false).await, Ok(OpResult::Done));
+        assert_eq!(*opened.lock().unwrap(), vec![vec!["rebase".to_string(), "-i".into(), "--ignore-date".into(), "main".into()]]);
+        assert!(matches!(gg_backend::ops::operate(&rt, rebase("--exec=x", true), false).await, Ok(OpResult::Failed { .. })));
+        assert_eq!(opened.lock().unwrap().len(), 1, "an unsafe value opens nothing");
     }
 }

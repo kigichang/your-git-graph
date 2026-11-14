@@ -365,8 +365,6 @@ async fn a_conflicting_merge_reports_its_state_and_abort_restores_the_branch() {
     let rt = f.rt();
     let ReadResponse::OperationState { operation, conflicted_files, progress, .. } = read_git(&rt, ReadRequest::OperationState).await.unwrap() else { panic!() };
     assert_eq!((operation, conflicted_files, progress), (Some(OperationKind::Merge), vec!["a".to_string()], None));
-    let ReadResponse::ConflictPrediction { prediction } = read_git(&rt, ReadRequest::PredictConflicts { ours: "main".into(), theirs: "other".into() }).await.unwrap() else { panic!() };
-    assert_eq!(prediction, Some(ConflictPrediction { conflicted: true, files: vec!["a".into()] }));
     assert!(done(&f.op(OpRequest::AbortOperation { operation: OperationKind::Merge }).await));
     assert_eq!(f.git(&["rev-parse", "HEAD"]), head);
     let ReadResponse::OperationState { operation, .. } = read_git(&rt, ReadRequest::OperationState).await.unwrap() else { panic!() };
@@ -607,13 +605,10 @@ async fn reflog_with_dangling_entries() {
 }
 
 #[tokio::test]
-async fn predict_a_clean_merge_and_ahead_behind() {
+async fn ahead_behind() {
     let w = World::new();
     let f = w.fixture();
-    f.git(&["branch", "other", "HEAD~1"]);
     let rt = f.rt();
-    let ReadResponse::ConflictPrediction { prediction } = read_git(&rt, ReadRequest::PredictConflicts { ours: "main".into(), theirs: "other".into() }).await.unwrap() else { panic!() };
-    assert_eq!(prediction, Some(ConflictPrediction { conflicted: false, files: vec![] }));
     let ReadResponse::AheadBehind { ahead, behind } = read_git(&rt, ReadRequest::AheadBehind).await.unwrap() else { panic!() };
     assert_eq!((ahead, behind), (Some(0), Some(0)));
     f.commit("d");
