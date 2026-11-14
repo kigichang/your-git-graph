@@ -18,7 +18,8 @@ const LFS: [(&str, &str); 2] = [("filter.lfs.clean", "git-lfs clean -- %f"), ("f
 /// .git/config, its worktree config, what they include), standard Git LFS aside. A git too old
 /// to tell the scope (before 2.26) gets one entry saying so: nothing is run on a guess.
 pub async fn own_filters(rt: &dyn Runtime) -> Result<Vec<String>, String> {
-    let r = exec(rt, args(&["config", "--show-scope", "--includes", "--get-regexp", r"^filter\..*\.(clean|process)$"])).await?;
+    // -z: a value may hold a newline (`\n` in the file), and the shell runs every line of it.
+    let r = exec(rt, args(&["config", "-z", "--show-scope", "--includes", "--get-regexp", r"^filter\..*\.(clean|process)$"])).await?;
     match r.exit_code {
         Some(0) => Ok(own_of(&r.stdout)),
         Some(1) => Ok(vec![]), // none at all
@@ -26,17 +27,18 @@ pub async fn own_filters(rt: &dyn Runtime) -> Result<Vec<String>, String> {
     }
 }
 
-/// The keys of `git config --show-scope --get-regexp` lines (`<scope>\t<key> <value>`) set by
-/// the repository itself.
+/// The keys of `git config -z --show-scope --get-regexp` output (`<scope>\0<key>\n<value>\0`,
+/// or `<scope>\0<key>\0` for a key without a value) set by the repository itself.
 fn own_of(stdout: &str) -> Vec<String> {
     let mut keys: Vec<String> = Vec::new();
-    for line in stdout.lines() {
-        let Some((scope, entry)) = line.split_once('\t') else { continue };
+    let mut fields = stdout.split('\0');
+    while let (Some(scope), Some(entry)) = (fields.next(), fields.next()) {
         if scope != "local" && scope != "worktree" {
             continue;
         }
-        let (key, value) = entry.split_once(' ').unwrap_or((entry, ""));
-        if LFS.iter().any(|(k, v)| key.eq_ignore_ascii_case(k) && value.trim() == *v) {
+        let (key, value) = entry.split_once('\n').unwrap_or((entry, ""));
+        // The whole value: a first line like Git LFS's followed by others is not Git LFS.
+        if LFS.iter().any(|(k, v)| key.eq_ignore_ascii_case(k) && value == *v) {
             continue;
         }
         if !keys.iter().any(|k| k == key) {
@@ -61,15 +63,17 @@ mod tests {
 
     #[test]
     fn only_what_the_repository_sets_and_not_standard_lfs() {
-        let out = "global\tfilter.lfs.clean git-lfs clean -- %f\n\
-                   local\tfilter.lfs.clean git-lfs clean -- %f\n\
-                   local\tfilter.lfs.process git-lfs filter-process\n\
-                   local\tfilter.evil.clean sh -c 'x'\n\
-                   worktree\tfilter.Other.process run-me\n\
-                   command\tfilter.cmd.clean y\n\
-                   local\tfilter.evil.clean again\n\
-                   local\tfilter.lfs.clean something-else %f\n";
-        assert_eq!(own_of(out), ["filter.evil.clean", "filter.Other.process", "filter.lfs.clean"]);
+        let out = "global\0filter.lfs.clean\ngit-lfs clean -- %f\0\
+                   local\0filter.lfs.clean\ngit-lfs clean -- %f\0\
+                   local\0filter.lfs.process\ngit-lfs filter-process\0\
+                   local\0filter.evil.clean\nsh -c 'x'\0\
+                   worktree\0filter.Other.process\nrun-me\0\
+                   command\0filter.cmd.clean\ny\0\
+                   local\0filter.evil.clean\nagain\0\
+                   local\0filter.bare.clean\0";
+        assert_eq!(own_of(out), ["filter.evil.clean", "filter.Other.process", "filter.bare.clean"]);
         assert!(own_of("").is_empty());
+        // Git LFS's value with another line after it: the shell runs that line too.
+        assert_eq!(own_of("local\0filter.lfs.clean\ngit-lfs clean -- %f\ntouch /tmp/x\0"), ["filter.lfs.clean"]);
     }
 }

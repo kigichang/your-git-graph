@@ -917,4 +917,15 @@ async fn the_repositorys_own_filters_run_only_once_allowed() {
     assert!(blocked.is_empty());
     assert_eq!(first.as_deref(), Some(UNCOMMITTED));
     assert!(marker.exists(), "allowed, the engine's status runs it");
+
+    // An orphan branch: no HEAD to compare the index with; what it holds counts.
+    f.git(&["checkout", "-q", "--orphan", "fresh"]);
+    let _ = std::fs::remove_file(&marker); // git checkout itself runs it
+    let OpResult::NeedsConfirmation { reasons } = f.op(OpRequest::Reset { commit: "main".into(), mode: ResetMode::Hard }).await else { panic!("asks") };
+    assert!(reasons.iter().any(|r| matches!(r, Reason::UncommittedDiscarded { count } if *count >= 2)), "{reasons:?}");
+    assert!(!marker.exists(), "not allowed here: nothing ran the filter");
+
+    // Git LFS's value with a second line is not Git LFS: the shell runs that line too.
+    f.git(&["config", "filter.lfs.clean", "git-lfs clean -- %f\ntrue"]);
+    assert_eq!(gg_backend::filters::own_filters(&f.rt()).await.unwrap(), ["filter.probe.clean", "filter.lfs.clean"]);
 }

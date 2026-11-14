@@ -36,7 +36,10 @@ async fn uncommitted_tracked(rt: &dyn Runtime) -> Result<u32, String> {
         return Ok(lines(&exec(rt, args(&["status", "--porcelain", "--untracked-files=no"])).await?).len() as u32);
     }
     let mut files: Vec<String> = lines(&exec(rt, args(&["diff-files", "--name-only"])).await?);
-    for file in lines(&exec(rt, args(&["diff-index", "--cached", "--name-only", "HEAD"])).await?) {
+    // Without HEAD (an orphan branch) everything in the index is a change.
+    let staged = exec(rt, args(&["diff-index", "--cached", "--name-only", "HEAD"])).await?;
+    let staged = if staged.exit_code == Some(0) { lines(&staged) } else { lines(&exec(rt, args(&["ls-files"])).await?) };
+    for file in staged {
         if !files.contains(&file) {
             files.push(file);
         }
