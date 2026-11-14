@@ -72,6 +72,43 @@ fn resolve_git() -> Result<GitInfo, String> {
     }
 }
 
+/// Directories where the tools git and the engine start (`git-lfs` as a clean/smudge filter,
+/// credential helpers, `ssh` replacements) usually live, but which a GUI app does not inherit:
+/// the Finder hands it `/usr/bin:/bin:/usr/sbin:/sbin`, and so does sshd's non-interactive shell
+/// on a Mac running the remote helper. `/usr/local/bin` is also Homebrew on Intel Macs.
+const TOOL_DIRS: [&str; 2] = ["/opt/homebrew/bin", "/usr/local/bin"];
+
+/// Append to the process's `PATH` those of [`TOOL_DIRS`] that exist and are missing from it.
+///
+/// Without this a repository using Git LFS cannot even be shown: the engine hashes a file whose
+/// stat no longer matches the index through its clean filter, `git-lfs` is not found, and the
+/// whole status read fails ("IO error while writing blob ..."); git's own checkout and pull fail
+/// the same way (`filter.lfs.required`). Appended, so whatever the user's `PATH` already has
+/// still comes first. Call it at the start of `main`, before any other thread exists.
+pub fn extend_path() {
+    let current = std::env::var_os("PATH").unwrap_or_default();
+    let existing = TOOL_DIRS.iter().map(Path::new).filter(|dir| dir.is_dir());
+    if let Some(path) = path_with(&current, existing) {
+        std::env::set_var("PATH", path);
+    }
+}
+
+/// `current` with `extra` appended, skipping directories it already lists; `None` when nothing
+/// is missing.
+fn path_with<'a>(
+    current: &std::ffi::OsStr,
+    extra: impl IntoIterator<Item = &'a Path>,
+) -> Option<std::ffi::OsString> {
+    let mut dirs: Vec<PathBuf> = std::env::split_paths(current).filter(|d| !d.as_os_str().is_empty()).collect();
+    let before = dirs.len();
+    for dir in extra {
+        if !dirs.iter().any(|d| d == dir) {
+            dirs.push(dir.to_path_buf());
+        }
+    }
+    (dirs.len() > before).then(|| std::env::join_paths(dirs).ok()).flatten()
+}
+
 fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     path.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
@@ -317,6 +354,20 @@ fn take_utf8(bytes: &mut Vec<u8>) -> String {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn path_gets_missing_tool_dirs_appended() {
+        let extra = [Path::new("/opt/homebrew/bin"), Path::new("/usr/local/bin")];
+        let finder = std::ffi::OsStr::new("/usr/bin:/bin:/usr/sbin:/sbin");
+        assert_eq!(
+            path_with(finder, extra).unwrap(),
+            "/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin:/usr/local/bin"
+        );
+        // Already there (in any position): left alone, the user's order kept.
+        let shell = std::ffi::OsStr::new("/usr/local/bin:/opt/homebrew/bin:/usr/bin");
+        assert_eq!(path_with(shell, extra), None);
+        assert_eq!(path_with(std::ffi::OsStr::new(""), extra).unwrap(), "/opt/homebrew/bin:/usr/local/bin");
+    }
 
     fn git() -> PathBuf {
         PathBuf::from(&locate_git().expect("tests need git").path)

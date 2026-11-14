@@ -178,6 +178,8 @@ fn main() {
     if let Some(code) = askpass::helper_main() {
         std::process::exit(code);
     }
+    // Started from the Finder or the Dock, PATH lacks Homebrew: git-lfs and friends not found.
+    gg_backend::git::extend_path();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())

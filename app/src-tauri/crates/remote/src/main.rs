@@ -209,6 +209,8 @@ fn main() {
     if let Some(code) = askpass::helper_main() {
         std::process::exit(code);
     }
+    // sshd's non-interactive shell on a Mac has the same minimal PATH as the Finder.
+    gg_backend::git::extend_path();
     tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("a runtime").block_on(serve());
 }
 
