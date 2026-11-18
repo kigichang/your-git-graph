@@ -14,17 +14,95 @@ use crate::runtime::Runtime;
 /// What `git lfs install --local` writes.
 const LFS: [(&str, &str); 2] = [("filter.lfs.clean", "git-lfs clean -- %f"), ("filter.lfs.process", "git-lfs filter-process")];
 
+/// How many submodules (at any depth) are looked into; past that, nothing is read on a guess.
+const MAX_SUBMODULES: usize = 500;
+
 /// The `filter.<name>.clean`/`.process` keys the repository's own configuration sets (its
-/// .git/config, its worktree config, what they include), standard Git LFS aside. A git too old
-/// to tell the scope (before 2.26) gets one entry saying so: nothing is run on a guess.
+/// .git/config, its worktree config, what they include), standard Git LFS aside; then those of
+/// its checked-out submodules (`<path>: <key>`): git status and the engine look into a
+/// submodule's files too, through the submodule's own configuration. A git too old to tell the
+/// scope (before 2.26) gets one entry saying so: nothing is run on a guess.
 pub async fn own_filters(rt: &dyn Runtime) -> Result<Vec<String>, String> {
+    let mut keys = filters_in(rt, None).await?;
+    let mut pending = match submodules_in(rt, None).await {
+        Some(found) => found,
+        None => return Ok(keys),
+    };
+    let mut seen = 0;
+    while let Some((dir, shown)) = pending.pop() {
+        seen += 1;
+        if seen > MAX_SUBMODULES {
+            keys.push(format!("(more than {MAX_SUBMODULES} submodules)"));
+            break;
+        }
+        keys.extend(filters_in(rt, Some(&dir)).await?.into_iter().map(|key| format!("{shown}: {key}")));
+        match submodules_in(rt, Some(&dir)).await {
+            Some(found) => pending.extend(found.into_iter().map(|(d, s)| (d, format!("{shown}/{s}")))),
+            None => keys.push(format!("({shown}: git could not list its submodules)")),
+        }
+    }
+    Ok(keys)
+}
+
+/// git's arguments to run in `dir` (the repository itself when `None`).
+fn in_dir(dir: Option<&str>, rest: &[&str]) -> Vec<String> {
+    let mut v: Vec<String> = dir.map(|d| vec!["-C".to_string(), d.to_string()]).unwrap_or_default();
+    v.extend(args(rest));
+    v
+}
+
+/// The filter keys the configuration of the repository in `dir` sets itself.
+async fn filters_in(rt: &dyn Runtime, dir: Option<&str>) -> Result<Vec<String>, String> {
     // -z: a value may hold a newline (`\n` in the file), and the shell runs every line of it.
-    let r = exec(rt, args(&["config", "-z", "--show-scope", "--includes", "--get-regexp", r"^filter\..*\.(clean|process)$"])).await?;
+    let r = exec(rt, in_dir(dir, &["config", "-z", "--show-scope", "--includes", "--get-regexp", r"^filter\..*\.(clean|process)$"])).await?;
     match r.exit_code {
         Some(0) => Ok(own_of(&r.stdout)),
         Some(1) => Ok(vec![]), // none at all
         _ => Ok(vec![format!("(git config could not tell: {})", r.stderr.trim())]),
     }
+}
+
+/// The submodules checked out in the repository in `dir` (the repository itself when `None`):
+/// where each is (to run git in) and its path there. Its index's gitlinks whose folder holds a
+/// `.git`; one not checked out is an empty folder, which git would take for the repository
+/// around it. `None` when git cannot list them.
+async fn submodules_in(rt: &dyn Runtime, dir: Option<&str>) -> Option<Vec<(String, String)>> {
+    let r = exec(rt, in_dir(dir, &["ls-files", "-z", "--stage", "--full-name"])).await.ok()?;
+    if r.exit_code != Some(0) {
+        return None;
+    }
+    let links = gitlinks(&r.stdout);
+    if links.is_empty() {
+        return Some(vec![]);
+    }
+    let root = match dir {
+        Some(dir) => dir.to_string(),
+        None => {
+            let top = exec(rt, args(&["rev-parse", "--show-toplevel"])).await.ok()?;
+            if top.exit_code != Some(0) {
+                return None;
+            }
+            top.stdout.trim_end_matches('\n').to_string()
+        }
+    };
+    let root = std::path::Path::new(&root);
+    Some(
+        links
+            .into_iter()
+            .filter(|path| root.join(path).join(".git").exists())
+            .map(|path| (root.join(&path).display().to_string(), path))
+            .collect(),
+    )
+}
+
+/// The paths of the gitlinks (mode 160000) in `git ls-files -z --stage` output.
+fn gitlinks(stdout: &str) -> Vec<String> {
+    stdout
+        .split('\0')
+        .filter_map(|entry| entry.strip_prefix("160000 "))
+        .filter_map(|rest| rest.split_once('\t'))
+        .map(|(_, path)| path.to_string())
+        .collect()
 }
 
 /// The keys of `git config -z --show-scope --get-regexp` output (`<scope>\0<key>\n<value>\0`,
@@ -75,5 +153,12 @@ mod tests {
         assert!(own_of("").is_empty());
         // Git LFS's value with another line after it: the shell runs that line too.
         assert_eq!(own_of("local\0filter.lfs.clean\ngit-lfs clean -- %f\ntouch /tmp/x\0"), ["filter.lfs.clean"]);
+    }
+
+    #[test]
+    fn the_gitlinks_of_an_index() {
+        let out = "100644 aaaa 0\ta file\0160000 bbbb 0\tsub\0160000 cccc 0\tdeep/with\ttab\0120000 dddd 0\tlink\0";
+        assert_eq!(gitlinks(out), ["sub", "deep/with\ttab"]);
+        assert!(gitlinks("").is_empty());
     }
 }

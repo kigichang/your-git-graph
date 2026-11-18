@@ -2,7 +2,7 @@
  * HTML escaped, GFM task lists and KaTeX math. Code is left for the window to colour (Monaco);
  * ```mermaid and ```plantuml fences become containers the window renders afterwards. Blocks
  * carry the source line they start at (data-line, 1-based) for the scroll sync. No DOM: tested
- * in Node (tests/markdown.test.mjs); bundled as diff-dist/preview.js (preview.js). */
+ * by vitest (markdown.test.ts); bundled as diff-dist/preview.js (preview.js). */
 import MarkdownIt from 'markdown-it';
 import taskLists from 'markdown-it-task-lists';
 import katexPlugin from '@vscode/markdown-it-katex';

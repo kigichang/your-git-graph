@@ -185,7 +185,7 @@ mod tests {
     #[test]
     fn exit_codes_and_messages() {
         use super::super::error_of;
-        let r = |code: Option<i32>, out: &str, err: &str| crate::git::GitExecResult { exit_code: code, stdout: out.into(), stderr: err.into(), timed_out: false, cancelled: false, duration_ms: 0 };
+        let r = |code: Option<i32>, out: &str, err: &str| crate::git::GitExecResult { exit_code: code, stdout: out.into(), stderr: err.into(), cancelled: false };
         assert_eq!(error_of(&r(Some(0), "", "")), None);
         assert_eq!(error_of(&r(Some(1), "", "bad\n")).as_deref(), Some("bad"));
         assert_eq!(error_of(&r(Some(1), "out", "")).as_deref(), Some("out"));

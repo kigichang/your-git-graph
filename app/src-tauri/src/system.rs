@@ -1,4 +1,4 @@
-//! macOS integrations the VS Code host got from the editor: the clipboard, opening URLs and
+//! macOS integrations: the clipboard, opening URLs and
 //! files with their default app, and Terminal. Also network volumes: mounting a share, and
 //! telling which share a folder is on.
 
@@ -110,9 +110,20 @@ pub fn reveal_repo(state: tauri::State<'_, crate::state::State>, repo: String) -
     reveal(Path::new(&repo))
 }
 
-/// Quote for a POSIX shell: everything inside single quotes, `'` as `'\''`.
+/// Quote for a login shell, whatever it is (Terminal's here, the other machine's over ssh):
+/// single quotes, with `'` and `\` written outside them (fish reads `\` inside single quotes
+/// as an escape, sh does not).
 pub fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
+    let mut quoted = String::from("'");
+    for c in s.chars() {
+        match c {
+            '\'' => quoted.push_str(r"'\''"),
+            '\\' => quoted.push_str(r"'\\'"),
+            c => quoted.push(c),
+        }
+    }
+    quoted.push('\'');
+    quoted
 }
 
 /// Quote for an AppleScript string literal.
@@ -123,8 +134,7 @@ fn applescript_quote(s: &str) -> String {
 /// What Terminal runs for a repository on another machine: ssh with a terminal, there `cd` to
 /// it and run `git <args>`, or (no args) its login shell.
 fn remote_line(remote: &crate::remote::Remote, git_args: Option<&[String]>) -> String {
-    use crate::remote::remote_quote;
-    let mut there = format!("cd {} && ", remote_quote(&remote.path));
+    let mut there = format!("cd {} && ", shell_quote(&remote.path));
     match git_args {
         // `exec $SHELL -l` reads the same in sh, bash, zsh and fish.
         None => there.push_str("exec $SHELL -l"),
@@ -132,7 +142,7 @@ fn remote_line(remote: &crate::remote::Remote, git_args: Option<&[String]>) -> S
             there.push_str("git");
             for arg in args {
                 there.push(' ');
-                there.push_str(&remote_quote(arg));
+                there.push_str(&shell_quote(arg));
             }
         }
     }
@@ -262,14 +272,14 @@ mod tests {
     #[test]
     fn the_terminal_line_for_a_remote_repository() {
         let remote = crate::remote::parse("ssh://me@host:2200/srv/it's here").unwrap().unwrap();
-        let args = ["rebase".to_string(), "-i".to_string(), "a b".to_string()];
+        let args = ["rebase".to_string(), "-i".to_string(), r"a b\'c".to_string()];
         let line = remote_line(&remote, Some(&args));
         assert!(line.starts_with("ssh -t -p 2200 -- 'me@host' "), "{line}");
         let printed = Command::new("sh").args(["-c", &line.replacen("ssh", "printf '%s\\n'", 1)]).output().unwrap();
         let words: Vec<String> = String::from_utf8(printed.stdout).unwrap().lines().map(String::from).collect();
         assert_eq!(words[..5], ["-t", "-p", "2200", "--", "me@host"]);
         let there = Command::new("sh").args(["-c", &format!("cd() {{ printf '%s|' \"$1\"; }}; git() {{ printf '%s|' \"$@\"; }}; {}", words[5])]).output().unwrap();
-        assert_eq!(String::from_utf8(there.stdout).unwrap(), "/srv/it's here|rebase|-i|a b|");
+        assert_eq!(String::from_utf8(there.stdout).unwrap(), r"/srv/it's here|rebase|-i|a b\'c|");
         assert!(remote_line(&remote, None).ends_with("exec $SHELL -l'"));
     }
 
@@ -277,6 +287,7 @@ mod tests {
     fn quoting() {
         assert_eq!(shell_quote("a b"), "'a b'");
         assert_eq!(shell_quote("it's"), r"'it'\''s'");
+        assert_eq!(shell_quote(r"a\b"), r"'a'\\'b'");
         assert_eq!(applescript_quote(r#"say "hi" \ bye"#), r#""say \"hi\" \\ bye""#);
     }
 

@@ -41,7 +41,6 @@ enum Request {
     },
     WorktreeFile { repo: String, path: String },
     ExportRepoConfig { repo: String, contents: String },
-    Scan { folder: String },
     /// Stays open until cancelled; each burst of changes is an event `{"repos": [..]}`.
     Watch { roots: Vec<String> },
     /// The answer to a credential prompt (an `askpass` event of a git request); `null`: cancelled.
@@ -105,7 +104,9 @@ impl Session {
             Request::Engine { repo, request } => blocking(move || Ok(gg_backend::engine(&repo, &request).into_bytes())).await,
             Request::Read { repo, request, filters_allowed } => {
                 let rt = self.runtime(id, &repo, false)?.allow_filters(filters_allowed);
-                json(&gg_backend::api::read(&rt, request).await?)
+                let result = gg_backend::api::read(&rt, request).await;
+                self.cancels.lock().unwrap().remove(&id);
+                json(&result?)
             }
             Request::Op { repo, request, confirmed, filters_allowed } => {
                 let rt = self.runtime(id, &repo, true)?.allow_filters(filters_allowed);
@@ -121,13 +122,6 @@ impl Session {
             }
             Request::ExportRepoConfig { repo, contents } => {
                 blocking(move || json(&gg_backend::repo::write_repo_config(Path::new(&repo), &contents)?.display().to_string())).await
-            }
-            Request::Scan { folder } => {
-                blocking(move || {
-                    let found = gg_backend::files::scan(Path::new(&folder), gg_backend::files::SCAN_DEPTH);
-                    json(&found.iter().map(|p| p.display().to_string()).collect::<Vec<_>>())
-                })
-                .await
             }
             Request::Watch { roots } => self.watch(id, roots).await,
             Request::Answer { ask, answer } => json(&self.askpass.as_ref().is_some_and(|a| a.answer(ask, answer))),

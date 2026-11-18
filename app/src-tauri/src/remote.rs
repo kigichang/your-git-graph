@@ -46,7 +46,7 @@ impl Remote {
 }
 
 /// A user or host name: letters, digits, `.`, `_`, `-`, and never a leading `-` (ssh would take
-/// it for an option - the convention of gitops.js's `unsafe()`).
+/// it for an option, as every value put into git's arguments is checked: `ops::unsafe_arg`).
 fn plain_name(s: &str) -> bool {
     !s.is_empty() && !s.starts_with('-') && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
 }
@@ -94,21 +94,6 @@ pub fn parse(repo: &str) -> Result<Option<Remote>, String> {
         None => host.to_string(),
     };
     Ok(Some(Remote { authority: authority.to_string(), dest, port, path: path.to_string() }))
-}
-
-/// Quote for the login shell of the other machine, whatever it is: single quotes, with `'` and
-/// `\` written outside them (fish reads `\` inside single quotes as an escape, sh does not).
-pub fn remote_quote(s: &str) -> String {
-    let mut quoted = String::from("'");
-    for c in s.chars() {
-        match c {
-            '\'' => quoted.push_str(r"'\''"),
-            '\\' => quoted.push_str(r"'\\'"),
-            c => quoted.push(c),
-        }
-    }
-    quoted.push('\'');
-    quoted
 }
 
 /* ---------- The helper to copy over ---------- */
@@ -484,8 +469,8 @@ mod tests {
                 continue; // not installed here
             }
             for text in nasty {
-                let out = std::process::Command::new(shell).args(["-c", &format!("printf %s {}", remote_quote(text))]).output().unwrap();
-                assert_eq!(String::from_utf8_lossy(&out.stdout), text, "{shell}: {}", remote_quote(text));
+                let out = std::process::Command::new(shell).args(["-c", &format!("printf %s {}", crate::system::shell_quote(text))]).output().unwrap();
+                assert_eq!(String::from_utf8_lossy(&out.stdout), text, "{shell}: {}", crate::system::shell_quote(text));
             }
         }
     }
@@ -611,7 +596,7 @@ mod tests {
         fake.remotes.disconnect(&remote.authority);
         let failed = tokio::time::timeout(std::time::Duration::from_secs(5), waiting).await.expect("fails promptly").unwrap();
         assert!(failed.unwrap_err().contains("was lost"));
-        assert!(session.json(json!({ "op": "scan", "folder": "/" })).await.unwrap_err().contains("was lost"), "a dead session answers nothing");
+        assert!(session.json(json!({ "op": "worktreeFile", "repo": "/", "path": "x" })).await.unwrap_err().contains("was lost"), "a dead session answers nothing");
     }
 
     #[tokio::test]

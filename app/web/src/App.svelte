@@ -16,9 +16,9 @@
 	} from './lib/api/client';
 	import { diffSpec, fileSpec, workingFileSpec, revisions } from './lib/diffspec';
 	import { errorText } from './lib/errors';
-	import { isRemote } from './lib/remote';
+	import { isRemote, nameBeside, parseRemote } from './lib/remote';
 	import { menuFor, type MenuAction, type MenuItem, type MenuTarget } from './lib/menus';
-	import { dialogFor, resetFileDialog, type DialogSpec, type Values } from './lib/dialogs';
+	import { dialogFor, resetFileDialog, type DialogSpec } from './lib/dialogs';
 	import { addRemoteDialog, connectServerDialog, groupNameDialog, remoteName, remoteRoot, type RemoteAnswer } from './lib/addremote';
 	import { addReposTo, groupOfRepo, removeRepos as removeFromList, removeGroup, renameGroup, moveManyToGroup, DEFAULT_GROUP, type SidebarState } from './lib/sidebar';
 	import { ops, runOperation } from './lib/ops.svelte';
@@ -182,7 +182,6 @@
 		}
 	}
 
-	/** Load again what is shown; during a load, once more right after it. */
 	/** The person wants the uncommitted changes of a repository whose own filters kept them
 	 * unread: allowed (Rust remembers it until the app quits), then loaded again. */
 	function allowFilters() {
@@ -191,6 +190,7 @@
 		invoke('trust_filters', { repo: r }).then(() => reload(), (e) => log('filters: ' + errorText(e)));
 	}
 
+	/** Load again what is shown; during a load, once more right after it. */
 	function reload(): Promise<boolean> {
 		if (loading) {
 			reloadAgain = true;
@@ -450,7 +450,7 @@
 		const spec: DialogSpec<OpRequest> = {
 			title: t('worktree.addTitle'), action: t('worktree.add').replace('…', ''),
 			fields: [
-				{ kind: 'text', id: 'path', label: t('worktree.path'), value: repo.replace(/\/+$/, '') + '-worktree' },
+				{ kind: 'text', id: 'path', label: t('worktree.path'), value: (parseRemote(repo)?.path ?? repo).replace(/\/+$/, '') + '-worktree' },
 				{ kind: 'text', id: 'branch', label: t('worktree.branch'), value: '', refName: true },
 				{ kind: 'text', id: 'newBranch', label: t('worktree.newBranch'), value: '', refName: true }
 			],
@@ -653,12 +653,11 @@
 		}
 	}
 
-	function onDialogSubmit(values: Values) {
+	/** What the dialog built from its values (FormDialog keeps it open on an error). */
+	function onDialogSubmit(built: unknown) {
 		if (dialog === null) return;
-		const built = dialog.spec.build(values);
 		const done = dialog.onDone;
 		dialog = null;
-		if (built !== null && typeof built === 'object' && 'error' in (built as object)) return;
 		done(built);
 	}
 
@@ -861,7 +860,7 @@
 				<ReflogPanel {repo} references={info?.branches.filter((b) => !b.startsWith('remotes/')) ?? []} onShow={showCommit} onClose={() => { panel = null; }} />
 			{:else if panel === 'worktrees'}
 				<WorktreePanel {repo} version={worktreeVersion} onAdd={worktreeAddDialog} onRemove={worktreeRemoveDialog}
-					onPrune={() => { void operate({ kind: 'worktreePrune' }).then(() => { worktreeVersion++; }); }} onOpen={(path) => { void addAndShow([path]); }} onClose={() => { panel = null; }} />
+					onPrune={() => { void operate({ kind: 'worktreePrune' }).then(() => { worktreeVersion++; }); }} onOpen={(path) => { if (repo !== null) void addAndShow([nameBeside(repo, path)]); }} onClose={() => { panel = null; }} />
 			{/if}
 			{#if details !== null && inlineRow < 0}
 				<DetailsPanel view={details} fileView={settings.current.details.fileView} compactFolders={settings.current.details.compactFolders}

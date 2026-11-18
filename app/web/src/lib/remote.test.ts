@@ -1,11 +1,14 @@
 import { test, expect } from 'vitest';
-import { isRemote, parseRemote, invalidRemote, absolutePath, remoteId, invalidShare } from './remote';
+import { isRemote, parseRemote, invalidRemote, absolutePath, remoteId, invalidShare, nameBeside } from './remote';
 
 test('a remote repository is told from a local one, and taken apart', () => {
 	expect(isRemote('/Users/me/repo')).toBe(false);
 	expect(isRemote(null)).toBe(false);
 	expect(parseRemote('/a/ssh://h/p')).toBe(null);
 	expect(parseRemote('ssh://me@build:2222/srv/git/app')).toEqual({ host: 'ssh://me@build:2222', authority: 'me@build:2222', path: '/srv/git/app' });
+	// A worktree git lists is a path on the repository's machine.
+	expect(nameBeside('ssh://me@build:2222/srv/git/app', '/srv/git/app-wt')).toBe('ssh://me@build:2222/srv/git/app-wt');
+	expect(nameBeside('/Users/me/app', '/Users/me/app-wt')).toBe('/Users/me/app-wt');
 });
 
 test('what was typed is checked before anything reaches ssh', () => {

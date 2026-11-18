@@ -33,7 +33,8 @@ pub async fn perform(rt: &dyn Runtime, request: OpRequest) -> Outcome {
             v.extend(flag(directories, &["-d"]).map(String::from));
             Ok(run(rt, v).await?)
         }
-        OpRequest::ResetFile { commit, path } => Ok(run(rt, args(&["checkout", &commit, "--", &path])).await?),
+        // The path is a file's name, not a pattern: a file called `*` resets only itself.
+        OpRequest::ResetFile { commit, path } => Ok(run(rt, args(&["checkout", &commit, "--", &format!(":(literal){path}")])).await?),
         OpRequest::CreateArchive { reference, path } => {
             // git writes the archive on the repository's machine, not where the dialog pointed.
             if rt.is_remote() {

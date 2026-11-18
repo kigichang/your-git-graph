@@ -8,7 +8,7 @@
 	import { settings } from '../settings.svelte';
 	import { t } from '../i18n';
 
-	let { spec, onSubmit, onCancel }: { spec: DialogSpec<unknown>; onSubmit: (values: Values) => void; onCancel: () => void } = $props();
+	let { spec, onSubmit, onCancel }: { spec: DialogSpec<unknown>; onSubmit: (built: unknown) => void; onCancel: () => void } = $props();
 
 	const initial = (): Values => {
 		const v: Values = {};
@@ -24,7 +24,7 @@
 	function submit() {
 		const built = spec.build(values) as { error?: string } | null;
 		if (built !== null && typeof built === 'object' && typeof built.error === 'string') { error = built.error; return; }
-		onSubmit(values);
+		onSubmit(built);
 	}
 	function onKey(e: KeyboardEvent) {
 		if (e.key === 'Escape') { onCancel(); e.stopPropagation(); }

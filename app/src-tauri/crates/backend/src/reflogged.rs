@@ -35,7 +35,7 @@ pub async fn add(rt: &dyn Runtime, options: &LoadOptions, commits: &mut Vec<Comm
 /// the stash's own commits (its entries, their index and untracked parts) left out - the list
 /// shows the stashes as rows of their own.
 async fn reflog_only(rt: &dyn Runtime, options: &LoadOptions) -> Result<Vec<Commit>, String> {
-    let stash = rt.git(["log", "-g", "--format=%H %P", "refs/stash", "--"].map(String::from).to_vec(), GitOpts::default()).await?;
+    let stash = rt.git(["log", "-g", "--no-show-signature", "--format=%H %P", "refs/stash", "--"].map(String::from).to_vec(), GitOpts::default()).await?;
     let mut stash_commits: HashSet<String> = HashSet::new();
     if stash.exit_code == Some(0) {
         for line in stash.stdout.lines() {
@@ -55,7 +55,8 @@ async fn reflog_only(rt: &dyn Runtime, options: &LoadOptions) -> Result<Vec<Comm
     }
     args.extend(["--not", "--branches", "--tags"].map(String::from));
     if options.show_remote_branches {
-        args.extend(options.hide_remotes.iter().map(|r| format!("--exclude=refs/remotes/{r}/*")));
+        // Matched against the names --remotes gives (`<remote>/<branch>`), not the full refs.
+        args.extend(options.hide_remotes.iter().map(|r| format!("--exclude={r}/*")));
         args.push("--remotes".into());
     }
     args.push("HEAD".into());

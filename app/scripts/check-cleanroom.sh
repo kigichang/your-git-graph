@@ -23,7 +23,7 @@ if [ -n "$hits" ]; then
 fi
 
 # Directories a Stage 1 build used to fill from upstream.
-for gone in ui/media ui/generated ui scripts/prepare-ui.mjs scripts/zh-tw.mjs; do
+for gone in ui scripts/prepare-ui.mjs scripts/zh-tw.mjs; do
 	if [ -e "$app_dir/$gone" ]; then
 		echo "$app_dir/$gone exists: a Stage 1 leftover" >&2
 		status=1

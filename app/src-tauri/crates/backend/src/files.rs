@@ -21,7 +21,9 @@ pub fn write_atomic(file: &Path, contents: &[u8]) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)?;
     let tmp = dir.join(format!(".{}.{}.tmp", file.file_name().unwrap_or_default().to_string_lossy(), std::process::id()));
     let write = || {
-        let mut f = std::fs::File::create(&tmp)?;
+        // Created new (O_EXCL): never through a symlink a work tree holds at that name.
+        let _ = std::fs::remove_file(&tmp);
+        let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp)?;
         f.write_all(contents)?;
         // A network volume (smbfs) cannot be told to flush to disk: the rename still is atomic.
         match f.sync_all() {
@@ -69,12 +71,22 @@ pub fn inside_repo(repo: &Path, path: &str) -> Result<Option<PathBuf>, String> {
 pub fn read_worktree_file(repo: &Path, path: &str) -> Result<WorktreeFile, String> {
     let missing = WorktreeFile { exists: false, size: 0, binary: false, text: None, base64: None, skipped: None };
     let Some(real) = inside_repo(repo, path)? else { return Ok(missing) };
-    let size = real.metadata().map_err(|e| e.to_string())?.len();
+    let metadata = real.metadata().map_err(|e| e.to_string())?;
+    // Not a pipe or a device: opening one waits for a writer, reading one never ends.
+    if !metadata.is_file() {
+        return Err(format!("{path} is not a file."));
+    }
+    let too_large = |size: u64| Ok(WorktreeFile { exists: true, size, binary: false, text: None, base64: None, skipped: Some(format!("The file is too large to show ({} MB).", size / (1024 * 1024))) });
+    let size = metadata.len();
     if size > MAX_FILE_BYTES {
-        return Ok(WorktreeFile { exists: true, size, binary: false, text: None, base64: None, skipped: Some(format!("The file is too large to show ({} MB).", size / (1024 * 1024))) });
+        return too_large(size);
     }
     let mut bytes = Vec::with_capacity(size as usize);
-    std::fs::File::open(&real).and_then(|mut f| f.read_to_end(&mut bytes)).map_err(|e| e.to_string())?;
+    // At most one byte past the limit: a file still growing is not read on without end.
+    std::fs::File::open(&real).and_then(|f| f.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes)).map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > MAX_FILE_BYTES {
+        return too_large(bytes.len() as u64);
+    }
     // Binary like git decides it: a NUL in the first 8000 bytes (or not UTF-8 at all).
     let looks_binary = bytes.iter().take(8000).any(|&b| b == 0);
     match (looks_binary, String::from_utf8(bytes)) {
@@ -123,6 +135,20 @@ pub fn scan(folder: &Path, depth: usize) -> Vec<PathBuf> {
 mod tests {
     use super::*;
 
+    /// A symlink at the temporary file's name is replaced, not written through.
+    #[test]
+    fn an_atomic_write_does_not_follow_a_symlink() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = dir.path().join("outside");
+        std::fs::write(&outside, "keep").unwrap();
+        let file = dir.path().join("repo").join("x.json");
+        std::fs::create_dir(dir.path().join("repo")).unwrap();
+        std::os::unix::fs::symlink(&outside, dir.path().join("repo").join(format!(".x.json.{}.tmp", std::process::id()))).unwrap();
+        write_atomic(&file, b"new").unwrap();
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep");
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "new");
+    }
+
     #[test]
     fn reads_text_binary_and_missing_files() {
         let dir = tempfile::tempdir().unwrap();
@@ -133,6 +159,12 @@ mod tests {
         let bin = read_worktree_file(dir.path(), "b.bin").unwrap();
         assert_eq!((bin.binary, bin.base64.as_deref(), bin.size), (true, Some("AJ+Slg=="), 4));
         assert!(!read_worktree_file(dir.path(), "nope.txt").unwrap().exists);
+        // A pipe would block the read until something writes to it.
+        let fifo = std::ffi::CString::new(dir.path().join("fifo").to_str().unwrap()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o644) }, 0);
+        assert!(read_worktree_file(dir.path(), "fifo").unwrap_err().contains("not a file"));
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        assert!(read_worktree_file(dir.path(), "sub").is_err());
     }
 
     #[test]

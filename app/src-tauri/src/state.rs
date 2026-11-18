@@ -1,15 +1,15 @@
 //! What the app keeps between launches, in `~/Library/Application Support/dev.kigi.gitgraph/`
 //! (`GG_DATA_DIR` moves it elsewhere; the self-test does, so it never touches the user's files):
 //!
-//! - `state.json`: the view state the host and the webview persist (repo states, global and
-//!   workspace view state, code reviews, the webview state of each folder). Held in memory,
-//!   shared by all windows: [`state_snapshot`] hands a page all of it at boot, [`state_set`]
-//!   changes one key, tells the other windows (`state-changed`) and writes the file shortly after
-//!   (writes coalesce: the webview saves its scroll position often).
-//! - `settings.json`: the user's settings, keyed like upstream's extension settings
-//!   (`"graph.style": "angular"`). Read fresh each time and rewritten key by key, so it can also
-//!   be edited by hand; a change through the app tells every window (`settings-changed`).
-//! - `session.log`: the host log of this launch, while the `enableLog` setting is on.
+//! - `state.json`: what the pages keep (the sidebar, the last repository shown, the mounted
+//!   shares, the appearance, each repository's filters `repo:<repo>`). Held in memory, shared by
+//!   all windows: [`state_snapshot`] hands a page all of it at boot, [`state_set`] changes one
+//!   key, tells the other windows (`state-changed`) and writes the file shortly after (writes
+//!   coalesce).
+//! - `settings.json`: the user's settings (`"graph.style": "angular"`; gg_backend::settings).
+//!   Read fresh each time and rewritten key by key, so it can also be edited by hand; a change
+//!   through the app tells every window (`settings-changed`).
+//! - `session.log`: the host log of this launch, while the `log.enabled` setting is on.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};

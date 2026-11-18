@@ -130,6 +130,17 @@ fn self_test() -> Option<serde_json::Value> {
     })
 }
 
+/// Under `GG_SELFTEST` only: a diff window's report, to the self-test running in the graph
+/// window (`diff-selftest`). A diff window renders what a repository's author wrote, so it may
+/// not send events of its own: those reach every window's listeners.
+#[tauri::command]
+fn diff_report(app: tauri::AppHandle, report: serde_json::Value) -> Result<(), String> {
+    if self_test().is_none() {
+        return Err("only under GG_SELFTEST".into());
+    }
+    app.emit("diff-selftest", report).map_err(|e| e.to_string())
+}
+
 /// Under `GG_SELFTEST` only: a file of the self-test's own (a Markdown document, an image) put
 /// into the working tree of a local repository, under its `gg-selftest/` directory, to be
 /// shown and removed again by the test.
@@ -240,6 +251,7 @@ fn main() {
             host_log,
             self_test,
             selftest_write,
+            diff_report,
             preview,
             preview_resize,
             repo::export_repo_config,
@@ -309,9 +321,11 @@ mod tests {
     #[test]
     fn a_diff_window_only_reads() {
         let capability: serde_json::Value = serde_json::from_str(include_str!("../capabilities/diff.json")).unwrap();
-        let mut allowed: Vec<&str> = capability["permissions"].as_array().unwrap().iter().filter_map(|p| p.as_str()?.strip_prefix("allow-")).collect();
+        let mut allowed: Vec<&str> = capability["permissions"].as_array().unwrap().iter().map(|p| p.as_str().unwrap()).collect();
         allowed.sort();
-        assert_eq!(allowed, ["engine-request", "fetch-image", "host-log", "open-settings-file", "open-url", "render-plantuml", "self-test", "worktree-file"]);
+        // Not core:default: its events reach every window's listeners (open-repo, state-changed),
+        // and it makes menus and tray icons and reads images by path.
+        assert_eq!(allowed, ["allow-diff-report", "allow-engine-request", "allow-fetch-image", "allow-host-log", "allow-open-settings-file", "allow-open-url", "allow-render-plantuml", "allow-self-test", "allow-worktree-file", "core:window:allow-close"]);
     }
 
     #[test]

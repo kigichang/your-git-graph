@@ -2,9 +2,8 @@
 //! commands take and return these, and so does the remote helper (wire op `read`). The
 //! TypeScript side is generated from them (`cargo test` writes web/src/lib/api/generated/).
 //!
-//! The reads here are answered by the engine. Those that need the git CLI (the reflog, the
-//! worktrees, conflict prediction, the repository's configuration) come with the runtime that
-//! runs git (M3).
+//! [`read`] answers them: most by the engine, those that need the git CLI (the operation in
+//! progress, the reflog, the worktrees, ahead/behind) by `reads.rs` through the runtime's git.
 
 use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
@@ -75,7 +74,8 @@ pub enum ReadRequest {
     UncommittedDetails,
     /// The files that differ between two revisions (`to` may be [`UNCOMMITTED`]).
     Compare { from: String, to: String },
-    /// The `+n −m` of files between `from` (`None`: the empty tree) and `to`.
+    /// The `+n −m` of files between `from` (`None`: `to`'s first parent, or the empty tree for a
+    /// root commit) and `to`.
     LineCounts { from: Option<String>, to: String, paths: Vec<String> },
     TagDetails { name: String },
     /// How many commits of the graph come before `hash` (to scroll to one that is not loaded).
@@ -628,8 +628,9 @@ pub async fn read(rt: &dyn crate::runtime::Runtime, mut request: ReadRequest) ->
             }
         }
         ReadRequest::UncommittedDetails => refuse_filters(rt).await?,
-        ReadRequest::Compare { from, to } | ReadRequest::LineCounts { to, from: Some(from), .. } if from == UNCOMMITTED || to == UNCOMMITTED => refuse_filters(rt).await?,
-        ReadRequest::LineCounts { to, from: None, .. } if to == UNCOMMITTED => refuse_filters(rt).await?,
+        // The engine takes an empty `to` for the working tree as well.
+        ReadRequest::Compare { from, to } | ReadRequest::LineCounts { to, from: Some(from), .. } if from == UNCOMMITTED || to == UNCOMMITTED || to.is_empty() => refuse_filters(rt).await?,
+        ReadRequest::LineCounts { to, from: None, .. } if to == UNCOMMITTED || to.is_empty() => refuse_filters(rt).await?,
         _ => {}
     }
     if request.is_engine() {

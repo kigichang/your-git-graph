@@ -412,6 +412,7 @@ async fn rebase_plain_autosquash_and_interactive_handed_to_the_terminal() {
     assert!(done(&f.op(OpRequest::CommitFixup { commit: s1 }).await));
     assert_eq!(f.subjects()[0], "fixup! add s1");
     assert!(!staged().await, "committed");
+    f.git(&["config", "sequence.editor", "false"]); // a todo editor of the repository's: not run
     assert!(done(&f.op(OpRequest::Rebase { onto: "main".into(), ignore_date: false, autosquash: true, interactive: false }).await));
     assert_eq!(&f.subjects()[..3], ["add s2", "add s1", "add m1"]);
     assert_eq!(f.git(&["show", "HEAD~1:s1"]), "s1 fixed");
@@ -556,6 +557,15 @@ async fn clean_untracked_files_reset_one_file_create_an_archive() {
     f.write("a", "edited\n");
     assert!(done(&f.op(OpRequest::ResetFile { commit: "HEAD".into(), path: "a".into() }).await));
     assert_eq!(std::fs::read_to_string(f.dir.join("a")).unwrap(), "a\n");
+    f.write("*", "star\n");
+    f.git(&["add", "*"]);
+    f.git(&["commit", "-qm", "a file named *"]);
+    f.write("*", "edited\n");
+    f.write("a", "edited\n");
+    assert!(done(&f.op(OpRequest::ResetFile { commit: "HEAD".into(), path: "*".into() }).await));
+    assert_eq!(std::fs::read_to_string(f.dir.join("*")).unwrap(), "star\n");
+    assert_eq!(std::fs::read_to_string(f.dir.join("a")).unwrap(), "edited\n", "only the file named *");
+    f.git(&["checkout", "--", "a"]);
     let zip = w.root.path().join("archive.zip");
     assert!(done(&f.op(OpRequest::CreateArchive { reference: "main".into(), path: zip.display().to_string() }).await));
     assert_eq!(&std::fs::read(&zip).unwrap()[..2], b"PK");
@@ -869,6 +879,46 @@ async fn commits_only_the_reflog_mentions_come_in_before_their_parents_without_t
     assert!(!subjects(&filtered).contains(&"add d".to_string()));
 }
 
+/// A repository asking for signatures to be shown (log.showSignature) names the program that
+/// checks them (gpg.program): reading the reflog or loading with it runs nothing.
+#[tokio::test]
+async fn reading_the_reflog_checks_no_signature() {
+    use std::os::unix::fs::PermissionsExt;
+    let w = World::new();
+    let f = w.fixture();
+    let ran = w.root.path().join("gpg-ran");
+    let gpg = w.root.path().join("gpg.sh");
+    std::fs::write(&gpg, format!("#!/bin/sh\necho ran >> '{}'\nexit 1\n", ran.display())).unwrap();
+    std::fs::set_permissions(&gpg, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let tree = f.git(&["rev-parse", "HEAD^{tree}"]);
+    let parent = f.git(&["rev-parse", "HEAD"]);
+    f.write("signed.txt", &format!(
+        "tree {tree}\nparent {parent}\nauthor A <a@a> 1700000000 +0000\ncommitter A <a@a> 1700000000 +0000\n\
+         gpgsig -----BEGIN PGP SIGNATURE-----\n \n abc\n -----END PGP SIGNATURE-----\n\nsigned\n"
+    ));
+    let signed = f.git(&["hash-object", "-t", "commit", "-w", "signed.txt"]);
+    std::fs::remove_file(f.dir.join("signed.txt")).unwrap();
+    f.git(&["checkout", "-q", &signed]);
+    f.git(&["checkout", "-q", "main"]); // in HEAD's reflog only
+    f.git(&["update-ref", "--create-reflog", "-m", "signed", "refs/stash", &signed]);
+    f.git(&["config", "log.showSignature", "true"]);
+    f.git(&["config", "gpg.program", gpg.to_str().unwrap()]);
+    f.git(&["log", "-1", "--format=%H", &signed]);
+    assert!(ran.exists(), "the repository's settings do run it for git log");
+    std::fs::remove_file(&ran).unwrap();
+
+    let rt = f.rt();
+    let ReadResponse::Reflog { entries, .. } = read_git(&rt, ReadRequest::Reflog { reference: "HEAD".into(), limit: 10 }).await.unwrap() else { panic!() };
+    assert!(entries.iter().any(|e| e.hash == signed));
+    let options = LoadOptions {
+        max_commits: 50, branches: None, authors: None, filter_paths: vec![], order: CommitOrder::Date, first_parent_only: false,
+        show_tags: true, show_remote_branches: true, show_remote_heads: true, hide_remotes: vec![], show_uncommitted: false, show_untracked: false,
+        author_dates: true, include_reflog: true,
+    };
+    gg_backend::api::read(&rt, ReadRequest::Commits { options }).await.unwrap();
+    assert!(!ran.exists(), "gpg.program ran");
+}
+
 /* ---------- the repository's own filters ---------- */
 
 /// A filter the repository's .git/config names runs on the uncommitted changes' files: not
@@ -908,6 +958,8 @@ async fn the_repositorys_own_filters_run_only_once_allowed() {
     assert!(gg_backend::api::read(&f.rt(), ReadRequest::UncommittedDetails).await.unwrap_err().contains("filter.probe.clean"));
     let compare = ReadRequest::Compare { from: "HEAD".into(), to: UNCOMMITTED.into() };
     assert!(gg_backend::api::read(&f.rt(), compare).await.is_err());
+    let compare = ReadRequest::Compare { from: "HEAD".into(), to: String::new() }; // the engine's working tree too
+    assert!(gg_backend::api::read(&f.rt(), compare).await.is_err());
     let reset = OpRequest::Reset { commit: "HEAD".into(), mode: ResetMode::Hard };
     let OpResult::NeedsConfirmation { reasons } = f.op(reset.clone()).await else { panic!("a hard reset asks first") };
     assert_eq!(reasons, [Reason::UncommittedDiscarded { count: 1 }], "counted without the filter");
@@ -928,4 +980,64 @@ async fn the_repositorys_own_filters_run_only_once_allowed() {
     // Git LFS's value with a second line is not Git LFS: the shell runs that line too.
     f.git(&["config", "filter.lfs.clean", "git-lfs clean -- %f\ntrue"]);
     assert_eq!(gg_backend::filters::own_filters(&f.rt()).await.unwrap(), ["filter.probe.clean", "filter.lfs.clean"]);
+}
+
+/// A filter a submodule's own configuration names runs on that submodule's files when the
+/// superproject's changes are read (git status and the engine look inside it): it keeps them
+/// unread too.
+#[tokio::test]
+async fn a_submodules_own_filters_run_only_once_allowed() {
+    let w = World::new();
+    let inner = w.fixture();
+    inner.write(".gitattributes", "* filter=probe\n");
+    inner.git(&["add", ".gitattributes"]);
+    inner.git(&["commit", "-qm", "filtered"]);
+    let f = w.fixture();
+    f.git(&["-c", "protocol.file.allow=always", "submodule", "add", "-q", inner.dir.to_str().unwrap(), "sub"]);
+    f.git(&["commit", "-qm", "a submodule"]);
+    let marker = w.root.path().join("the submodule filter ran");
+    w.sh(&f.dir.join("sub"), &["config", "filter.probe.clean", &format!("sh -c 'touch \"{}\"; cat'", marker.display())]);
+    assert_eq!(gg_backend::filters::own_filters(&f.rt()).await.unwrap(), ["sub: filter.probe.clean"]);
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    std::fs::write(f.dir.join("sub").join("a"), "a\n").unwrap(); // the same text, a new stat
+
+    let options = LoadOptions {
+        max_commits: 10, branches: None, authors: None, filter_paths: vec![], order: CommitOrder::Date, first_parent_only: false,
+        show_tags: true, show_remote_branches: true, show_remote_heads: true, hide_remotes: vec![], show_uncommitted: true, show_untracked: true,
+        author_dates: false, include_reflog: false,
+    };
+    let ReadResponse::Commits { blocked_by, .. } = gg_backend::api::read(&f.rt(), ReadRequest::Commits { options: options.clone() }).await.unwrap() else { panic!() };
+    assert_eq!(blocked_by, ["sub: filter.probe.clean"]);
+    let _ = f.op(OpRequest::Reset { commit: "HEAD".into(), mode: ResetMode::Hard }).await;
+    assert!(!marker.exists(), "nothing ran the submodule's filter");
+
+    gg_backend::api::read(&f.rt().allow_filters(true), ReadRequest::Commits { options }).await.unwrap();
+    assert!(marker.exists(), "allowed, reading the changes runs it");
+}
+
+/// A commit only a hidden remote's branch has, and the reflog: it is shown as the reflog's.
+#[tokio::test]
+async fn commits_only_the_reflog_and_a_hidden_remote_mention_are_shown() {
+    let w = World::new();
+    let f = w.fixture();
+    f.commit("e");
+    f.git(&["push", "-q", "origin", "main"]);
+    f.git(&["reset", "-q", "--hard", "HEAD~1"]); // "add e": origin/main and the reflog
+    let options = |hide_remotes: Vec<String>| LoadOptions {
+        max_commits: 50, branches: None, authors: None, filter_paths: vec![], order: CommitOrder::Date, first_parent_only: false,
+        show_tags: true, show_remote_branches: true, show_remote_heads: true, hide_remotes, show_uncommitted: false, show_untracked: false,
+        author_dates: false, include_reflog: true,
+    };
+    let rt = f.rt();
+    let count = |o: LoadOptions| {
+        let rt = &rt;
+        async move {
+            match gg_backend::api::read(rt, ReadRequest::Commits { options: o }).await.unwrap() {
+                ReadResponse::Commits { commits, .. } => commits.iter().filter(|c| c.message == "add e").count(),
+                other => panic!("{other:?}"),
+            }
+        }
+    };
+    assert_eq!(count(options(vec![])).await, 1, "origin/main's");
+    assert_eq!(count(options(vec!["origin".into()])).await, 1, "origin hidden: the reflog's");
 }

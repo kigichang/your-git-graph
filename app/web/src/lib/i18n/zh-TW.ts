@@ -162,7 +162,6 @@ export const zhTW: Record<Key, string> = {
 	'dialog.dataLoss.hint': '不屬於任何分支或標籤的提交，之後只能透過 reflog 找回。',
 	'dialog.error.title': '操作失敗',
 	'dialog.error.step': '在「{step}」時：',
-	'dialog.progress.title': '執行中…',
 	'dialog.progress.done': '完成',
 
 	/* 操作前的詢問 */

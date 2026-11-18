@@ -577,11 +577,12 @@ async function main() {
 		}
 		// Each of these writes or runs something when a window may call it.
 		const refused = {};
-		for (const command of ['open_terminal', 'open_repo_file', 'reveal_repo', 'repo_op', 'repo_read', 'settings_set', 'state_set', 'open_diff_window', 'scan_repos', 'clipboard_write']) {
+		// And events (they reach every window's listeners), menus, images read by path.
+		for (const command of ['open_terminal', 'open_repo_file', 'reveal_repo', 'repo_op', 'repo_read', 'settings_set', 'state_set', 'open_diff_window', 'scan_repos', 'clipboard_write', 'plugin:event|emit', 'plugin:menu|new', 'plugin:image|from_path']) {
 			refused[command] = await invoke(command, {}).then(() => 'allowed', (e) => String(e));
 		}
 		const escape = await checkEscape();
-		await window.__TAURI__.event.emit('diff-selftest', { mode: spec.mode, title: spec.title, result, workerProblems, theme: editorTheme, escape, refused, csp: cspViolations });
+		await invoke('diff_report', { report: { mode: spec.mode, title: spec.title, result, workerProblems, theme: editorTheme, escape, refused, csp: cspViolations } });
 		// Closed the way a person would: Esc.
 		setTimeout(() => document.body.dispatchEvent(escapeKey()), 200);
 	}

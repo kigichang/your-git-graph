@@ -9,6 +9,7 @@ const COMMANDS: &[&str] = &[
     "host_log",
     "self_test",
     "selftest_write",
+    "diff_report",
     "preview",
     "preview_resize",
     "export_repo_config",

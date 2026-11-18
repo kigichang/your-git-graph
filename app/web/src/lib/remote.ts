@@ -16,6 +16,13 @@ export function parseRemote(repo: unknown): Remote | null {
 	return m === null ? null : { host: SCHEME + m[1], authority: m[1] as string, path: m[2] as string };
 }
 
+/** The name of `path`, a path on the machine `repo` is on (a worktree git lists): over ssh,
+ * a repository's name on that machine. */
+export function nameBeside(repo: string, path: string): string {
+	const remote = parseRemote(repo);
+	return remote === null ? path : remote.host + path;
+}
+
 /** What is wrong with what was typed for a remote repository, or null. `destination` is what
  * ssh takes: [user@]host, or a Host of ~/.ssh/config. */
 export function invalidRemote({ destination, port }: { destination: string; port: string }): string | null {

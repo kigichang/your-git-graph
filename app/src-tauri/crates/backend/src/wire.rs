@@ -27,6 +27,8 @@ pub const READY: &str = "@@GG-READY@@";
 pub const CHUNK: usize = 64 * 1024;
 /// No frame is larger (requests are small, results come in parts): anything else is not ours.
 const MAX_FRAME: usize = 16 * 1024 * 1024;
+/// The longest header line (`<u64> <kind> <usize>\n` is at most 43 bytes).
+const MAX_HEADER: u64 = 64;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Frame {
@@ -50,11 +52,13 @@ pub async fn write_frame<W: AsyncWrite + Unpin>(to: &mut W, frame: &Frame) -> io
 /// The next frame; `None` at the end of the stream.
 pub async fn read_frame<R: AsyncBufRead + Unpin>(from: &mut R) -> io::Result<Option<Frame>> {
     let mut header = String::new();
-    if from.read_line(&mut header).await? == 0 {
+    // A header is a few dozen bytes: a line without end is not read on.
+    if (&mut *from).take(MAX_HEADER).read_line(&mut header).await? == 0 {
         return Ok(None);
     }
     let bad = || io::Error::new(io::ErrorKind::InvalidData, format!("not a frame header: {:?}", header.trim_end()));
-    let mut parts = header.trim_end_matches('\n').split(' ');
+    let Some(header) = header.strip_suffix('\n') else { return Err(bad()) };
+    let mut parts = header.split(' ');
     let (Some(id), Some(kind), Some(len), None) = (parts.next(), parts.next(), parts.next(), parts.next()) else { return Err(bad()) };
     let (Ok(id), [kind], Ok(len)) = (id.parse::<u64>(), kind.as_bytes(), len.parse::<usize>()) else { return Err(bad()) };
     if len > MAX_FRAME {
@@ -87,7 +91,7 @@ mod tests {
     #[tokio::test]
     async fn frames_survive_a_pipe_that_delivers_them_in_pieces() {
         let frames = vec![
-            Frame::new(1, b'Q', "{\"op\":\"scan\"}"),
+            Frame::new(1, b'Q', "{\"op\":\"watch\"}"),
             Frame::new(2, b'C', ""),
             Frame::new(u64::MAX, b'P', vec![0u8, 10, 255, b' ', b'\n']),
             Frame::new(3, b'R', "é".repeat(5000)),
@@ -116,6 +120,9 @@ mod tests {
         }
         let mut cut = tokio::io::BufReader::new("1 Q 10\nshort".as_bytes());
         assert!(read_frame(&mut cut).await.is_err(), "a body cut short");
+        let endless = format!("1 Q 0{}", " ".repeat(1 << 20));
+        let mut endless = tokio::io::BufReader::new(endless.as_bytes());
+        assert!(read_frame(&mut endless).await.is_err(), "a header line without end");
     }
 
     #[test]

@@ -1,14 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "diff",
-  "description": "Diff windows: core IPC, closing themselves (self-test) and setting their title, and the reads they show a file with, and the web images a person asks the preview to load. They render what a repository's author wrote, so nothing here writes, runs git, or changes the sidebar or the settings (main.rs has a test)",
+  "description": "Diff windows: closing themselves, the reads they show a file with, the web images a person asks the preview to load, and the self-test's report. They render what a repository's author wrote, so nothing here writes, runs git, changes the sidebar or the settings, or sends events to the other windows (not core:default; main.rs has a test)",
   "windows": ["diff-*"],
   "permissions": [
-    "core:default",
     "core:window:allow-close",
-    "core:window:allow-set-title",
     "allow-host-log",
     "allow-self-test",
+    "allow-diff-report",
     "allow-engine-request",
     "allow-worktree-file",
     "allow-open-url",

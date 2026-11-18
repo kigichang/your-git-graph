@@ -113,12 +113,14 @@ impl Runtime for LocalRuntime {
                 return Err("Cancelled.".into());
             }
             let mut env = self.base_env.clone();
-            // No editor can be shown: commands that would open one take their default text.
+            // No editor can be shown: commands that would open one take their default text, and
+            // a rebase its todo list (sequence.editor, which outranks GIT_EDITOR, is not run).
             // No optional locks: a `git diff` that rewrote the index would wake the file watcher.
             env.insert("GIT_EDITOR".into(), "true".into());
+            env.insert("GIT_SEQUENCE_EDITOR".into(), "true".into());
             env.insert("GIT_OPTIONAL_LOCKS".into(), "0".into());
             env.extend(opts.env);
-            let request = GitExecRequest { args, cwd: self.repo.clone(), env, timeout_ms: None, stream: opts.stream, stdin: opts.stdin };
+            let request = GitExecRequest { args, cwd: self.repo.clone(), env, stream: opts.stream, stdin: opts.stdin };
             // git::run takes a one-shot cancel: fire it when the operation's flag turns true.
             let (tx, rx) = oneshot::channel();
             let mut flag = self.cancel.clone();

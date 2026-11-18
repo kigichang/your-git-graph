@@ -1,15 +1,14 @@
 //! Running the `git` CLI: every write operation (and any read the engine declines) goes through
 //! here. The engine cannot replace it - gix implements neither push nor fetch.
 //!
-//! [`run`] is what the app's `git_exec` and the remote helper both call.
-//! Each run gets its own process group, so a timeout or a cancel also ends whatever git spawned
+//! [`run`] is what `runtime::LocalRuntime` calls, in the app and in the remote helper alike.
+//! Each run gets its own process group, so a cancel also ends whatever git spawned
 //! (hooks, ssh, credential helpers) instead of leaving it holding the output pipes open.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::OnceLock;
-use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -149,8 +148,7 @@ pub fn config_overrides() -> [(String, String); 3] {
     ]
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
+#[derive(Debug, Clone, Default)]
 pub struct GitExecRequest {
     /// The arguments after `git`.
     pub args: Vec<String>,
@@ -158,41 +156,33 @@ pub struct GitExecRequest {
     pub cwd: String,
     /// Added to (and overriding) the inherited environment.
     pub env: HashMap<String, String>,
-    /// Kill the run after this long; `None` = no limit.
-    pub timeout_ms: Option<u64>,
     /// Send each output chunk over the command's channel as it arrives (progress of fetch/push).
     /// Off by default: a large output would otherwise cross the IPC twice.
     pub stream: bool,
     /// Written to git's standard input, which is then closed (`--stdin` options: a list too long
     /// for the argument list); `None`: no input.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stdin: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone)]
 pub struct GitExecResult {
-    /// `None` when git was killed (timeout, cancel) or died from a signal.
+    /// `None` when git was cancelled or died from a signal.
     pub exit_code: Option<i32>,
     pub stdout: String,
     pub stderr: String,
-    pub timed_out: bool,
     pub cancelled: bool,
-    pub duration_ms: u64,
 }
 
-/// One chunk of live output, as the frontend's Channel receives it:
-/// `{"stream": "stdout" | "stderr", "data": "..."}`.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(tag = "stream", content = "data", rename_all = "lowercase")]
+/// One chunk of live output (`runtime.rs` passes stderr on as [`crate::api::OpProgress`]).
+#[derive(Debug, Clone, PartialEq)]
 pub enum GitOutput {
     Stdout(String),
     Stderr(String),
 }
 
 /// Run git once. When the request asks to stream, `on_output` sees every chunk as it arrives
-/// (git's progress lines included); the full output is returned either way. Resolves when git exits, the timeout elapses, or `cancel`
-/// fires - in the last two cases after killing git's whole process group.
+/// (git's progress lines included); the full output is returned either way. Resolves when git exits or `cancel`
+/// fires - then after killing git's whole process group.
 pub async fn run<F>(
     git: &Path,
     request: &GitExecRequest,
@@ -202,12 +192,11 @@ pub async fn run<F>(
 where
     F: Fn(GitOutput) + Send + Sync + 'static,
 {
-    let started = Instant::now();
     let mut command = tokio::process::Command::new(git);
     command
         .args(&request.args)
         .current_dir(&request.cwd)
-        // Never prompt on a terminal nobody can see; prompts go through askpass (git_exec adds it).
+        // Never prompt on a terminal nobody can see; prompts go through askpass (the runtime adds it).
         .env("GIT_TERMINAL_PROMPT", "0")
         .envs(config_overrides())
         .envs(&request.env)
@@ -241,12 +230,6 @@ where
     let err_cb = on_output.clone();
     let stderr_task = tokio::spawn(pump(stderr, move |s| err_cb(GitOutput::Stderr(s))));
 
-    let timeout = async {
-        match request.timeout_ms {
-            Some(ms) => tokio::time::sleep(Duration::from_millis(ms)).await,
-            None => std::future::pending().await,
-        }
-    };
     // A dropped sender (nobody can cancel any more) must not count as a cancel.
     let cancelled = async {
         if cancel.await.is_err() {
@@ -254,11 +237,9 @@ where
         }
     };
 
-    let (mut timed_out, mut was_cancelled) = (false, false);
     let status = tokio::select! {
         status = child.wait() => Some(status.map_err(|e| e.to_string())?),
-        _ = timeout => { timed_out = true; None }
-        _ = cancelled => { was_cancelled = true; None }
+        _ = cancelled => None
     };
     if status.is_none() {
         kill_group(pgid);
@@ -271,9 +252,7 @@ where
         exit_code: status.and_then(|s| s.code()),
         stdout,
         stderr,
-        timed_out,
-        cancelled: was_cancelled,
-        duration_ms: started.elapsed().as_millis() as u64,
+        cancelled: status.is_none(),
     })
 }
 
@@ -352,6 +331,7 @@ fn take_utf8(bytes: &mut Vec<u8>) -> String {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
 
     #[test]
     fn path_gets_missing_tool_dirs_appended() {
@@ -422,7 +402,7 @@ mod tests {
         assert_eq!(ok.exit_code, Some(0));
         let top = std::fs::canonicalize(dir.path()).unwrap();
         assert_eq!(ok.stdout.trim(), top.display().to_string());
-        assert!(!ok.timed_out && !ok.cancelled);
+        assert!(!ok.cancelled);
     }
 
     #[tokio::test]
@@ -458,18 +438,6 @@ mod tests {
     /// `sleep` runs as a grandchild (git → sh → sleep) holding the pipes: only the group kill
     /// lets the run return promptly.
     #[tokio::test]
-    async fn timeout_kills_the_process_group() {
-        let dir = tempfile::tempdir().unwrap();
-        let mut request = req(dir.path(), &["-c", "alias.s=!sleep 30", "s"]);
-        request.timeout_ms = Some(200);
-        let (_keep, rx) = never();
-        let result = run(&git(), &request, |_| {}, rx).await.unwrap();
-        assert!(result.timed_out && !result.cancelled);
-        assert_eq!(result.exit_code, None);
-        assert!(result.duration_ms < 5000, "took {}ms", result.duration_ms);
-    }
-
-    #[tokio::test]
     async fn cancel_kills_the_process_group() {
         let dir = tempfile::tempdir().unwrap();
         let request = req(dir.path(), &["-c", "alias.s=!sleep 30", "s"]);
@@ -478,9 +446,11 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(200)).await;
             let _ = tx.send(());
         });
+        let started = Instant::now();
         let result = run(&git(), &request, |_| {}, rx).await.unwrap();
-        assert!(result.cancelled && !result.timed_out);
-        assert!(result.duration_ms < 5000, "took {}ms", result.duration_ms);
+        assert!(result.cancelled);
+        assert_eq!(result.exit_code, None);
+        assert!(started.elapsed() < Duration::from_secs(5), "took {:?}", started.elapsed());
     }
 
     #[test]

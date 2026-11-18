@@ -22,13 +22,10 @@ use crate::remote::{self, Remotes, Session};
 const MAX_RECENT: usize = 10;
 /* ---------- Scanning ---------- */
 
+/// The repositories in a folder of this Mac (the page adds a repository on another machine as
+/// it is named).
 #[tauri::command]
-pub async fn scan_repos(remotes: tauri::State<'_, Arc<Remotes>>, folder: String) -> Result<Vec<String>, String> {
-    if let Some(remote) = remote::parse(&folder)? {
-        let found = remote::ask(&remotes, &remote, serde_json::json!({ "op": "scan" }), "folder").await?;
-        let found: Vec<String> = serde_json::from_value(found).map_err(|e| e.to_string())?;
-        return Ok(found.iter().map(|path| remote.id(path)).collect());
-    }
+pub async fn scan_repos(folder: String) -> Result<Vec<String>, String> {
     Ok(gg_backend::files::scan(Path::new(&folder), gg_backend::files::SCAN_DEPTH).into_iter().map(|p| p.display().to_string()).collect())
 }
 

@@ -14,7 +14,7 @@
 #   GG_SELFTEST_SSH=…             the repository through the real ssh (tests/ssh-server.sh says how)
 #   GG_SELFTEST_PLANTUML_JAR=…    PlantUML blocks through that jar and the real java
 set -u
-app="$1"; repo="$2"; log="${3:-$(mktemp -t gg-selftest).log}"
+app="$1"; repo="$2"; log="${3:-$(mktemp -t gg-selftest-log)}"
 # What this script makes is removed when it ends, however it ends (not a GG_DATA_DIR given).
 made=()
 trap 'rm -rf ${made[@]+"${made[@]}"}' EXIT # bash 3.2 with set -u: an empty array is unbound
@@ -61,10 +61,12 @@ grep -v IMKCF "$log"
 status=0
 grep -q "selftest: PASS" "$log" || status=1
 if [ -n "$authlog" ]; then
-	# Once from the app's own git, once through the helper: the dialog's answers reached the server.
+	# Once from the app's own git, once through the helper (the stand-in for ssh runs it here, so
+	# it reaches this server): the dialog's answers reached the server.
+	want=1; [ -z "${GG_SELFTEST_SSH:-}" ] && want=2
 	n="$(grep -c '^auth: gg-selftest:secret$' "$authlog")"
-	echo "askpass: the server saw the name and password $n time(s)"
-	[ "$n" -ge 1 ] || status=1
+	echo "askpass: the server saw the name and password $n time(s), $want expected"
+	[ "$n" -ge "$want" ] || status=1
 fi
 # log.enabled: the line logged while it was on is in the session log, the others are not.
 if grep -q "selftest: PASS" "$log"; then

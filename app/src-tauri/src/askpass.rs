@@ -8,7 +8,7 @@
 //!
 //! The app side ([`Askpass`]) listens on a socket in a private (0700) directory and requires a
 //! random token with every request, so another local process cannot pose as git to harvest a
-//! password. Each window has its own token (git_exec passes the caller's), so a request is shown
+//! password. Each window has its own token (`repo_op` passes the caller's), so a request is shown
 //! only in the window whose git asked. Each request becomes an [`AskpassEvent::Request`] for that
 //! window's frontend, which answers with [`Askpass::reply`]; if git is killed meanwhile (timeout, cancel), the helper dies with it,
 //! the server sees the connection close and sends [`AskpassEvent::Close`] to drop the dialog.

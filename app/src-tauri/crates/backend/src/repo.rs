@@ -1,26 +1,18 @@
 //! Repository state the engine does not report: an in-progress merge / rebase / cherry-pick /
 //! revert, read from the marker files git leaves in the git directory. The conflicted files are
-//! listed by the frontend with `git diff --diff-filter=U` (they need the index's stages).
+//! listed by `reads.rs` with `git ls-files --unmerged` (they need the index's stages).
 //! Also the one file the app writes into a work tree: the exported repository configuration.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::Serialize;
+use crate::api::{OperationKind, OperationProgress};
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct OperationState {
-    /// `merge` | `rebase` | `cherry-pick` | `revert`, or `None` when nothing is in progress.
-    #[serde(rename = "type")]
-    pub kind: Option<&'static str>,
-    pub progress: Option<Progress>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct Progress {
-    pub step: u32,
-    pub total: u32,
+    /// `None` when nothing is in progress.
+    pub kind: Option<OperationKind>,
+    pub progress: Option<OperationProgress>,
 }
 
 /// The git directory of the work tree at `root`: `.git` itself, or where a `.git` file
@@ -39,8 +31,8 @@ fn read_number(path: PathBuf) -> Option<u32> {
     fs::read_to_string(path).ok()?.trim().parse().ok()
 }
 
-fn progress(dir: &Path, step: &str, total: &str) -> Option<Progress> {
-    Some(Progress { step: read_number(dir.join(step))?, total: read_number(dir.join(total))? })
+fn progress(dir: &Path, step: &str, total: &str) -> Option<OperationProgress> {
+    Some(OperationProgress { step: read_number(dir.join(step))?, total: read_number(dir.join(total))? })
 }
 
 pub fn operation_state(root: &Path) -> OperationState {
@@ -49,13 +41,13 @@ pub fn operation_state(root: &Path) -> OperationState {
     // A rebase that stopped on a conflicting cherry-pick also leaves CHERRY_PICK_HEAD: check it first.
     if dir.join("rebase-merge").is_dir() {
         let d = dir.join("rebase-merge");
-        return OperationState { kind: Some("rebase"), progress: progress(&d, "msgnum", "end") };
+        return OperationState { kind: Some(OperationKind::Rebase), progress: progress(&d, "msgnum", "end") };
     }
     if dir.join("rebase-apply").is_dir() {
         let d = dir.join("rebase-apply");
-        return OperationState { kind: Some("rebase"), progress: progress(&d, "next", "last") };
+        return OperationState { kind: Some(OperationKind::Rebase), progress: progress(&d, "next", "last") };
     }
-    for (file, kind) in [("MERGE_HEAD", "merge"), ("CHERRY_PICK_HEAD", "cherry-pick"), ("REVERT_HEAD", "revert")] {
+    for (file, kind) in [("MERGE_HEAD", OperationKind::Merge), ("CHERRY_PICK_HEAD", OperationKind::CherryPick), ("REVERT_HEAD", OperationKind::Revert)] {
         if dir.join(file).is_file() {
             return OperationState { kind: Some(kind), progress: None };
         }
@@ -140,17 +132,17 @@ mod tests {
         let dir = conflicting_repo();
         let p = dir.path();
         assert!(!git(p, &["merge", "side"]));
-        assert_eq!(operation_state(p).kind, Some("merge"));
+        assert_eq!(operation_state(p).kind, Some(OperationKind::Merge));
         assert!(git(p, &["merge", "--abort"]));
 
         assert!(!git(p, &["cherry-pick", "side"]));
-        assert_eq!(operation_state(p).kind, Some("cherry-pick"));
+        assert_eq!(operation_state(p).kind, Some(OperationKind::CherryPick));
         assert!(git(p, &["cherry-pick", "--abort"]));
 
         assert!(!git(p, &["rebase", "side"]));
         let state = operation_state(p);
-        assert_eq!(state.kind, Some("rebase"));
-        assert_eq!(state.progress, Some(Progress { step: 1, total: 1 }));
+        assert_eq!(state.kind, Some(OperationKind::Rebase));
+        assert_eq!(state.progress, Some(OperationProgress { step: 1, total: 1 }));
         assert!(git(p, &["rebase", "--abort"]));
         assert_eq!(operation_state(p).kind, None);
     }

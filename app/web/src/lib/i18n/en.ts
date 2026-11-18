@@ -160,7 +160,6 @@ export const en = {
 	'dialog.dataLoss.hint': 'Commits that end up on no branch or tag can only be found through the reflog.',
 	'dialog.error.title': 'The operation failed',
 	'dialog.error.step': 'While {step}:',
-	'dialog.progress.title': 'Running…',
 	'dialog.progress.done': 'Done',
 
 	/* Reasons an operation asks first */

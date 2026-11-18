@@ -35,7 +35,9 @@ async fn uncommitted_tracked(rt: &dyn Runtime) -> Result<u32, String> {
     if crate::filters::blocking(rt).await?.is_empty() {
         return Ok(lines(&exec(rt, args(&["status", "--porcelain", "--untracked-files=no"])).await?).len() as u32);
     }
-    let mut files: Vec<String> = lines(&exec(rt, args(&["diff-files", "--name-only"])).await?);
+    // A submodule's own files are looked at through its filters too, and a hard reset leaves
+    // them alone: only a submodule moved to another commit counts.
+    let mut files: Vec<String> = lines(&exec(rt, args(&["diff-files", "--name-only", "--ignore-submodules=dirty"])).await?);
     // Without HEAD (an orphan branch) everything in the index is a change.
     let staged = exec(rt, args(&["diff-index", "--cached", "--name-only", "HEAD"])).await?;
     let staged = if staged.exit_code == Some(0) { lines(&staged) } else { lines(&exec(rt, args(&["ls-files"])).await?) };

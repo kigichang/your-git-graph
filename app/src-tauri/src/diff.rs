@@ -33,6 +33,10 @@ pub async fn worktree_file(state: tauri::State<'_, crate::state::State>, remotes
     state.listed(&repo)?;
     match remote::parse(&repo)? {
         Some(remote) => remote::ask(&remotes, &remote, json!({ "op": "worktreeFile", "path": path }), "repo").await,
-        None => serde_json::to_value(read_worktree_file(Path::new(&repo), &path)?).map_err(|e| e.to_string()),
+        // Off the async runtime: up to 50 MB, from a share that may be slow.
+        None => {
+            let file = tauri::async_runtime::spawn_blocking(move || read_worktree_file(Path::new(&repo), &path)).await.map_err(|e| e.to_string())??;
+            serde_json::to_value(file).map_err(|e| e.to_string())
+        }
     }
 }

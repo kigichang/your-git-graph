@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::api::{Author, BranchConfig, LocalAndGlobal, OperationKind, OperationProgress, ReadRequest, ReadResponse, ReflogEntry, RemoteConfig, RepoConfig, Worktree};
+use crate::api::{Author, BranchConfig, LocalAndGlobal, ReadRequest, ReadResponse, ReflogEntry, RemoteConfig, RepoConfig, Worktree};
 use crate::ops::{args, error_of, exec};
 use crate::runtime::Runtime;
 
@@ -14,14 +14,7 @@ pub async fn read_git(rt: &dyn Runtime, request: ReadRequest) -> Result<ReadResp
     match request {
         ReadRequest::OperationState => {
             let marker = crate::repo::operation_state(Path::new(rt.repo()));
-            let operation = match marker.kind {
-                None => None,
-                Some("merge") => Some(OperationKind::Merge),
-                Some("rebase") => Some(OperationKind::Rebase),
-                Some("cherry-pick") => Some(OperationKind::CherryPick),
-                Some("revert") => Some(OperationKind::Revert),
-                Some(_) => None,
-            };
+            let operation = marker.kind;
             let mut conflicted_files = Vec::new();
             if operation.is_some() {
                 // The index alone: `git diff` would run the clean filters a repository's config
@@ -39,7 +32,7 @@ pub async fn read_git(rt: &dyn Runtime, request: ReadRequest) -> Result<ReadResp
             let staged = exec(rt, args(&["diff", "--cached", "--quiet", "--no-ext-diff"])).await?.exit_code == Some(1);
             Ok(ReadResponse::OperationState {
                 operation,
-                progress: marker.progress.map(|p| OperationProgress { step: p.step, total: p.total }),
+                progress: marker.progress,
                 conflicted_files,
                 staged,
             })
@@ -47,7 +40,7 @@ pub async fn read_git(rt: &dyn Runtime, request: ReadRequest) -> Result<ReadResp
         ReadRequest::Reflog { reference, limit } => {
             crate::ops::unsafe_arg([reference.as_str()])?;
             let format = format!("--format=%H{UNIT}%h{UNIT}%gD{UNIT}%gs");
-            let r = exec(rt, args(&["reflog", "show", "--date=unix", &format, "-n", &limit.saturating_add(1).to_string(), &reference, "--"])).await?;
+            let r = exec(rt, args(&["reflog", "show", "--no-show-signature", "--date=unix", &format, "-n", &limit.saturating_add(1).to_string(), &reference, "--"])).await?;
             if let Some(e) = error_of(&r) {
                 return Err(e);
             }

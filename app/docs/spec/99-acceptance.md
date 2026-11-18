@@ -10,7 +10,7 @@
 | 3 | 載入 repo：graph 有列、點一列打開詳細資料（列被選取、訊息、檔案清單、行數）、分支篩選（選一個分支後列數不多於全部、Show All 回來）、Esc 關閉面板 | M2 | ✅ |
 | 4 | 讀取：repo info、commits、details（commit／stash／未 commit／比較）、line counts、tag details（annotated 與否）、reflog 面板有項目、worktree 面板列出主 worktree | M2／M6 | ✅ |
 | 5 | 寫入（`repo_op`）：建立並 checkout `gg-selftest-*` 分支、repo info 列出它、切回原分支、最後刪掉；不在側欄清單裡的 repo 路徑一律拒絕（「… is not in the sidebar」），讀取、操作、引擎請求、工作目錄的檔案、開檔、Finder、Terminal 各檢查一次；頁面不能呼叫 diff 視窗用不到的引擎方法（`submodules`） | M3／M8 | ✅ |
-| 5b | 安全邊界：每個 diff 視窗呼叫 `open_terminal`、`open_repo_file`、`reveal_repo`、`repo_op`、`repo_read`、`settings_set`、`state_set`、`open_diff_window`、`scan_repos`、`clipboard_write` 都被拒絕（not allowed）；Content-Security-Policy 擋得住 `eval`，而且所有視窗跑完整個 self-test 沒有其他東西被它擋掉 | M8 | ✅ |
+| 5b | 安全邊界：每個 diff 視窗呼叫 `open_terminal`、`open_repo_file`、`reveal_repo`、`repo_op`、`repo_read`、`settings_set`、`state_set`、`open_diff_window`、`scan_repos`、`clipboard_write`，以及送事件給其他視窗、建立選單、依路徑讀圖片，都被拒絕（not allowed；報告經 `diff_report` 送回）；Content-Security-Policy 擋得住 `eval`，而且所有視窗跑完整個 self-test 沒有其他東西被它擋掉 | M8 | ✅ |
 | 6 | data-loss：在臨時分支上 revert 一個 commit（只有它才有的 commit），強制移動該分支 → `needsConfirmation`（`branchMoveDropsCommits`，1 個）→ 帶 `confirmed` 重送 → 分支真的移動；經視窗執行時對話框列出原因的句子，按 Continue 才執行 | M3／M4 | ✅ |
 | 7 | 進度與取消：加入指向自己的 remote 並 fetch，串流輸出含 `From `；fetch 一個不會回應的位址（10.255.255.1，需要網路）後取消，5 秒內回 `Cancelled.` | M3 | ✅ |
 | 8 | askpass：對要帳密的位址 fetch，對話框先問名稱（明文）再問密碼（遮罩），伺服器拒絕後操作失敗；在對話框按 Cancel 操作失敗；問題開著時取消操作，對話框自己關掉；本機 git 一輪、遠端 helper 的 git 一輪（伺服器的 log 各看到一次帳密）。ssh-keygen 的 passphrase 只有手動 | M5／M7 | ✅ |

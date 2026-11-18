@@ -41,9 +41,6 @@ pub fn error_of(result: &GitExecResult) -> Option<String> {
     if result.exit_code == Some(0) {
         return None;
     }
-    if result.timed_out {
-        return Some("Git timed out.".into());
-    }
     if result.cancelled {
         return Some("Cancelled.".into());
     }
