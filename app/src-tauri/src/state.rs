@@ -198,6 +198,11 @@ pub fn open_settings_file(app: AppHandle) -> Result<(), String> {
 
 pub struct SessionLog(pub Option<PathBuf>);
 
+/// A line is cut at this many bytes, and nothing more is written once the file is this large: a
+/// page that logs without end does not fill the disk.
+const MAX_LOG_LINE: usize = 8 * 1024;
+const MAX_LOG_BYTES: u64 = 10 * 1024 * 1024;
+
 impl SessionLog {
     /// This launch's log: the previous launch's is removed.
     pub fn start(dir: Option<PathBuf>) -> SessionLog {
@@ -214,7 +219,14 @@ impl SessionLog {
             let _ = std::fs::create_dir_all(dir);
         }
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(file) {
-            let _ = writeln!(f, "{line}");
+            if f.metadata().is_ok_and(|m| m.len() >= MAX_LOG_BYTES) {
+                return;
+            }
+            let mut end = line.len().min(MAX_LOG_LINE);
+            while !line.is_char_boundary(end) {
+                end -= 1;
+            }
+            let _ = writeln!(f, "{}{}", &line[..end], if end < line.len() { " …" } else { "" });
         }
     }
 }
@@ -233,6 +245,22 @@ pub fn open_session_log(log: tauri::State<'_, SessionLog>) -> Result<(), String>
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn the_session_log_is_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = SessionLog::start(Some(dir.path().to_path_buf()));
+        log.append("short");
+        log.append(&"é".repeat(MAX_LOG_LINE));
+        let written = std::fs::read_to_string(dir.path().join("session.log")).unwrap();
+        let lines: Vec<&str> = written.lines().collect();
+        assert_eq!(lines[0], "short");
+        assert!(lines[1].len() <= MAX_LOG_LINE + 4 && lines[1].ends_with(" …"), "{}", lines[1].len());
+        let file = std::fs::OpenOptions::new().write(true).open(dir.path().join("session.log")).unwrap();
+        file.set_len(MAX_LOG_BYTES).unwrap();
+        log.append("one too many");
+        assert_eq!(std::fs::metadata(dir.path().join("session.log")).unwrap().len(), MAX_LOG_BYTES);
+    }
 
     #[test]
     fn state_survives_a_reopen_and_coalesces_writes() {

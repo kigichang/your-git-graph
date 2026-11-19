@@ -116,14 +116,12 @@ async fn engine_request(
 
 /// The host's log line, mirrored to stderr so it shows in the terminal, and appended to this
 /// launch's session log when the `log.enabled` setting is on (read from the file each time, so
-/// turning it on in the panel or by hand takes effect at once); `persist` overrides the setting.
+/// turning it on in the panel or by hand takes effect at once). Any window may log, a diff
+/// window too: the setting alone decides whether a line reaches the disk.
 #[tauri::command]
-fn host_log(app: tauri::AppHandle, log: tauri::State<'_, state::SessionLog>, line: String, persist: Option<bool>) {
+fn host_log(app: tauri::AppHandle, log: tauri::State<'_, state::SessionLog>, line: String) {
     eprintln!("[host] {line}");
-    let keep = persist.unwrap_or_else(|| {
-        state::settings_file(&app).and_then(|f| settings::load(&f)).is_ok_and(|view| view.settings.log_enabled)
-    });
-    if keep {
+    if state::settings_file(&app).and_then(|f| settings::load(&f)).is_ok_and(|view| view.settings.log_enabled) {
         log.append(&line);
     }
 }
