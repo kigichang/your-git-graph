@@ -11,7 +11,6 @@
 mod api;
 mod askpass;
 mod diff;
-mod git;
 mod plantuml;
 mod remote;
 mod repo;

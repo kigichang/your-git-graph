@@ -174,7 +174,7 @@ pub async fn repo_op(
                 }
                 let Ok(event) = serde_json::from_slice::<serde_json::Value>(&frame.body) else { return };
                 if let Some(ask) = event["askpass"].as_u64() {
-                    crate::git::remote_prompt(&session, &prompts, &label, &asked, ask, event["prompt"].as_str().unwrap_or_default().to_string());
+                    crate::askpass::remote_prompt(&session, &prompts, &label, &asked, ask, event["prompt"].as_str().unwrap_or_default().to_string());
                 } else if let Some(id) = event["askpassClosed"].as_u64().and_then(|ask| asked.lock().unwrap().remove(&ask)) {
                     prompts.close(&label, id);
                 } else if let Ok(progress) = serde_json::from_value::<OpProgress>(event["progress"].clone()) {

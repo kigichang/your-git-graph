@@ -47,7 +47,6 @@ app/
     remote-dist/          build-remote.sh 的輸出（gitignore），remote.rs 以 include_bytes! 嵌入；沒建時 build.rs 放空檔
     src/main.rs           initial_repo、engine_request、host_log、self_test、preview、preview_resize
     src/api.rs            repo_read、repo_op、repo_op_cancel（本機建 LocalRuntime；ssh:// 轉給 helper 的 read／op）
-    src/git.rs            遠端 git 的 askpass 事件（remote_prompt）
     src/settings.rs       settings_get、settings_set
     src/remote.rs         遠端 repo：名稱、連線與 bootstrap、session、remote_connect／disconnect
     src/repo.rs、repos.rs、state.rs、system.rs、askpass.rs、diff.rs、plantuml.rs、webimage.rs   見各檔案的說明

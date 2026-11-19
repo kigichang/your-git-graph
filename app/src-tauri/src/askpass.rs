@@ -201,6 +201,32 @@ pub fn helper_main() -> Option<i32> {
     gg_backend::askpass::helper_main(VARS)
 }
 
+/* ---------- The questions of a git on another machine ---------- */
+
+/// Show a question of the git on another machine in `window` and send the answer back.
+pub fn remote_prompt(session: &Arc<crate::remote::Session>, prompts: &Arc<Askpass>, window: &str, asked: &Arc<Mutex<HashMap<u64, u64>>>, ask: u64, prompt: String) {
+    let waiting = prompts.prompt(window, prompt);
+    if let Some((id, _)) = &waiting {
+        asked.lock().unwrap().insert(ask, *id);
+    }
+    let (session, prompts, window, asked) = (session.clone(), prompts.clone(), window.to_string(), asked.clone());
+    tauri::async_runtime::spawn(async move {
+        let answer = match waiting {
+            None => None, // the window is gone
+            Some((id, answered)) => tauri::async_runtime::spawn_blocking(move || {
+                let answer = answered.recv_timeout(ANSWER_TIMEOUT).ok().flatten();
+                prompts.close(&window, id); // unanswered in time: take it down
+                answer
+            })
+            .await
+            .ok()
+            .flatten(),
+        };
+        asked.lock().unwrap().remove(&ask);
+        let _ = session.json(serde_json::json!({ "op": "answer", "ask": ask, "answer": answer })).await;
+    });
+}
+
 /* ---------- Tauri ---------- */
 
 #[tauri::command]
