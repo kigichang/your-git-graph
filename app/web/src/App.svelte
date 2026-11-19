@@ -162,7 +162,7 @@
 					void log(`graph: first paint at ${firstPaintMs.toFixed(0)} ms since navigation`);
 				});
 			}
-			const repoInfo = await loadRepoInfo(r, { showRemoteBranches, showRemoteHeads: true, hideRemotes: [], showStashes: true });
+			const repoInfo = await loadRepoInfo(r, { showRemoteBranches, showRemoteHeads: true, hideRemotes: [], showStashes: false }); // the stashes are rows of the graph
 			if (superseded()) return false;
 			info = repoInfo;
 			const state = await operationState(r);
