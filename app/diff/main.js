@@ -228,7 +228,7 @@ function repositoryImages(page, side, remote) {
 		const src = img.getAttribute('src') || '';
 		if (/^data:image\//i.test(src)) return;
 		img.removeAttribute('src');
-		if (/^https?:/i.test(src)) {
+		if (/^https?:\/\//i.test(src)) {
 			remote.push({ img, src });
 			return;
 		}
@@ -298,7 +298,10 @@ function offerRemoteImages(page, remote) {
 	const note = document.createElement('div');
 	note.className = 'diagramNote remoteImages';
 	const said = document.createElement('span');
-	said.textContent = remote.length === 1 ? '1 image from the web is not loaded.' : remote.length + ' images from the web are not loaded.';
+	// From where: loading them tells those servers who reads this, and when.
+	const hosts = [...new Set(remote.map(({ src }) => { try { return new URL(src).host; } catch { return src; } }))];
+	const from = ' (' + hosts.slice(0, 5).join(', ') + (hosts.length > 5 ? ', …' : '') + ')';
+	said.textContent = (remote.length === 1 ? '1 image from the web is not loaded' : remote.length + ' images from the web are not loaded') + from + '.';
 	const button = document.createElement('button');
 	button.textContent = 'Load';
 	// The page may load nothing from the web (the CSP): the app fetches each one (webimage.rs).

@@ -732,8 +732,8 @@ async function checkPreview(check: Check, config: Record<string, unknown>): Prom
 			check(p.images === 1, 'the image of the repository is shown: ' + p.images);
 			check(p.remoteWaiting === 1 && p.remoteLoaded === 0, 'an image from the web waits: ' + JSON.stringify(p));
 			check(p.remoteAsked === 1, 'asked for, it loads: ' + p.remoteAsked);
-			// Port 9 refuses: the app's curl tried it (the window may call fetch_image).
-			check(/connect/i.test(p.remoteAnswer ?? ''), 'the app fetches it: ' + p.remoteAnswer);
+			// The window may call fetch_image, and the app answers: it asks nothing of this machine itself.
+			check(/this machine itself/.test(p.remoteAnswer ?? ''), 'the app is asked for it: ' + p.remoteAnswer);
 			check(p.mermaid === 1, 'the Mermaid diagram is drawn: ' + p.mermaid);
 			if (jar !== null) check(p.plantuml === 1, 'the PlantUML diagram is drawn: ' + p.plantuml + ' ' + JSON.stringify(p.notes));
 			else check(p.notes?.length === 1, 'without a jar, the PlantUML block says so: ' + JSON.stringify(p.notes));
