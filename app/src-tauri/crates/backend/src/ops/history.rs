@@ -28,7 +28,10 @@ pub async fn rewrite_from(rt: &dyn Runtime, commit: &str, make_todo: impl Fn(&[S
     }
     let commits: Vec<String> = range.stdout.lines().filter(|l| !l.is_empty()).map(String::from).collect();
     let todo = make_todo(&commits);
-    let mut v = args(&["rebase", "-i", "--autostash"]);
+    // The todo's lines start with "pick", "drop", "exec": with the repository's comment
+    // character set to "p", "d" or "e" git would read them as comments and leave those
+    // commits out. `#` whatever the configuration says (commentString is its newer name).
+    let mut v = args(&["-c", "core.commentChar=#", "-c", "core.commentString=#", "rebase", "-i", "--autostash"]);
     if is_root {
         v.push("--root".into());
     } else {

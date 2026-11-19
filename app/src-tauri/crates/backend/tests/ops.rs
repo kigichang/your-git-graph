@@ -503,6 +503,14 @@ async fn edit_the_root_commit_and_drop_commits() {
     let root = g.git(&["rev-list", "--max-parents=0", "HEAD"]);
     assert!(done(&g.op(OpRequest::DropCommit { commit: root }).await));
     assert_eq!(g.subjects(), ["add c"]);
+
+    // The repository's comment character is "p": the todo's "pick" lines are still commands
+    // (read as comments, the commits they name would be left out).
+    let h = w.fixture();
+    h.git(&["config", "core.commentChar", "p"]);
+    let c2 = h.git(&["rev-parse", "HEAD~1"]);
+    assert!(done(&h.op(OpRequest::DropCommit { commit: c2 }).await));
+    assert_eq!(h.subjects(), ["add c", "add a"]);
 }
 
 #[tokio::test]
