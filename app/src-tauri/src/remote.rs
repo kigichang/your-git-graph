@@ -228,10 +228,18 @@ impl Session {
     }
 }
 
+/// A line of the other machine's greeting or of the bootstrap is read up to this length (what is
+/// past it counts as the next line): a machine that never ends a line does not fill the memory.
+const MAX_LINE: u64 = 64 * 1024;
+/// How long getting the helper running may take, the questions ssh asks included (each waits
+/// five minutes for its answer). One attempt runs at a time: a machine whose shell never gets
+/// to the bootstrap must not keep every other machine from being connected to.
+const OPEN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
 /// The next line of ssh's output; `None` when it ended.
 async fn line(output: &mut BufReader<ChildStdout>) -> Option<String> {
     let mut bytes = Vec::new();
-    match output.read_until(b'\n', &mut bytes).await {
+    match (&mut *output).take(MAX_LINE).read_until(b'\n', &mut bytes).await {
         Ok(n) if n > 0 => Some(String::from_utf8_lossy(&bytes).trim_end().to_string()),
         _ => None,
     }
@@ -349,7 +357,10 @@ impl Remotes {
         if let Some(session) = self.connected(&remote.authority) {
             return Ok(session);
         }
-        let (child, stdin, mut output, hello) = open(remote, env).await?;
+        // ssh is killed when the attempt is dropped.
+        let (child, stdin, mut output, hello) = tokio::time::timeout(OPEN_TIMEOUT, open(remote, env))
+            .await
+            .map_err(|_| format!("Cannot connect to {}: it did not get ready within {} minutes.", remote.authority, OPEN_TIMEOUT.as_secs() / 60))??;
         let session = Arc::new(Session {
             authority: remote.authority.clone(),
             hello,

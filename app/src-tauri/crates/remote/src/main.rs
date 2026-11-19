@@ -108,20 +108,24 @@ impl Session {
     async fn run(&self, id: u64, request: Request) -> Result<Vec<u8>, String> {
         match request {
             Request::Engine { repo, request, filters_allowed } => {
-                let rt = self.runtime(id, &repo, false)?.allow_filters(filters_allowed);
+                let rt = self.runtime(id, &repo, false)?.0.allow_filters(filters_allowed);
                 let result = gg_backend::api::page_engine(&rt, request).await;
                 self.cancels.lock().unwrap().remove(&id);
                 Ok(result?.into_bytes())
             }
             Request::Read { repo, request, filters_allowed } => {
-                let rt = self.runtime(id, &repo, false)?.allow_filters(filters_allowed);
+                let rt = self.runtime(id, &repo, false)?.0.allow_filters(filters_allowed);
                 let result = gg_backend::api::read(&rt, request).await;
                 self.cancels.lock().unwrap().remove(&id);
                 json(&result?)
             }
             Request::Op { repo, request, confirmed, filters_allowed } => {
-                let rt = self.runtime(id, &repo, true)?.allow_filters(filters_allowed);
+                let (rt, reported) = self.runtime(id, &repo, true)?;
+                let rt = rt.allow_filters(filters_allowed);
                 let result = gg_backend::ops::operate(&rt, request, confirmed).await;
+                // Everything the operation reported goes out before its result does.
+                drop(rt);
+                let _ = reported.await;
                 self.cancels.lock().unwrap().remove(&id);
                 if let Some(askpass) = &self.askpass {
                     askpass.done(id);
@@ -146,9 +150,11 @@ impl Session {
     }
 
     /// A runtime for request `id` on the repository at `repo`: git's live output and the
-    /// operation's steps go back as `V` events `{"progress": …}`; with `askpass`, the questions
-    /// of git and ssh too (`{"askpass", "prompt"}`), by the app's answers (`answer`).
-    fn runtime(&self, id: u64, repo: &str, askpass: bool) -> Result<gg_backend::runtime::LocalRuntime, String> {
+    /// operation's steps go back as `V` events `{"progress": …}`, in the order they were
+    /// reported, by the task returned (it ends once the runtime is dropped and all is sent);
+    /// with `askpass`, the questions of git and ssh too (`{"askpass", "prompt"}`), by the app's
+    /// answers (`answer`).
+    fn runtime(&self, id: u64, repo: &str, askpass: bool) -> Result<(gg_backend::runtime::LocalRuntime, tokio::task::JoinHandle<()>), String> {
         let git = self.git.clone().ok_or("Git was not found on the remote machine.")?;
         let mut env: HashMap<String, String> = HashMap::new();
         if askpass {
@@ -158,16 +164,23 @@ impl Session {
         }
         let (tx, rx) = watch::channel(false);
         self.cancels.lock().unwrap().insert(id, Cancel::Flag(tx));
+        // One task sends them, one after the other: a task per event would let a later one
+        // overtake an earlier one, or the result itself.
+        let (events, mut waiting) = mpsc::unbounded_channel::<Vec<u8>>();
         let out = self.out.clone();
-        let progress = Arc::new(move |p: gg_backend::api::OpProgress| {
-            let out = out.clone();
-            if let Ok(event) = serde_json::to_vec(&serde_json::json!({ "progress": p })) {
-                tokio::spawn(async move {
-                    let _ = out.send(Frame::new(id, b'V', event)).await;
-                });
+        let reported = tokio::spawn(async move {
+            while let Some(event) = waiting.recv().await {
+                if out.send(Frame::new(id, b'V', event)).await.is_err() {
+                    return;
+                }
             }
         });
-        Ok(gg_backend::runtime::LocalRuntime::new(repo, git, env, progress, rx).remote())
+        let progress = Arc::new(move |p: gg_backend::api::OpProgress| {
+            if let Ok(event) = serde_json::to_vec(&serde_json::json!({ "progress": p })) {
+                let _ = events.send(event);
+            }
+        });
+        Ok((gg_backend::runtime::LocalRuntime::new(repo, git, env, progress, rx).remote(), reported))
     }
 
     async fn watch(&self, id: u64, roots: Vec<String>) -> Result<Vec<u8>, String> {
