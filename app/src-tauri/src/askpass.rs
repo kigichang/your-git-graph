@@ -45,12 +45,15 @@ pub enum AskpassEvent {
 /// Delivers an event to the window labelled so; `false` when there is no such window (any more).
 type Notify = Arc<dyn Fn(&str, AskpassEvent) -> bool + Send + Sync>;
 
+/// A question on screen: the window it is shown in, and where its answer goes.
+type Shown = (String, mpsc::Sender<Option<String>>);
+
 pub struct Askpass {
     socket: PathBuf,
     /// token -> the label of the window whose git runs carry it
     tokens: Mutex<HashMap<String, String>>,
-    /// The questions shown, by id: the window each is shown in, and where its answer goes.
-    pending: Mutex<HashMap<u64, (String, mpsc::Sender<Option<String>>)>>,
+    /// The questions shown, by id.
+    pending: Mutex<HashMap<u64, Shown>>,
     next_id: AtomicU64,
     notify: Notify,
 }
@@ -215,7 +218,8 @@ mod tests {
 
     /// A server whose "frontend" answers every request with `respond(prompt)`; also records events
     /// (with the window they went to). Windows "main" and "repo-1" exist, no other.
-    fn server(respond: fn(&str) -> Option<Option<String>>) -> (Arc<Askpass>, Arc<Mutex<Vec<(String, AskpassEvent)>>>) {
+    type Events = Arc<Mutex<Vec<(String, AskpassEvent)>>>;
+    fn server(respond: fn(&str) -> Option<Option<String>>) -> (Arc<Askpass>, Events) {
         let events = Arc::new(Mutex::new(Vec::new()));
         let slot: Arc<Mutex<Option<Arc<Askpass>>>> = Arc::new(Mutex::new(None));
         let (log, s) = (events.clone(), slot.clone());

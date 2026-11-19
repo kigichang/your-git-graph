@@ -16,6 +16,9 @@ use crate::git::{self, GitExecRequest, GitExecResult, GitOutput};
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
+/// Opens a terminal running `git <args>` in the repository (the app's; `LocalRuntime::with_terminal`).
+pub type OpenTerminal = Arc<dyn Fn(Vec<String>) -> Result<(), String> + Send + Sync>;
+
 /// What one git run may add to the usual: more environment, live output, input.
 #[derive(Debug, Clone, Default)]
 pub struct GitOpts {
@@ -72,7 +75,7 @@ pub struct LocalRuntime {
     base_env: HashMap<String, String>,
     progress: Arc<dyn Fn(OpProgress) + Send + Sync>,
     cancel: watch::Receiver<bool>,
-    terminal: Option<Arc<dyn Fn(Vec<String>) -> Result<(), String> + Send + Sync>>,
+    terminal: Option<OpenTerminal>,
     remote: bool,
     filters_allowed: bool,
 }
@@ -83,7 +86,7 @@ impl LocalRuntime {
         LocalRuntime { repo: repo.to_string(), git, base_env, progress, cancel, terminal: None, remote: false, filters_allowed: false }
     }
 
-    pub fn with_terminal(mut self, terminal: Arc<dyn Fn(Vec<String>) -> Result<(), String> + Send + Sync>) -> LocalRuntime {
+    pub fn with_terminal(mut self, terminal: OpenTerminal) -> LocalRuntime {
         self.terminal = Some(terminal);
         self
     }

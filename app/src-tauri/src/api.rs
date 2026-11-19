@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use gg_backend::api::{OpProgress, OpRequest, OpResult, ReadRequest, ReadResponse};
 use gg_backend::git::{locate_git, GitExecResult};
-use gg_backend::runtime::{BoxFuture, GitOpts, LocalRuntime, Runtime};
+use gg_backend::runtime::{BoxFuture, GitOpts, LocalRuntime, OpenTerminal, Runtime};
 use serde_json::{json, Value};
 use tokio::sync::watch;
 
@@ -73,7 +73,6 @@ fn local_runtime(repo: &str, asking: Option<(&str, &crate::askpass::Askpass)>, f
         .with_terminal(Arc::new(move |args| crate::system::terminal(cwd.clone(), Some(args)))))
 }
 
-type OpenTerminal = Arc<dyn Fn(Vec<String>) -> Result<(), String> + Send + Sync>;
 
 /// Where an interactive rebase of a repository on another machine runs: its todo editor needs a
 /// person at a terminal, which the helper over there cannot open. So the operation runs here, as
@@ -142,6 +141,7 @@ pub async fn repo_read(
 /// output and the operation's steps. Unless `confirmed`, work that would be lost comes back
 /// as `NeedsConfirmation` instead of being done.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // a command's arguments: the state it is handed, then the page's
 pub async fn repo_op(
     window: tauri::Window,
     state: tauri::State<'_, crate::state::State>,

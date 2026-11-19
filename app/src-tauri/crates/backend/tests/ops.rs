@@ -14,6 +14,10 @@ use gg_backend::reads::read_git;
 use gg_backend::runtime::{LocalRuntime, Runtime};
 use tokio::sync::watch;
 
+/// What a test's runtime reported, and the terminals it was asked to open.
+type Reported = Arc<Mutex<Vec<OpProgress>>>;
+type Opened = Arc<Mutex<Vec<Vec<String>>>>;
+
 struct World {
     root: tempfile::TempDir,
     global: PathBuf,
@@ -68,7 +72,7 @@ impl World {
         Fixture { world: self, dir, remote, n }
     }
 
-    fn runtime(&self, dir: &Path) -> (LocalRuntime, Arc<Mutex<Vec<OpProgress>>>, Arc<Mutex<Vec<Vec<String>>>>) {
+    fn runtime(&self, dir: &Path) -> (LocalRuntime, Reported, Opened) {
         let progress: Arc<Mutex<Vec<OpProgress>>> = Arc::default();
         let terminal: Arc<Mutex<Vec<Vec<String>>>> = Arc::default();
         let (tx, rx) = watch::channel(false);
@@ -799,9 +803,9 @@ async fn the_global_author_follows_the_identities() {
     let a2 = Author { name: "Ann Lee".into(), email: "ann@example.com".into() };
     assert!(sync_global_author(&rt, &[a.clone(), b.clone()], &[a2.clone(), b.clone()]).await.unwrap());
     assert_eq!(global(&w).0.as_deref(), Some("Ann Lee"), "an edit is followed");
-    assert!(sync_global_author(&rt, &[a2.clone(), b.clone()], &[b.clone()]).await.unwrap());
+    assert!(sync_global_author(&rt, &[a2.clone(), b.clone()], std::slice::from_ref(&b)).await.unwrap());
     assert_eq!(global(&w).0.as_deref(), Some("Bo"), "deleted: the first remaining takes over");
-    assert!(sync_global_author(&rt, &[b.clone()], &[]).await.unwrap());
+    assert!(sync_global_author(&rt, std::slice::from_ref(&b), &[]).await.unwrap());
     assert_eq!(global(&w), (None, None), "none left: unset");
     assert!(!sync_global_author(&rt, &[], &[]).await.unwrap());
     assert!(done(&f.op(OpRequest::SyncGlobalAuthor { previous: vec![], next: vec![a] }).await));

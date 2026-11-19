@@ -48,7 +48,7 @@ pub async fn sync_global_author(rt: &dyn Runtime, previous: &[Author], next: &[A
     // Some(Some(a)): set to a; Some(None): unset; None: leave as it is.
     let target: Option<Option<&Author>> = match current {
         None => next.first().map(Some),
-        Some(current) if next.iter().any(|a| *a == current) => None,
+        Some(current) if next.contains(&current) => None,
         Some(current) => match previous.iter().position(|a| *a == current) {
             None => None,
             Some(_) if next.is_empty() => Some(None),

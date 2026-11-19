@@ -110,7 +110,7 @@ pub async fn read_git(rt: &dyn Runtime, request: ReadRequest) -> Result<ReadResp
         ReadRequest::RepoConfig => {
             let local = config_entries(rt, "--local").await?;
             let global = config_entries(rt, "--global").await?;
-            let last_of = |entries: &[(String, String)], key: &str| entries.iter().filter(|(k, _)| k.eq_ignore_ascii_case(key)).last().map(|(_, v)| v.clone());
+            let last_of = |entries: &[(String, String)], key: &str| entries.iter().rfind(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v.clone());
             let effective = |key: &str| last_of(&local, key).or_else(|| last_of(&global, key));
             let mut remotes: Vec<RemoteConfig> = Vec::new();
             let mut branches: BTreeMap<String, BranchConfig> = BTreeMap::new();

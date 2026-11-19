@@ -4,6 +4,7 @@
 //!   resetting a branch back, force-moving a branch): recoverable only through the reflog;
 //! - uncommitted changes to tracked files (a hard reset);
 //! - commits a force push removes from a remote branch;
+//!
 //! and, not a loss but a question: a tag pushed to a remote that lacks its commit.
 //! Every check only reads.
 

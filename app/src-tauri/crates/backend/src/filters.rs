@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn the_gitlinks_of_an_index() {
-        let out = "100644 aaaa 0\ta file\0160000 bbbb 0\tsub\0160000 cccc 0\tdeep/with\ttab\0120000 dddd 0\tlink\0";
+        let out = "100644 aaaa 0\ta file\x00160000 bbbb 0\tsub\x00160000 cccc 0\tdeep/with\ttab\x00120000 dddd 0\tlink\x00";
         assert_eq!(gitlinks(out), ["sub", "deep/with\ttab"]);
         assert!(gitlinks("").is_empty());
     }
