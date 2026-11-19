@@ -58,10 +58,15 @@ pub fn trust_filters(state: tauri::State<'_, crate::state::State>, allowed: taur
     Ok(())
 }
 
-/// A runtime for a local repository, in the name of `window` (git's questions go there).
-fn local_runtime(repo: &str, window: &str, askpass: &crate::askpass::Askpass, filters_allowed: bool, progress: Arc<dyn Fn(OpProgress) + Send + Sync>, cancel: watch::Receiver<bool>) -> Result<LocalRuntime, String> {
+/// A runtime for a local repository. With `asking` (an operation: the window and the askpass
+/// server), git's and ssh's questions go to that window; a read asks nothing and carries no
+/// token to ask with - whatever a read's git might be made to start cannot put a prompt up.
+fn local_runtime(repo: &str, asking: Option<(&str, &crate::askpass::Askpass)>, filters_allowed: bool, progress: Arc<dyn Fn(OpProgress) + Send + Sync>, cancel: watch::Receiver<bool>) -> Result<LocalRuntime, String> {
     let git = PathBuf::from(&locate_git()?.path);
-    let env: HashMap<String, String> = askpass.env(window).map_err(|e| format!("askpass unavailable: {e}"))?.into_iter().collect();
+    let env: HashMap<String, String> = match asking {
+        Some((window, askpass)) => askpass.env(window).map_err(|e| format!("askpass unavailable: {e}"))?.into_iter().collect(),
+        None => HashMap::new(),
+    };
     let cwd = repo.to_string();
     Ok(LocalRuntime::new(repo, git, env, progress, cancel)
         .allow_filters(filters_allowed)
@@ -116,9 +121,7 @@ impl Runtime for RemoteTerminal {
 
 #[tauri::command]
 pub async fn repo_read(
-    window: tauri::Window,
     state: tauri::State<'_, crate::state::State>,
-    askpass: tauri::State<'_, Arc<crate::askpass::Askpass>>,
     remotes: tauri::State<'_, Arc<Remotes>>,
     allowed: tauri::State<'_, AllowedFilters>,
     repo: String,
@@ -131,7 +134,7 @@ pub async fn repo_read(
         return serde_json::from_value(answer).map_err(|e| e.to_string());
     }
     let (_tx, rx) = watch::channel(false);
-    let rt = local_runtime(&repo, window.label(), &askpass, filters_allowed, Arc::new(|_| {}), rx)?;
+    let rt = local_runtime(&repo, None, filters_allowed, Arc::new(|_| {}), rx)?;
     gg_backend::api::read(&rt, request).await
 }
 
@@ -190,7 +193,7 @@ pub async fn repo_op(
     let progress = Arc::new(move |p| {
         let _ = on_progress.send(p);
     });
-    let result = match local_runtime(&repo, window.label(), &askpass, allowed.has(&repo), progress, rx) {
+    let result = match local_runtime(&repo, Some((window.label(), &askpass)), allowed.has(&repo), progress, rx) {
         Ok(rt) => gg_backend::ops::operate(&rt, request, confirmed).await,
         Err(e) => Err(e),
     };

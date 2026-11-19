@@ -49,7 +49,8 @@ pub struct Askpass {
     socket: PathBuf,
     /// token -> the label of the window whose git runs carry it
     tokens: Mutex<HashMap<String, String>>,
-    pending: Mutex<HashMap<u64, mpsc::Sender<Option<String>>>>,
+    /// The questions shown, by id: the window each is shown in, and where its answer goes.
+    pending: Mutex<HashMap<u64, (String, mpsc::Sender<Option<String>>)>>,
     next_id: AtomicU64,
     notify: Notify,
 }
@@ -93,18 +94,21 @@ impl Askpass {
         gg_backend::askpass::env(VARS, &self.socket, token)
     }
 
-    /// Answer prompt `id` (`None` = cancelled). `false` when it is no longer waiting.
-    pub fn reply(&self, id: u64, answer: Option<String>) -> bool {
-        match self.pending.lock().unwrap().remove(&id) {
-            Some(tx) => tx.send(answer).is_ok(),
-            None => false,
+    /// Answer prompt `id` (`None` = cancelled), from the window it is shown in. `false` when it
+    /// is no longer waiting, or is another window's to answer.
+    pub fn reply(&self, window: &str, id: u64, answer: Option<String>) -> bool {
+        let mut pending = self.pending.lock().unwrap();
+        if pending.get(&id).is_none_or(|(shown_in, _)| shown_in != window) {
+            return false;
         }
+        pending.remove(&id).is_some_and(|(_, tx)| tx.send(answer).is_ok())
     }
 
     fn serve(&self, stream: UnixStream) {
         let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
         let mut line = String::new();
-        if BufReader::new(&stream).read_line(&mut line).is_err() {
+        // A question is a line of a few hundred bytes: no more than 64 KiB is read for one.
+        if BufReader::new(std::io::Read::take(&stream, 64 * 1024)).read_line(&mut line).is_err() {
             return;
         }
         let request = Question::parse(&line);
@@ -121,7 +125,7 @@ impl Askpass {
     pub fn prompt(&self, window: &str, prompt: String) -> Option<(u64, mpsc::Receiver<Option<String>>)> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = mpsc::channel();
-        self.pending.lock().unwrap().insert(id, tx);
+        self.pending.lock().unwrap().insert(id, (window.to_string(), tx));
         if !(self.notify)(window, AskpassEvent::Request { id, prompt }) {
             self.pending.lock().unwrap().remove(&id);
             return None;
@@ -197,8 +201,8 @@ pub fn helper_main() -> Option<i32> {
 /* ---------- Tauri ---------- */
 
 #[tauri::command]
-pub fn askpass_reply(askpass: tauri::State<'_, Arc<Askpass>>, id: u64, answer: Option<String>) -> bool {
-    askpass.reply(id, answer)
+pub fn askpass_reply(window: tauri::Window, askpass: tauri::State<'_, Arc<Askpass>>, id: u64, answer: Option<String>) -> bool {
+    askpass.reply(window.label(), id, answer)
 }
 
 #[cfg(test)]
@@ -223,7 +227,8 @@ mod tests {
             if let AskpassEvent::Request { id, prompt } = event {
                 if let Some(answer) = respond(&prompt) {
                     let server = s.lock().unwrap().clone().unwrap();
-                    std::thread::spawn(move || server.reply(id, answer));
+                    let window = window.to_string();
+                    std::thread::spawn(move || server.reply(&window, id, answer));
                 }
             }
             true
@@ -326,6 +331,12 @@ mod tests {
         let events = events.lock().unwrap();
         let (_, AskpassEvent::Request { id, .. }) = events[0] else { panic!("{events:?}") };
         assert_eq!(events.get(1), Some(&("main".to_string(), AskpassEvent::Close { id })), "closed in the window it was shown in");
-        assert!(!askpass.reply(id, Some("late".into())), "a closed prompt takes no answer");
+        assert!(!askpass.reply("main", id, Some("late".into())), "a closed prompt takes no answer");
+        drop(events);
+        // A question is answered from the window it is shown in, not from another one.
+        let (id, answered) = askpass.prompt("main", "Password: ".into()).unwrap();
+        assert!(!askpass.reply("repo-1", id, Some("not mine".into())));
+        assert!(askpass.reply("main", id, Some("mine".into())));
+        assert_eq!(answered.recv().unwrap().as_deref(), Some("mine"));
     }
 }

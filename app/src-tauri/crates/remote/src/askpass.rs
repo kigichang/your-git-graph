@@ -76,7 +76,8 @@ impl Askpass {
         let (read, mut write) = stream.into_split();
         let mut read = tokio::io::BufReader::new(read);
         let mut line = String::new();
-        let question = match tokio::time::timeout(Duration::from_secs(5), read.read_line(&mut line)).await {
+        // A question is a line of a few hundred bytes: no more than 64 KiB is read for one.
+        let question = match tokio::time::timeout(Duration::from_secs(5), (&mut read).take(64 * 1024).read_line(&mut line)).await {
             Ok(Ok(_)) => Question::parse(&line),
             _ => None,
         };
@@ -95,7 +96,10 @@ impl Askpass {
         let (answer, answered) = oneshot::channel();
         self.waiting.lock().unwrap().insert(ask, answer);
         let event = serde_json::json!({ "askpass": ask, "prompt": prompt }).to_string();
-        self.out.send(Frame::new(request, b'V', event)).await.ok()?;
+        if self.out.send(Frame::new(request, b'V', event)).await.is_err() {
+            self.waiting.lock().unwrap().remove(&ask); // the app is gone: nobody will answer
+            return None;
+        }
         let mut byte = [0u8; 1];
         tokio::select! {
             answer = answered => answer.ok().flatten(),
