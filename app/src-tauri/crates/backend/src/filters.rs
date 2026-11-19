@@ -14,11 +14,17 @@ use crate::runtime::Runtime;
 /// What `git lfs install --local` writes.
 const LFS: [(&str, &str); 2] = [("filter.lfs.clean", "git-lfs clean -- %f"), ("filter.lfs.process", "git-lfs filter-process")];
 
+/// The keys that name a program run when a changed file is hashed: a filter's, and a Git LFS
+/// extension's - git-lfs, even the person's own standard one, pipes the file through every
+/// `lfs.extension.<name>.clean` the repository's configuration sets.
+const OWN_PROGRAMS: &str = r"^(filter\..*\.(clean|process)|lfs\.extension\..*\.clean)$";
+
 /// How many submodules (at any depth) are looked into; past that, nothing is read on a guess.
 const MAX_SUBMODULES: usize = 500;
 
 /// The `filter.<name>.clean`/`.process` keys the repository's own configuration sets (its
-/// .git/config, its worktree config, what they include), standard Git LFS aside; then those of
+/// .git/config, its worktree config, what they include), standard Git LFS aside, and its
+/// `lfs.extension.<name>.clean` keys (run by that standard Git LFS); then those of
 /// its checked-out submodules (`<path>: <key>`): git status and the engine look into a
 /// submodule's files too, through the submodule's own configuration. A git too old to tell the
 /// scope (before 2.26) gets one entry saying so: nothing is run on a guess.
@@ -54,7 +60,7 @@ fn in_dir(dir: Option<&str>, rest: &[&str]) -> Vec<String> {
 /// The filter keys the configuration of the repository in `dir` sets itself.
 async fn filters_in(rt: &dyn Runtime, dir: Option<&str>) -> Result<Vec<String>, String> {
     // -z: a value may hold a newline (`\n` in the file), and the shell runs every line of it.
-    let r = exec(rt, in_dir(dir, &["config", "-z", "--show-scope", "--includes", "--get-regexp", r"^filter\..*\.(clean|process)$"])).await?;
+    let r = exec(rt, in_dir(dir, &["config", "-z", "--show-scope", "--includes", "--get-regexp", OWN_PROGRAMS])).await?;
     match r.exit_code {
         Some(0) => Ok(own_of(&r.stdout)),
         Some(1) => Ok(vec![]), // none at all
@@ -187,6 +193,7 @@ mod tests {
                    local\0filter.evil.clean\nagain\0\
                    local\0filter.bare.clean\0";
         assert_eq!(own_of(out), ["filter.evil.clean", "filter.Other.process", "filter.bare.clean"]);
+        assert_eq!(own_of("local\0lfs.extension.x.clean\nsh -c 'x'\0global\0lfs.extension.mine.clean\ny\0"), ["lfs.extension.x.clean"]);
         assert!(own_of("").is_empty());
         // Git LFS's value with another line after it: the shell runs that line too.
         assert_eq!(own_of("local\0filter.lfs.clean\ngit-lfs clean -- %f\ntouch /tmp/x\0"), ["filter.lfs.clean"]);

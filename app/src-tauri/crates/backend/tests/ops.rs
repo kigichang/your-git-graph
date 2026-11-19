@@ -986,6 +986,10 @@ async fn the_repositorys_own_filters_run_only_once_allowed() {
     // Git LFS's value with a second line is not Git LFS: the shell runs that line too.
     f.git(&["config", "filter.lfs.clean", "git-lfs clean -- %f\ntrue"]);
     assert_eq!(gg_backend::filters::own_filters(&f.rt()).await.unwrap(), ["filter.probe.clean", "filter.lfs.clean"]);
+    // An extension of Git LFS is a program too: git-lfs clean, standard or not, runs it.
+    f.git(&["config", "lfs.extension.probe.clean", "sh -c 'cat'"]);
+    f.git(&["config", "lfs.extension.probe.smudge", "cat"]);
+    assert_eq!(gg_backend::filters::own_filters(&f.rt()).await.unwrap(), ["filter.probe.clean", "filter.lfs.clean", "lfs.extension.probe.clean"]);
 }
 
 /// A filter a submodule's own configuration names runs on that submodule's files when the
