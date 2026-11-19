@@ -273,8 +273,12 @@ async function drawMermaid(page, appearance) {
 			img.src = 'data:image/svg+xml,' + encodeURIComponent(svg);
 			img.alt = 'Mermaid diagram';
 			// The SVG is as wide as its container: as an image it needs its own width.
-			const box = /viewBox="[-\d.]+ [-\d.]+ ([\d.]+) [\d.]+"/.exec(svg);
-			if (box !== null) img.style.width = Math.ceil(Number(box[1])) + 'px';
+			// And its shape, so the page does not move when the image is decoded.
+			const box = /viewBox="[-\d.]+ [-\d.]+ ([\d.]+) ([\d.]+)"/.exec(svg);
+			if (box !== null && Number(box[2]) > 0) {
+				img.style.width = Math.ceil(Number(box[1])) + 'px';
+				img.style.aspectRatio = box[1] + ' / ' + box[2];
+			}
 			node.replaceChildren(img);
 			node.classList.add('rendered');
 		} catch (e) {
