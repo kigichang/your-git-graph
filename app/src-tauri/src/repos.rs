@@ -88,7 +88,7 @@ pub struct WindowState {
     watched: Vec<String>,
     /// The machines whose repositories are watched (those connected at the time).
     hosts: Vec<String>,
-    _watcher: Option<notify::RecommendedWatcher>,
+    _watcher: Option<gg_backend::watch::Watching>,
     _remote: Vec<RemoteWatch>,
 }
 

@@ -21,6 +21,9 @@ use std::time::{Duration, Instant};
 
 use notify::{EventKind, RecursiveMode, Watcher};
 
+/// What [`watch`] returns: watching lasts as long as it is kept.
+pub type Watching = notify::RecommendedWatcher;
+
 /// How long changes are gathered before deciding: a checkout touches many files at once.
 const QUIET: Duration = Duration::from_millis(300);
 
@@ -165,7 +168,7 @@ pub fn watch(
     roots: Vec<PathBuf>,
     worktrees: bool,
     on_change: impl Fn(BTreeSet<PathBuf>) + Send + 'static,
-) -> notify::Result<notify::RecommendedWatcher> {
+) -> notify::Result<Watching> {
     let repos: Vec<Repo> = roots.into_iter().map(Repo::of).collect();
     // The roots, and the git directories outside them (linked worktrees, submodules); nothing
     // twice (FSEvents watches recursively).
