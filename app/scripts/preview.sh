@@ -34,6 +34,10 @@ fi
 
 data="$(mktemp -d -t gg-preview)"
 log="$data/log"
+# However this ends (a screenshot refused: no Screen Recording permission), the app is not left
+# running in front of everything, nor its data behind.
+pid=""
+trap '[ -n "$pid" ] && kill "$pid" 2>/dev/null; rm -rf "$data"' EXIT
 [ "$appearance" != system ] && printf '{"appearance":"%s","migratedFromLocalStorage":true}' "$appearance" > "$data/state.json"
 GG_DATA_DIR="$data" GG_PREVIEW="$scenes" "$app" "$repo" > "$log" 2>&1 &
 pid=$!
@@ -45,6 +49,4 @@ for id in $("$helper" "$pid"); do
 	echo "$out-$i.png"
 	i=$((i + 1))
 done
-kill "$pid" 2>/dev/null || true
 grep "preview: " "$log" || { echo "no preview report:" >&2; cat "$log" >&2; }
-rm -rf "$data"
