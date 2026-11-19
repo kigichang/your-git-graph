@@ -21,7 +21,7 @@ test('branches, remote branches, tags and stashes', () => {
 	expect(ids({ kind: 'branch', name: 'x', commit, current: false })).toContain('checkoutBranch');
 	expect(ids({ kind: 'remoteBranch', name: 'origin/x', remote: 'origin', commit })).toEqual(['checkoutRemoteBranch', 'fetchIntoLocal', 'pull', '-', 'mergeInto', 'rebaseOnto', 'deleteRemoteBranch', '-', 'copyName']);
 	expect(ids({ kind: 'remoteBranch', name: 'gone/x', remote: null, commit })).toContain('pull!');
-	expect(ids({ kind: 'tag', name: 'v1', annotated: true, commit })).toEqual(['viewTag', 'pushTag', 'deleteTag', 'createArchive', '-', 'copyName']);
+	expect(ids({ kind: 'tag', name: 'v1', commit })).toEqual(['viewTag', 'pushTag', 'deleteTag', 'createArchive', '-', 'copyName']);
 	expect(ids({ kind: 'stash', selector: 'stash@{0}', commit })).toEqual(['applyStash', 'popStash', 'dropStash', 'branchFromStash', '-', 'copyName']);
 });
 

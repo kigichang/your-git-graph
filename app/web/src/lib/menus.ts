@@ -9,7 +9,7 @@ export type MenuTarget =
 	| { kind: 'branch'; name: string; commit: Commit; current: boolean }
 	/** `name` as shown (`origin/x`); `remote` null when the remote is not one of the repository's. */
 	| { kind: 'remoteBranch'; name: string; remote: string | null; commit: Commit }
-	| { kind: 'tag'; name: string; annotated: boolean; commit: Commit }
+	| { kind: 'tag'; name: string; commit: Commit }
 	| { kind: 'stash'; selector: string; commit: Commit }
 	| { kind: 'file'; change: FileChange }
 	| { kind: 'background' };

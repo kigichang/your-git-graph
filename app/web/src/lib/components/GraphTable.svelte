@@ -7,7 +7,7 @@
 	import GraphCanvas from './GraphCanvas.svelte';
 	import Message from './Message.svelte';
 	import { graphWidth, rowAt, rowTop, type Gap, type GraphStyle } from '../graph/draw';
-	import { formatDate, relative } from '../dates';
+	import { formatDate } from '../dates';
 	import { UNCOMMITTED, type Commit, type Layout } from '../api/client';
 	import type { DateFormat } from '../api/generated/DateFormat';
 	import type { MenuTarget } from '../menus';
@@ -205,7 +205,7 @@
 							{#each remoteLabels(commit) as r (r.name)}<span class="gg-ref gg-ref-remote" role="button" tabindex="-1"
 								oncontextmenu={(e) => menu(e, { kind: 'remoteBranch', name: r.name, remote: r.remote, commit })}>{r.name}</span>{/each}
 							{#each commit.tags as t (t.name)}<button class="gg-ref gg-ref-tag" onclick={(e) => { e.stopPropagation(); onTag?.(t.name, commit); }}
-								oncontextmenu={(e) => menu(e, { kind: 'tag', name: t.name, annotated: t.annotated, commit })}>{t.name}</button>{/each}
+								oncontextmenu={(e) => menu(e, { kind: 'tag', name: t.name, commit })}>{t.name}</button>{/each}
 							{#if commit.stash}<span class="gg-ref gg-ref-stash">{commit.stash.selector}</span>{/if}
 							<span class="gg-message"><Message text={commit.message} {markdown} /></span>
 						</div>

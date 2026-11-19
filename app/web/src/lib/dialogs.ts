@@ -30,8 +30,6 @@ export type DialogSpec<T = OpRequest> = {
 export type DialogContext = {
 	settings: Settings;
 	remotes: string[];
-	/** The checked-out branch, if any. */
-	currentBranch: string | null;
 	/** The details of the target commit, when loaded (its message, for editing). */
 	details: Details | null;
 };

@@ -6,7 +6,7 @@ import type { MenuTarget } from './menus';
 
 const commit: Commit = { hash: 'c'.repeat(40), parents: ['a'.repeat(40)], author: 'A', email: 'a@x', date: 0, message: 'subject', heads: [], tags: [], remotes: [], stash: null };
 const merge: Commit = { ...commit, hash: 'm'.repeat(40), parents: ['a'.repeat(40), 'b'.repeat(40)] };
-const ctx = { settings: DEFAULT_SETTINGS, remotes: ['origin', 'up'], currentBranch: 'main', details: null };
+const ctx = { settings: DEFAULT_SETTINGS, remotes: ['origin', 'up'], details: null };
 const withDefaults = (dialogs: Record<string, unknown>) => ({ ...ctx, settings: { ...DEFAULT_SETTINGS, dialogs } });
 
 /** The spec's answers as typed, over its defaults. */

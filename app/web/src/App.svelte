@@ -5,7 +5,6 @@
 	// over ssh, a share).
 	import { tick } from 'svelte';
 	import { invoke } from '@tauri-apps/api/core';
-	import { listen } from '@tauri-apps/api/event';
 	import { getCurrentWindow } from '@tauri-apps/api/window';
 	import { getCurrentWebview } from '@tauri-apps/api/webview';
 	import { open as pickFolders, save } from '@tauri-apps/plugin-dialog';
@@ -20,7 +19,7 @@
 	import { menuFor, type MenuAction, type MenuItem, type MenuTarget } from './lib/menus';
 	import { dialogFor, resetFileDialog, type DialogSpec } from './lib/dialogs';
 	import { addRemoteDialog, connectServerDialog, groupNameDialog, remoteName, remoteRoot, type RemoteAnswer } from './lib/addremote';
-	import { addReposTo, groupOfRepo, removeRepos as removeFromList, removeGroup, renameGroup, moveManyToGroup, DEFAULT_GROUP, type SidebarState } from './lib/sidebar';
+	import { addReposTo, groupOfRepo, removeRepos as removeFromList, removeGroup, renameGroup, moveManyToGroup, type SidebarState } from './lib/sidebar';
 	import { ops, runOperation } from './lib/ops.svelte';
 	import { baseName, shortHash } from './lib/names';
 	import { settings, watchSettings } from './lib/settings.svelte';
@@ -596,7 +595,7 @@
 	}
 
 	const copy = (text: string) => invoke('clipboard_write', { text }).catch((e) => log('clipboard: ' + errorText(e)));
-	const dialogContext = (d: DetailsView | null) => ({ settings: settings.current, remotes: info?.remotes ?? [], currentBranch: info?.head ?? null, details: d !== null && d.kind === 'commit' ? d.details : null });
+	const dialogContext = (d: DetailsView | null) => ({ settings: settings.current, remotes: info?.remotes ?? [], details: d !== null && d.kind === 'commit' ? d.details : null });
 
 	function askOp(spec: DialogSpec | null) {
 		if (spec === null) return;
