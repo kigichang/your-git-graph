@@ -285,6 +285,12 @@ async fn push_with_upstream_fetch_with_prune_pull_with_squash() {
     assert!(done(&operate(&rt, OpRequest::Push { branch: "topic".into(), remotes: vec!["origin".into()], set_upstream: true, mode: PushMode::Normal }, false).await.unwrap()));
     assert_eq!(f.git(&["rev-parse", "--abbrev-ref", "topic@{upstream}"]), "origin/topic");
     assert!(progress.lock().unwrap().iter().any(|p| matches!(p, OpProgress::Output { .. })), "a push streams its output");
+    // A name git would read as a refspec (force, another destination, a deletion) is refused.
+    for refspec in ["+topic", ":topic", "topic:main"] {
+        let pushed = f.op(OpRequest::Push { branch: refspec.into(), remotes: vec!["origin".into()], set_upstream: false, mode: PushMode::Normal }).await;
+        assert!(failed(&pushed).contains("Invalid branch name"), "{refspec}");
+    }
+    assert_eq!(w.sh(&f.remote, &["rev-parse", "topic"]), f.git(&["rev-parse", "topic"]), "still there, unchanged");
 
     w.sh(&f.remote, &["branch", "-D", "topic"]);
     assert!(done(&f.op(OpRequest::Fetch { remote: None, prune: true, prune_tags: false }).await));

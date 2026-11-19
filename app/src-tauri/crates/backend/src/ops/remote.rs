@@ -30,6 +30,16 @@ fn set_url_args(name: &str, old: Option<&str>, new: Option<&str>, push: bool) ->
     v
 }
 
+/// A branch named where git reads a refspec (push, fetch, pull): `+name` there means "force",
+/// `a:b` another destination, `:name` "delete" - none of which the request said, and the first
+/// gets past the question a forced push is asked. Such a name is refused, not passed on.
+fn plain_branch(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.starts_with('+') || name.contains(':') {
+        return Err(format!("Invalid branch name \"{name}\": it must not start with \"+\" or contain \":\"."));
+    }
+    Ok(())
+}
+
 pub fn pull_args(remote: &str, branch: &str, no_fast_forward: bool, squash: bool) -> Vec<String> {
     let mut v = args(&["pull"]);
     v.extend(flag(squash, &["--squash"]).map(String::from));
@@ -48,6 +58,7 @@ pub async fn commit_squashed(rt: &dyn Runtime) -> Result<(), String> {
 }
 
 pub async fn pull(rt: &dyn Runtime, remote: &str, branch: &str, no_fast_forward: bool, squash: bool) -> Result<(), String> {
+    plain_branch(branch)?;
     run_streamed(rt, pull_args(remote, branch, no_fast_forward, squash)).await?;
     if squash {
         commit_squashed(rt).await?;
@@ -65,7 +76,8 @@ pub async fn remotes_without_commit(rt: &dyn Runtime, commit: &str, remotes: &[S
 /// Delete a branch on a remote. A branch already gone there only leaves the stale
 /// remote-tracking branch behind: remove that instead of failing.
 pub async fn delete_on_remote(rt: &dyn Runtime, remote: &str, branch: &str) -> Result<(), String> {
-    match run_streamed(rt, args(&["push", remote, "--delete", branch])).await {
+    // The full name: a branch, never a tag or another ref of that name.
+    match run_streamed(rt, args(&["push", remote, "--delete", &format!("refs/heads/{branch}")])).await {
         Err(e) if e.to_lowercase().contains("remote ref does not exist") => run(rt, args(&["branch", "--delete", "--remotes", &format!("{remote}/{branch}")])).await,
         other => other,
     }
@@ -109,6 +121,8 @@ pub async fn perform(rt: &dyn Runtime, request: OpRequest) -> Outcome {
             Ok(run_streamed(rt, v).await?)
         }
         OpRequest::FetchIntoLocalBranch { remote, remote_branch, local_branch, force } => {
+            plain_branch(&remote_branch)?;
+            plain_branch(&local_branch)?;
             let mut v = args(&["fetch"]);
             v.extend(flag(force, &["--force"]).map(String::from));
             v.extend([remote, format!("{remote_branch}:{local_branch}")]);
@@ -116,6 +130,7 @@ pub async fn perform(rt: &dyn Runtime, request: OpRequest) -> Outcome {
         }
         OpRequest::Pull { remote, branch, no_fast_forward, squash } => Ok(pull(rt, &remote, &branch, no_fast_forward, squash).await?),
         OpRequest::Push { branch, remotes, set_upstream, mode } => {
+            plain_branch(&branch)?;
             let total = remotes.len() as u32;
             for (i, remote) in remotes.iter().enumerate() {
                 if total > 1 {
@@ -172,6 +187,16 @@ mod tests {
         assert_eq!(set_url_args("o", Some("x"), None, true), args(&["remote", "set-url", "--push", "--delete", "--", "o", "x"]));
         assert_eq!(set_url_args("o", None, Some("y"), true), args(&["remote", "set-url", "--push", "--add", "--", "o", "y"]));
         assert_eq!(regex_escape("git@h:a/b.git"), "git@h:a/b\\.git");
+    }
+
+    #[test]
+    fn a_branch_is_not_a_refspec() {
+        for fine in ["main", "feature/x", "v1.0", "a+b"] {
+            assert!(plain_branch(fine).is_ok(), "{fine}");
+        }
+        for bad in ["+main", ":main", "main:other", "+a:b", ""] {
+            assert!(plain_branch(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]
