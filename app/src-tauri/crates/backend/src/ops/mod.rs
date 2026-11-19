@@ -85,6 +85,13 @@ pub async fn run_streamed(rt: &dyn Runtime, argv: Vec<String>) -> Result<(), Str
     }
 }
 
+/// Whether the index differs from HEAD (something is staged). `--no-ext-diff`: with
+/// `diff.trustExitCode` git runs the repository's `diff.external` even for `--quiet`, and takes
+/// that program's word for the answer.
+pub async fn staged(rt: &dyn Runtime) -> Result<bool, String> {
+    Ok(exec(rt, args(&["diff", "--cached", "--quiet", "--no-ext-diff"])).await?.exit_code == Some(1))
+}
+
 /// The checked-out branch, or `None` when HEAD is detached.
 pub async fn current_branch(rt: &dyn Runtime) -> Result<Option<String>, String> {
     let r = exec(rt, args(&["symbolic-ref", "-q", "--short", "HEAD"])).await?;

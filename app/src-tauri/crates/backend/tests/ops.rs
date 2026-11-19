@@ -349,7 +349,16 @@ async fn merge_a_merge_commit_or_one_squashed_commit() {
 
     let g = diverged(&w);
     let before = g.git(&["rev-parse", "HEAD"]);
+    // An external diff the repository names is not asked whether something is staged (with
+    // trustExitCode git would run it even for --quiet, and believe its exit code).
+    let marker = w.root.path().join("the external diff ran");
+    let program = w.root.path().join("external-diff.sh");
+    std::fs::write(&program, format!("#!/bin/sh\ntouch '{}'\n", marker.display())).unwrap();
+    std::fs::set_permissions(&program, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    g.git(&["config", "diff.external", program.to_str().unwrap()]);
+    g.git(&["config", "diff.trustExitCode", "true"]);
     assert!(done(&g.op(OpRequest::Merge { target: "side".into(), no_fast_forward: false, squash: true, no_commit: false }).await));
+    assert!(!marker.exists(), "the external diff was run");
     assert_eq!(g.git(&["rev-parse", "HEAD~1"]), before);
     assert_eq!(g.git(&["rev-list", "--parents", "-n", "1", "HEAD"]).split(' ').count(), 2, "not a merge commit");
 }

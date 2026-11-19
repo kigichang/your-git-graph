@@ -41,8 +41,7 @@ pub fn pull_args(remote: &str, branch: &str, no_fast_forward: bool, squash: bool
 /// After `--squash` (merge or pull) git stages the result without committing: commit it with
 /// the message git prepared, unless nothing was staged (already up to date).
 pub async fn commit_squashed(rt: &dyn Runtime) -> Result<(), String> {
-    let staged = exec(rt, args(&["diff", "--cached", "--quiet"])).await?;
-    if staged.exit_code == Some(0) {
+    if !super::staged(rt).await? {
         return Ok(());
     }
     run(rt, args(&["commit", "--no-edit"])).await
