@@ -375,19 +375,29 @@ async function renderPreview(pane, side, text) {
 	// loading at once (attached or not), before repositoryImages could take its src away.
 	const remote = [];
 	const images = repositoryImages(template.content, side, remote);
+	// A link is not one the window could follow by itself (a middle click, the context menu's
+	// Open Link, a drag never reach the click handler below): where it points is kept aside.
+	for (const anchor of template.content.querySelectorAll('a[href]')) {
+		anchor.dataset.href = anchor.getAttribute('href');
+		anchor.removeAttribute('href');
+		anchor.setAttribute('role', 'link');
+		anchor.tabIndex = 0;
+	}
 	const page = document.createElement('div');
 	page.className = 'md';
 	page.appendChild(template.content);
 	offerRemoteImages(page, remote);
 	pane.replaceChildren(page);
 	// Links never navigate this window: web and mail links open in their apps.
-	page.addEventListener('click', (e) => {
+	const follow = (e) => {
 		const anchor = e.target instanceof Element ? e.target.closest('a') : null;
 		if (anchor === null) return;
 		e.preventDefault();
-		const href = anchor.getAttribute('href') || '';
+		const href = anchor.dataset.href || '';
 		if (/^(https?:\/\/|mailto:)/i.test(href)) invoke('open_url', { url: href }).catch((err) => log('link: ' + err));
-	});
+	};
+	page.addEventListener('click', follow);
+	page.addEventListener('keydown', (e) => { if (e.key === 'Enter') follow(e); });
 	preview = { pane, page, sync: syncScrolling(pane, page) };
 	onAppearance = (t) => drawMermaid(page, t);
 	// A jar set in the settings meanwhile draws what could not be drawn before.
@@ -402,6 +412,8 @@ async function renderPreview(pane, side, text) {
 		remoteLoaded: page.querySelectorAll('img[data-asked]').length,
 		katex: page.querySelectorAll('.katex').length,
 		mermaid: page.querySelectorAll('pre.mermaid.rendered > img').length,
+		links: page.querySelectorAll('a[data-href]').length,
+		nativeLinks: page.querySelectorAll('a[href]').length,
 		mermaidInline: page.querySelectorAll('pre.mermaid svg, pre.mermaid style').length,
 		mermaidHtml: Array.from(page.querySelectorAll('pre.mermaid.rendered > img')).filter((img) => !/%3Ctext/i.test(img.src) || /foreignObject/i.test(img.src)).length,
 		plantuml: page.querySelectorAll('pre.plantuml.rendered img').length,

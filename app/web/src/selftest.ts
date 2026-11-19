@@ -47,7 +47,7 @@ type AppHandle = {
 const app = (): AppHandle => (window as unknown as { __gg: { app: AppHandle } }).__gg.app;
 
 type PreviewReport = {
-	shown: boolean; error?: string; blocks?: number; coloured?: number; images?: number; katex?: number; mermaid?: number; mermaidInline?: number; mermaidHtml?: number;
+	shown: boolean; error?: string; blocks?: number; coloured?: number; images?: number; katex?: number; mermaid?: number; links?: number; nativeLinks?: number; mermaidInline?: number; mermaidHtml?: number;
 	plantuml?: number; notes?: string[]; scripts?: number; synced?: boolean | null;
 	remoteWaiting?: number; remoteLoaded?: number; remoteAsked?: number; remoteAnswer?: string | null;
 };
@@ -697,7 +697,7 @@ async function checkPreview(check: Check, config: Record<string, unknown>): Prom
 	const repo = app().state().repo;
 	if (repo === null) return;
 	const dir = 'gg-selftest';
-	const doc = '# Self-test\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```js\nconst answer = 42;\n```\n\n$E = mc^2$\n\n![a pixel](pic.png)\n\n![from the web](http://127.0.0.1:9/gg-selftest.png)\n\n```mermaid\ngraph TD; A-->B;\n```\n\n```plantuml\nA -> B\n```\n\n<script>alert(1)</script>\n\n'
+	const doc = '# Self-test\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```js\nconst answer = 42;\n```\n\n$E = mc^2$\n\n[a link](https://example.com/) and <smb://example.com/share>\n\n![a pixel](pic.png)\n\n![from the web](http://127.0.0.1:9/gg-selftest.png)\n\n```mermaid\ngraph TD; A-->B;\n```\n\n```plantuml\nA -> B\n```\n\n<script>alert(1)</script>\n\n'
 		+ Array.from({ length: 80 }, (_, i) => `Paragraph ${i + 1} of the self-test document, long enough for both panes to scroll.\n`).join('\n');
 	const jar = config['plantumlJava'] === true ? repo + '/' + dir + '/plantuml.jar' : typeof config['plantumlJar'] === 'string' ? config['plantumlJar'] : null;
 	const write = (path: string, contents: number[]) => invoke('selftest_write', { repo, path: dir + '/' + path, contents });
@@ -734,6 +734,7 @@ async function checkPreview(check: Check, config: Record<string, unknown>): Prom
 			check(p.remoteAsked === 1, 'asked for, it loads: ' + p.remoteAsked);
 			// The window may call fetch_image, and the app answers: it asks nothing of this machine itself.
 			check(/this machine itself/.test(p.remoteAnswer ?? ''), 'the app is asked for it: ' + p.remoteAnswer);
+			check((p.links ?? 0) >= 1 && p.nativeLinks === 0, 'a link is not one the window follows by itself: ' + p.links + ' ' + p.nativeLinks);
 			check(p.mermaid === 1, 'the Mermaid diagram is drawn: ' + p.mermaid);
 			check(p.mermaidInline === 0, 'as an image, not as elements of the page: ' + p.mermaidInline);
 			check(p.mermaidHtml === 0, 'its labels are SVG text (HTML ones are not drawn in an image): ' + p.mermaidHtml);
