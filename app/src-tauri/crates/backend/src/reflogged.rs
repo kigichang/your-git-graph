@@ -62,7 +62,8 @@ async fn reflog_only(rt: &dyn Runtime, options: &LoadOptions) -> Result<Vec<Comm
     args.push("HEAD".into());
     if !options.filter_paths.is_empty() {
         args.push("--".into());
-        args.extend(options.filter_paths.iter().cloned());
+        // Names of files, not patterns (as for Reset File): `*` or `:(top)` is not magic.
+        args.extend(options.filter_paths.iter().filter(|p| !p.is_empty()).map(|p| format!(":(literal){p}")));
     }
     let out = rt.git(args, GitOpts::default()).await?;
     if out.exit_code != Some(0) {
