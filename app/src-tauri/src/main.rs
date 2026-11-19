@@ -93,10 +93,13 @@ async fn engine_request(
     state: tauri::State<'_, state::State>,
     remotes: tauri::State<'_, std::sync::Arc<remote::Remotes>>,
     allowed: tauri::State<'_, api::AllowedFilters>,
+    shown: tauri::State<'_, diff::Shown>,
+    window: tauri::Window,
     repo: String,
     request: String,
 ) -> Result<String, String> {
     state.listed(&repo)?;
+    shown.check(window.label(), &repo)?;
     page_may_call(&request)?;
     let filters_allowed = allowed.has(&repo);
     if let Some(remote) = remote::parse(&repo)? {
@@ -208,6 +211,7 @@ fn main() {
         .manage(api::Jobs::default())
         .manage(api::AllowedFilters::default())
         .manage(repos::Windows::default())
+        .manage(diff::Shown::default())
         .manage(Launch::default())
         .manage(plantuml::Cache::default())
         .menu(repos::menu)
@@ -215,6 +219,7 @@ fn main() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 repos::window_closed(window.app_handle(), window.label());
+                window.state::<diff::Shown>().closed(window.label());
             }
         })
         .setup(|app| {

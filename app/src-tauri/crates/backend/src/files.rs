@@ -71,8 +71,17 @@ pub fn inside_repo(repo: &Path, path: &str) -> Result<Option<PathBuf>, String> {
 pub fn read_worktree_file(repo: &Path, path: &str) -> Result<WorktreeFile, String> {
     let missing = WorktreeFile { exists: false, size: 0, binary: false, text: None, base64: None, skipped: None };
     let Some(real) = inside_repo(repo, path)? else { return Ok(missing) };
-    let metadata = real.metadata().map_err(|e| e.to_string())?;
-    // Not a pipe or a device: opening one waits for a writer, reading one never ends.
+    // The working tree's files, not git's own: .git/config can hold a token, and a link in the
+    // tree may point there. (A git directory elsewhere is outside the repository already.)
+    let root = repo.canonicalize().map_err(|e| e.to_string())?;
+    if real.strip_prefix(&root).is_ok_and(|inside| inside.components().any(|c| c.as_os_str().eq_ignore_ascii_case(".git"))) {
+        return Err(format!("{path} is git's own, not a file of the working tree."));
+    }
+    // Not a pipe or a device: opening one waits for a writer, reading one never ends. Opened
+    // without waiting and asked what it is afterwards: the name may be something else by then.
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(&real).map_err(|e| e.to_string())?;
+    let metadata = file.metadata().map_err(|e| e.to_string())?;
     if !metadata.is_file() {
         return Err(format!("{path} is not a file."));
     }
@@ -83,7 +92,7 @@ pub fn read_worktree_file(repo: &Path, path: &str) -> Result<WorktreeFile, Strin
     }
     let mut bytes = Vec::with_capacity(size as usize);
     // At most one byte past the limit: a file still growing is not read on without end.
-    std::fs::File::open(&real).and_then(|f| f.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes)).map_err(|e| e.to_string())?;
+    file.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
     if bytes.len() as u64 > MAX_FILE_BYTES {
         return too_large(bytes.len() as u64);
     }
@@ -165,6 +174,21 @@ mod tests {
         assert!(read_worktree_file(dir.path(), "fifo").unwrap_err().contains("not a file"));
         std::fs::create_dir(dir.path().join("sub")).unwrap();
         assert!(read_worktree_file(dir.path(), "sub").is_err());
+    }
+
+    /// .git/config may hold a token: git's own files are not the working tree's, by name (in
+    /// any case: the disk does not tell them apart) or through a link.
+    #[test]
+    fn gits_own_files_are_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(".git")).unwrap();
+        std::fs::write(dir.path().join(".git/config"), "[remote]\n\turl = https://user:token@host/x\n").unwrap();
+        std::fs::write(dir.path().join(".gitignore"), "target\n").unwrap();
+        std::os::unix::fs::symlink(".git/config", dir.path().join("notes.txt")).unwrap();
+        for path in [".git/config", ".GIT/config", "./.git/config", "notes.txt"] {
+            assert!(read_worktree_file(dir.path(), path).unwrap_err().contains("git's own"), "{path}");
+        }
+        assert_eq!(read_worktree_file(dir.path(), ".gitignore").unwrap().text.as_deref(), Some("target\n"));
     }
 
     #[test]
