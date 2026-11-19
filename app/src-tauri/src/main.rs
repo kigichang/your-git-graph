@@ -132,8 +132,15 @@ fn host_log(app: tauri::AppHandle, log: tauri::State<'_, state::SessionLog>, lin
 /// with `GG_SELFTEST_SSH` (and `GG_SELFTEST_SSH_PASSWORD`) that repository through the real ssh;
 /// with `GG_PLANTUML_JAVA` (a stand-in for java) a PlantUML block of the Markdown preview is
 /// drawn, or with `GG_SELFTEST_PLANTUML_JAR` by that plantuml.jar and the real java.
+/// A diff window is only told that the test runs: what the test connects with (the ssh server's
+/// password) is the graph window's.
 #[tauri::command]
-fn self_test() -> Option<serde_json::Value> {
+fn self_test(window: tauri::Window) -> Option<serde_json::Value> {
+    let config = self_test_config()?;
+    Some(if window.label().starts_with("diff-") { serde_json::json!({}) } else { config })
+}
+
+fn self_test_config() -> Option<serde_json::Value> {
     std::env::var("GG_SELFTEST").is_ok_and(|v| v == "1").then(|| {
         serde_json::json!({ "httpUrl": std::env::var("GG_SELFTEST_HTTP").ok(), "remote": std::env::var_os("GG_REMOTE_SSH").is_some(),
             "sshUrl": std::env::var("GG_SELFTEST_SSH").ok(), "sshPassword": std::env::var("GG_SELFTEST_SSH_PASSWORD").ok(),
@@ -146,7 +153,7 @@ fn self_test() -> Option<serde_json::Value> {
 /// not send events of its own: those reach every window's listeners.
 #[tauri::command]
 fn diff_report(app: tauri::AppHandle, report: serde_json::Value) -> Result<(), String> {
-    if self_test().is_none() {
+    if self_test_config().is_none() {
         return Err("only under GG_SELFTEST".into());
     }
     app.emit("diff-selftest", report).map_err(|e| e.to_string())
@@ -156,10 +163,11 @@ fn diff_report(app: tauri::AppHandle, report: serde_json::Value) -> Result<(), S
 /// into the working tree of a local repository, under its `gg-selftest/` directory, to be
 /// shown and removed again by the test.
 #[tauri::command]
-fn selftest_write(repo: String, path: String, contents: Vec<u8>) -> Result<(), String> {
-    if self_test().is_none() {
+fn selftest_write(state: tauri::State<'_, state::State>, repo: String, path: String, contents: Vec<u8>) -> Result<(), String> {
+    if self_test_config().is_none() {
         return Err("only under GG_SELFTEST".into());
     }
+    state.listed(&repo)?;
     if remote::parse(&repo)?.is_some() {
         return Err("local repositories only".into());
     }
@@ -175,7 +183,7 @@ fn selftest_write(repo: String, path: String, contents: Vec<u8>) -> Result<(), S
 /// appearance changes or some seconds pass, until the app is brought forward. A bare binary
 /// (cargo build) is left alone, which hides this in development.
 fn kept_in_front() -> bool {
-    self_test().is_some() || preview().is_some()
+    self_test_config().is_some() || preview().is_some()
 }
 
 /// `GG_PREVIEW=<scene>[,<scene>…][,contrast]`: open the view in a given state and leave it
