@@ -64,7 +64,7 @@ test('an image path is a file of the repository, relative to the document', () =
 	assert.equal(resolveRelative('docs/a.md', 'a/../../x.png'), 'x.png');
 	for (const out of ['../../x.png', '../../../etc/passwd', 'a/../../../x.png']) assert.equal(resolveRelative('docs/a.md', out), null, out);
 	assert.equal(resolveRelative('README.md', '../x.png'), null);
-	for (const other of ['https://example.com/a.png', '//example.com/a.png', '/etc/passwd', 'file:///etc/passwd', 'data:image/png;base64,AAAA', '', '#top', '..']) {
+	for (const other of ['https://example.com/a.png', '//example.com/a.png', '/etc/passwd', 'file:///etc/passwd', 'data:image/png;base64,AAAA', '', '#top', '..', '%2Fetc/passwd', '%5Cx.png', 'file%3A///etc/passwd', 'a%00.png']) {
 		assert.equal(resolveRelative('docs/a.md', other), null, other);
 	}
 });

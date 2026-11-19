@@ -9,8 +9,9 @@ export const isMarkdown = (path) => /\.(md|markdown)$/i.test(path);
  * is not a file of the repository: a URL, an absolute path, or one that climbs out of the root. */
 export function resolveRelative(filePath, src) {
 	let target = String(src).split(/[?#]/)[0];
-	if (target === '' || target.startsWith('/') || target.startsWith('\\') || /^[a-z][a-z0-9+.-]*:/i.test(target)) return null;
+	// Decoded first: what is checked is what is used ("%2Fetc" is "/etc").
 	try { target = decodeURIComponent(target); } catch (_) { /* not percent-encoded: as written */ }
+	if (target === '' || target.includes('\0') || target.startsWith('/') || target.startsWith('\\') || /^[a-z][a-z0-9+.-]*:/i.test(target)) return null;
 	const parts = filePath.split('/').slice(0, -1);
 	for (const part of target.split('/')) {
 		if (part === '' || part === '.') continue;
