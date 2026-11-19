@@ -6,11 +6,13 @@ import { cspViolations } from '../web/src/lib/csp';
 import * as monaco from 'monaco-editor/editor';
 import 'monaco-editor/features/register.all';
 import 'monaco-editor/languages/definitions/register.all'; // syntax colouring only, no language services
+import { invoke } from '@tauri-apps/api/core';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { fileSides, UNCOMMITTED, WORKTREE } from '../web/src/lib/diffspec';
 import { errorText, engineAnswer } from '../web/src/lib/errors';
 import { isMarkdown, resolveRelative, monotonic, lineToOffset, offsetToLine } from './mdview.js';
 
-const { invoke } = window.__TAURI__.core;
+
 const spec = window.__GG_DIFF_SPEC;
 const workerProblems = [];
 
@@ -526,7 +528,7 @@ window.addEventListener('keydown', (e) => {
 	if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing) return;
 	e.preventDefault();
 	if (escapeLog !== null) escapeLog.push('close');
-	else window.__TAURI__.window.getCurrentWindow().close();
+	else getCurrentWindow().close();
 });
 
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));

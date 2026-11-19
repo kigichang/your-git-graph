@@ -3,7 +3,8 @@
  * Increase Contrast (prefers-contrast: more), as the classes gg-dark and gg-contrast on <html>.
  * Loaded first by index.html and diff.html (a classic script, so it runs before anything is
  * drawn). window.__ggTheme.onChange(fn) runs fn(appearance) now and on every change;
- * force({ dark, contrast }) overrides either (the self-test), null undoes it. */
+ * force({ dark, contrast }) overrides either (the self-test; a preview's `contrast`, from
+ * main.ts), null undoes it. */
 (function () {
 	'use strict';
 	const dark = window.matchMedia('(prefers-color-scheme: dark)');
@@ -24,13 +25,6 @@
 	dark.addEventListener('change', apply);
 	contrast.addEventListener('change', apply);
 	apply();
-
-	// GG_PREVIEW=…,contrast (src-tauri/src/main.rs): Increase Contrast for a look at it.
-	if (window.__TAURI__) {
-		window.__TAURI__.core.invoke('preview').then((p) => {
-			if (p && p.split(',').includes('contrast')) window.__ggTheme.force({ contrast: true });
-		}, () => {});
-	}
 
 	window.__ggTheme = {
 		current,

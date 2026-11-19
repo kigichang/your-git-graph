@@ -12,6 +12,8 @@ const expose = () => {
 
 invoke<string | null>('preview').then(async (scenes) => {
 	if (scenes) {
+		// GG_PREVIEW=…,contrast: Increase Contrast for a look at it (it cannot be switched for one app).
+		if (scenes.split(',').includes('contrast')) (window as unknown as { __ggTheme: { force: (o: { contrast: boolean }) => void } }).__ggTheme.force({ contrast: true });
 		expose();
 		const { runPreview } = await import('./preview');
 		await runPreview(scenes);

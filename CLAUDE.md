@@ -177,7 +177,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 - PlantUML（`plantuml.rs`）：只用本機 jar（設定 `plantuml.jar`，經 `settings::load` 讀型別化的設定，不要直接讀 settings.json 的 map——Stage 1 的 key 已搬走），`-DPLANTUML_SECURITY_PROFILE=SANDBOX`，30 秒逾時，結果快取，輸出放 `<img>` 的 data URL。同時最多 2 個 JVM（一份文件的所有區塊會一起送來），原始碼超過 256 KiB 不畫。`GG_PLANTUML_JAVA`、`GG_SELFTEST_PLANTUML_JAR` 只給測試。
 - 捲動同步：區塊帶 `data-line`，`mdview.js` 內插；只有使用者正在操作的那一邊帶動另一邊。
 - Esc 關閉視窗（Monaco 處理過的按鍵不關；`isComposing` 不關）。不要改成 capture 階段。
-- diff 視窗還用 `window.__TAURI__`（所以 `tauri.conf.json` 的 `withGlobalTauri` 暫時保持 true）；改成 `@tauri-apps/api` 時一併關掉。
+- diff 視窗用 `@tauri-apps/api`（esbuild 打包進去），`withGlobalTauri` 已關：頁面上沒有 `window.__TAURI__`。`theme.js` 是 classic script，不呼叫 IPC；preview 的 `contrast` 由 `main.ts` 呼叫 `__ggTheme.force`。
 - self-test 的 log 會有 `diff: rejection: cancel@…`：送 Esc 時 Monaco 取消它未完成的工作（搜尋框的動作），不是錯誤；`diff/main.js` 的這段和 Stage 1 相同。
 
 ### 檔案監看（`crates/backend/src/watch.rs`）
