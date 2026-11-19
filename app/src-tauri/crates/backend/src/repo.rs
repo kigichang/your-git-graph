@@ -15,20 +15,26 @@ pub struct OperationState {
     pub progress: Option<OperationProgress>,
 }
 
+/// Whether `dir` is a git directory: it has a `HEAD`. What a `.git` file or a `commondir` names
+/// is the repository author's word; the watcher follows it, and must not end up watching `/`.
+pub fn is_git_dir(dir: &Path) -> bool {
+    dir.join("HEAD").is_file()
+}
+
 /// The git directory of the work tree at `root`: `.git` itself, or where a `.git` file
-/// (linked worktree, submodule) points.
+/// (linked worktree, submodule) points - when that is a git directory.
 pub fn git_dir(root: &Path) -> Option<PathBuf> {
     let dot_git = root.join(".git");
     if dot_git.is_dir() {
         return Some(dot_git);
     }
-    let text = fs::read_to_string(&dot_git).ok()?;
-    let target = text.trim().strip_prefix("gitdir:")?.trim();
-    Some(root.join(target))
+    let text = crate::files::read_marker(&dot_git)?;
+    let target = root.join(text.trim().strip_prefix("gitdir:")?.trim());
+    is_git_dir(&target).then_some(target)
 }
 
 fn read_number(path: PathBuf) -> Option<u32> {
-    fs::read_to_string(path).ok()?.trim().parse().ok()
+    crate::files::read_marker(&path)?.trim().parse().ok()
 }
 
 fn progress(dir: &Path, step: &str, total: &str) -> Option<OperationProgress> {
@@ -118,6 +124,23 @@ mod tests {
         fs::write(p.join("f"), "main\n").unwrap();
         assert!(git(p, &["commit", "-qam", "main"]));
         dir
+    }
+
+    /// A `.git` file is followed only to a git directory, and only read when it is a file.
+    #[test]
+    fn a_git_file_leads_to_a_git_directory_or_nowhere() {
+        let dir = conflicting_repo();
+        let p = dir.path();
+        assert!(git(p, &["worktree", "add", "-q", "linked", "side"]));
+        let linked = p.join("linked");
+        assert!(git_dir(&linked).is_some_and(|d| d.ends_with(".git/worktrees/linked")));
+        for elsewhere in ["gitdir: /", "gitdir: ../../../../../../..", "gitdir: /usr", "nothing"] {
+            fs::write(linked.join(".git"), elsewhere).unwrap();
+            assert_eq!(git_dir(&linked), None, "{elsewhere}");
+        }
+        fs::remove_file(linked.join(".git")).unwrap();
+        assert!(Command::new("mkfifo").arg(linked.join(".git")).status().unwrap().success());
+        assert_eq!(git_dir(&linked), None, "a pipe is not waited for");
     }
 
     #[test]

@@ -62,9 +62,11 @@ impl Repo {
         let canonical = |p: PathBuf| p.canonicalize().unwrap_or(p);
         let root = canonical(root);
         let git_dir = canonical(crate::repo::git_dir(&root).unwrap_or_else(|| root.join(".git")));
-        let common_dir = std::fs::read_to_string(git_dir.join("commondir"))
+        // Followed only to a git directory: the file's text is the repository author's.
+        let common_dir = crate::files::read_marker(&git_dir.join("commondir"))
             .map(|text| canonical(git_dir.join(text.trim())))
-            .unwrap_or_else(|_| git_dir.clone());
+            .filter(|dir| crate::repo::is_git_dir(dir))
+            .unwrap_or_else(|| git_dir.clone());
         Repo { root, git_dir, common_dir }
     }
 }

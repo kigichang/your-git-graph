@@ -37,6 +37,21 @@ pub fn write_atomic(file: &Path, contents: &[u8]) -> std::io::Result<()> {
     })
 }
 
+/// The text of one of git's small marker files (a `.git` file, `commondir`, a rebase's
+/// counters), `None` when it is not there or not a regular file. What a repository holds at
+/// such a name is whatever its author put there: a pipe is not waited for, and no more than
+/// 4 KiB is read.
+pub fn read_marker(path: &Path) -> Option<String> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let file = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NONBLOCK).open(path).ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut text = String::new();
+    file.take(4096).read_to_string(&mut text).ok()?;
+    Some(text)
+}
+
 #[derive(Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorktreeFile {
