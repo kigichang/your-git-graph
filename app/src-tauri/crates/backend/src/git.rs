@@ -44,6 +44,9 @@ fn resolve_git() -> Result<GitInfo, String> {
     if let Some(path) = std::env::var_os("PATH") {
         candidates.extend(
             std::env::split_paths(&path)
+                // An empty or relative entry means "where the process happens to be": a file
+                // called git in a repository's folder is not the git to run.
+                .filter(|dir| dir.is_absolute())
                 .map(|dir| dir.join("git"))
                 .filter(|git| git != system_git),
         );
