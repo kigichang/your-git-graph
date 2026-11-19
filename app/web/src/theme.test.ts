@@ -56,7 +56,6 @@ const ratio = (a: RGBA, b: RGBA): number => { const [x, y] = [luminance(a), lumi
 /* [foreground, background, minimum ratio, minimum with Increase Contrast] */
 const TEXT: [string, string, number, number][] = [
 	['foreground', 'editor-background', 4.5, 7],
-	['editor-foreground', 'editor-background', 4.5, 7],
 	['descriptionForeground', 'editor-background', 4.5, 4.5],
 	['errorForeground', 'editor-background', 4.5, 4.5],
 	['textLink-foreground', 'editor-background', 4.5, 4.5],
@@ -65,8 +64,6 @@ const TEXT: [string, string, number, number][] = [
 	['input-foreground', 'input-background', 4.5, 7],
 	['dropdown-foreground', 'dropdown-background', 4.5, 7],
 	['inputValidation-warningForeground', 'inputValidation-warningBackground', 4.5, 4.5],
-	['foreground', 'inputValidation-errorBackground', 4.5, 4.5],
-	['input-placeholderForeground', 'input-background', 3, 4.5],
 	['gitDecoration-addedResourceForeground', 'editor-background', 4.5, 4.5],
 	['gitDecoration-deletedResourceForeground', 'editor-background', 4.5, 4.5],
 	['gitDecoration-modifiedResourceForeground', 'editor-background', 4.5, 4.5],

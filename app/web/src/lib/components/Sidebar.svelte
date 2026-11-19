@@ -168,7 +168,7 @@
 
 <style>
 	.gg-sidebar {
-		width: var(--gg-sidebar-width, 220px); flex: none; display: flex; flex-direction: column; min-height: 0;
+		width: 220px; flex: none; display: flex; flex-direction: column; min-height: 0;
 		background: var(--gg-sidebar-background); border-right: 1px solid var(--gg-panel-border); user-select: none; -webkit-user-select: none;
 	}
 	.gg-head { display: flex; align-items: center; gap: 4px; padding: 8px 6px 6px 12px; }

@@ -19,7 +19,6 @@
 	--gg-widget-shadow: rgba(0, 0, 0, 0.18);
 
 	--gg-editor-background: #ffffff;
-	--gg-editor-foreground: #1d1d1f;
 	--gg-editor-findMatchHighlightBackground: rgba(255, 200, 0, 0.35);
 	--gg-editor-findMatchHighlightBorder: transparent;
 	--gg-editorWidget-background: #f5f5f7;
@@ -47,13 +46,9 @@
 	--gg-input-background: #ffffff;
 	--gg-input-foreground: #1d1d1f;
 	--gg-input-border: #c7c7cc;
-	--gg-input-placeholderForeground: #8e8e93;
 	--gg-inputOption-activeBackground: color-mix(in srgb, AccentColor 20%, transparent);
 	--gg-inputOption-activeBorder: AccentColor;
-	--gg-inputValidation-errorBackground: #fde8e8;
-	--gg-inputValidation-errorBorder: #d70015;
 	--gg-inputValidation-warningBackground: #fff4e0;
-	--gg-inputValidation-warningBorder: #b25000;
 	--gg-inputValidation-warningForeground: #1d1d1f;
 	--gg-dropdown-background: #ffffff;
 	--gg-dropdown-foreground: #1d1d1f;
@@ -68,7 +63,7 @@
 	--gg-charts-yellow: #b28600;
 	--gg-charts-purple: #8944ab;
 
-	/* The repository sidebar (sidebar.css). */
+	/* The repository sidebar. */
 	--gg-sidebar-background: #f5f5f7;
 	--gg-sidebar-selected: rgba(0, 0, 0, 0.07);
 }
@@ -81,7 +76,6 @@
 	--gg-widget-shadow: rgba(0, 0, 0, 0.5);
 
 	--gg-editor-background: #1e1e1e;
-	--gg-editor-foreground: #e5e5e7;
 	--gg-editorWidget-background: #2a2a2c;
 	--gg-editorWidget-foreground: #e5e5e7;
 	--gg-editorWidget-border: #3a3a3c;
@@ -100,11 +94,7 @@
 	--gg-input-background: #1c1c1e;
 	--gg-input-foreground: #e5e5e7;
 	--gg-input-border: #48484a;
-	--gg-input-placeholderForeground: #8e8e93;
-	--gg-inputValidation-errorBackground: #4a1c1c;
-	--gg-inputValidation-errorBorder: #ff6961;
 	--gg-inputValidation-warningBackground: #4a3410;
-	--gg-inputValidation-warningBorder: #ffb340;
 	--gg-inputValidation-warningForeground: #e5e5e7;
 	--gg-dropdown-background: #2a2a2c;
 	--gg-dropdown-foreground: #e5e5e7;
@@ -130,7 +120,6 @@
 	--gg-descriptionForeground: #3a3a3c;
 	--gg-widget-shadow: rgba(0, 0, 0, 0.35);
 	--gg-editor-findMatchHighlightBorder: #b25000;
-	--gg-editor-foreground: #000000;
 	--gg-editorWidget-foreground: #000000;
 	--gg-editorWidget-border: #6e6e73;
 	--gg-menu-foreground: #000000;
@@ -142,7 +131,6 @@
 	--gg-textLink-foreground: #0050a0;
 	--gg-input-foreground: #000000;
 	--gg-input-border: #6e6e73;
-	--gg-input-placeholderForeground: #5e5e63;
 	--gg-dropdown-foreground: #000000;
 	--gg-dropdown-border: #6e6e73;
 	--gg-sidebar-selected: rgba(0, 0, 0, 0.12);
@@ -154,7 +142,6 @@
 	--gg-descriptionForeground: #c7c7cc;
 	--gg-widget-shadow: rgba(0, 0, 0, 0.7);
 	--gg-editor-findMatchHighlightBorder: #ffb340;
-	--gg-editor-foreground: #ffffff;
 	--gg-editorWidget-foreground: #ffffff;
 	--gg-editorWidget-border: #98989d;
 	--gg-menu-foreground: #ffffff;
@@ -166,7 +153,6 @@
 	--gg-textLink-foreground: #70b4ff;
 	--gg-input-foreground: #ffffff;
 	--gg-input-border: #98989d;
-	--gg-input-placeholderForeground: #aeaeb2;
 	--gg-dropdown-foreground: #ffffff;
 	--gg-dropdown-border: #98989d;
 	--gg-sidebar-selected: rgba(255, 255, 255, 0.16);
