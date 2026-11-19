@@ -168,7 +168,8 @@
 	const openFile = (command: 'open_settings_file' | 'open_session_log') => invoke(command).catch(() => {});
 
 	function onKey(e: KeyboardEvent) {
-		if (e.key === 'Escape' && !(e.target as Element).closest('.gg-backdrop ~ *')) { onClose(); e.stopPropagation(); }
+		// Not while a dialog is up (wherever the focus is): Esc is the dialog's then.
+		if (e.key === 'Escape' && document.querySelector('.gg-backdrop') === null) { onClose(); e.stopPropagation(); }
 	}
 </script>
 
