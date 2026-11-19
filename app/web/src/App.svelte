@@ -111,7 +111,7 @@
 		try {
 			const file = await invoke<{ exists: boolean; text?: string | null }>('worktree_file', { repo: r, path: REPO_CONFIG_FILE });
 			if (file.exists && typeof file.text === 'string') {
-				const imported = importRepoConfig(st, file.text);
+				const imported = importRepoConfig(st, file.text, Math.floor(Date.now() / 1000));
 				if (imported !== null) { st = imported; appState.set('repo:' + r, st); void log('repo config: imported ' + REPO_CONFIG_FILE); }
 			}
 		} catch (e) {

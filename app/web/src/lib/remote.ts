@@ -49,6 +49,6 @@ export const remoteId = (destination: string, port: string, path: string): strin
  * null. Rust checks again before mounting (system.rs). */
 export function invalidShare(url: string): string | null {
 	if (!url.startsWith('smb://')) return 'The address of a share starts with smb://';
-	if (/\s/.test(url)) return 'The address of a share contains no spaces (write %20).';
+	if (/[\s\x00-\x1f\x7f]/.test(url)) return 'The address of a share contains no spaces (write %20).';
 	return /^smb:\/\/[^/]+\/[^/]/.test(url) ? null : 'The address of a share is smb://server/share';
 }
