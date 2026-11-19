@@ -15,21 +15,41 @@
 	onMount(() => { input?.focus(); input?.select(); });
 	export const focus = () => { input?.focus(); input?.select(); };
 
+	// Every loaded commit is searched for each change (a regular expression on tens of thousands
+	// of them takes a while): typing waits for a pause; a switch or a step searches at once.
+	const PAUSE_MS = 150;
+	let waiting: ReturnType<typeof setTimeout> | undefined;
+	const typed = () => input?.value ?? query;
+	function change(next: { caseSensitive: boolean; regex: boolean }) {
+		clearTimeout(waiting);
+		waiting = undefined;
+		onChange({ query: typed(), ...next });
+	}
+	function onInput() {
+		clearTimeout(waiting);
+		waiting = setTimeout(() => change({ caseSensitive, regex }), PAUSE_MS);
+	}
+	function step(forward: boolean) {
+		if (waiting !== undefined) change({ caseSensitive, regex });
+		onStep(forward);
+	}
+	$effect(() => () => clearTimeout(waiting));
+
 	function onKey(e: KeyboardEvent) {
 		e.stopPropagation();
 		if (e.key === 'Escape') { e.preventDefault(); onClose(); }
-		else if (e.key === 'Enter') { e.preventDefault(); onStep(!e.shiftKey); }
+		else if (e.key === 'Enter') { e.preventDefault(); step(!e.shiftKey); }
 	}
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div class="gg-find" role="search" onkeydown={onKey}>
-	<input bind:this={input} type="text" value={query} placeholder={t('find.placeholder')} oninput={(e) => onChange({ query: (e.target as HTMLInputElement).value, caseSensitive, regex })} />
-	<button class="gg-toggle" class:on={caseSensitive} title={t('find.caseTitle')} onclick={() => onChange({ query, caseSensitive: !caseSensitive, regex })}>{t('find.case')}</button>
-	<button class="gg-toggle" class:on={regex} title={t('find.regexTitle')} onclick={() => onChange({ query, caseSensitive, regex: !regex })}>{t('find.regex')}</button>
+	<input bind:this={input} type="text" value={query} placeholder={t('find.placeholder')} oninput={onInput} />
+	<button class="gg-toggle" class:on={caseSensitive} title={t('find.caseTitle')} onclick={() => change({ caseSensitive: !caseSensitive, regex })}>{t('find.case')}</button>
+	<button class="gg-toggle" class:on={regex} title={t('find.regexTitle')} onclick={() => change({ caseSensitive, regex: !regex })}>{t('find.regex')}</button>
 	<span class="gg-count" class:none={query !== '' && count === 0}>{query === '' ? '' : count === 0 ? t('find.none') : t('find.count', { index: index + 1, count })}</span>
-	<button class="gg-step" title={t('find.prev')} disabled={count === 0} onclick={() => onStep(false)}>↑</button>
-	<button class="gg-step" title={t('find.next')} disabled={count === 0} onclick={() => onStep(true)}>↓</button>
+	<button class="gg-step" title={t('find.prev')} disabled={count === 0} onclick={() => step(false)}>↑</button>
+	<button class="gg-step" title={t('find.next')} disabled={count === 0} onclick={() => step(true)}>↓</button>
 	<button class="gg-step" title={t('find.close')} onclick={onClose}>✕</button>
 </div>
 

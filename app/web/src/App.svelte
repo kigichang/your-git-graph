@@ -398,7 +398,7 @@
 	function onFindChange(next: { query: string; caseSensitive: boolean; regex: boolean }) {
 		find = { ...find, ...next, index: -1 };
 		appState.set('find', { caseSensitive: next.caseSensitive, regex: next.regex });
-		const rows = data === null ? [] : findRows(data.commits, next.query, { caseSensitive: next.caseSensitive, regex: next.regex });
+		const rows = findMatches; // derived from `find`: searched once, here
 		if (rows.length > 0) { find.index = 0; table?.select(rows[0] as number); }
 	}
 	function onFindStep(forward: boolean) {
