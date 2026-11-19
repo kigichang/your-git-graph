@@ -665,6 +665,18 @@ pub async fn read(rt: &dyn crate::runtime::Runtime, mut request: ReadRequest) ->
     crate::reads::read_git(rt, request).await
 }
 
+/// One engine call a page makes itself (a diff window: `{"method", "params"}` in, the method's
+/// JSON answer out), in a blocking task. One that reads the uncommitted changes is refused like
+/// the typed reads while the repository's own filters are not allowed: a page shows what the
+/// repository's author wrote, and is not taken at its word that the person asked.
+pub async fn page_engine(rt: &dyn crate::runtime::Runtime, request: String) -> Result<String, String> {
+    if crate::filters::reads_uncommitted(&request) {
+        refuse_filters(rt).await?;
+    }
+    let repo = rt.repo().to_string();
+    tokio::task::spawn_blocking(move || crate::engine(&repo, &request)).await.map_err(|e| e.to_string())
+}
+
 /// An error when reading the uncommitted changes would run filters the person has not allowed.
 async fn refuse_filters(rt: &dyn crate::runtime::Runtime) -> Result<(), String> {
     let blocked = crate::filters::blocking(rt).await?;

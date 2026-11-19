@@ -135,9 +135,46 @@ pub async fn blocking(rt: &dyn Runtime) -> Result<Vec<String>, String> {
     own_filters(rt).await
 }
 
+/// Whether an engine call (`{"method", "params"}`) reads the uncommitted changes, and so runs
+/// those filters: the working tree's details, a comparison with it (`to` empty, absent or `*`),
+/// a commit list that includes it.
+pub fn reads_uncommitted(request: &str) -> bool {
+    let Ok(request) = serde_json::from_str::<serde_json::Value>(request) else { return false };
+    let params = &request["params"];
+    let working_tree = |v: &serde_json::Value| v.as_str().is_none_or(|s| s.is_empty() || s == crate::api::UNCOMMITTED);
+    match request["method"].as_str() {
+        Some("loadUncommittedDetails") => true,
+        Some("compareCommits" | "loadLineCounts") => working_tree(&params["to"]) || params["from"].as_str() == Some(crate::api::UNCOMMITTED),
+        Some("loadCommits") => params["showUncommittedChanges"].as_bool() != Some(false),
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_engine_calls_that_read_the_working_tree() {
+        for request in [
+            r#"{"method":"loadUncommittedDetails"}"#,
+            r#"{"method":"compareCommits","params":{"from":"abc","to":""}}"#,
+            r#"{"method":"compareCommits","params":{"from":"abc","to":"*"}}"#,
+            r#"{"method":"compareCommits","params":{"from":"abc"}}"#,
+            r#"{"method":"compareCommits","params":{"from":"*","to":"abc"}}"#,
+            r#"{"method":"loadCommits","params":{"showUncommittedChanges":true}}"#,
+        ] {
+            assert!(reads_uncommitted(request), "{request}");
+        }
+        for request in [
+            r#"{"method":"compareCommits","params":{"from":"abc","to":"def"}}"#,
+            r#"{"method":"loadCommitFile","params":{"commitHash":"abc","file":"a"}}"#,
+            r#"{"method":"loadCommits","params":{"showUncommittedChanges":false}}"#,
+            "not json",
+        ] {
+            assert!(!reads_uncommitted(request), "{request}");
+        }
+    }
 
     #[test]
     fn only_what_the_repository_sets_and_not_standard_lfs() {

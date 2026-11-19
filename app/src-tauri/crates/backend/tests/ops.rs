@@ -960,6 +960,12 @@ async fn the_repositorys_own_filters_run_only_once_allowed() {
     assert!(gg_backend::api::read(&f.rt(), compare).await.is_err());
     let compare = ReadRequest::Compare { from: "HEAD".into(), to: String::new() }; // the engine's working tree too
     assert!(gg_backend::api::read(&f.rt(), compare).await.is_err());
+    // A page's own engine calls (a diff window's) are refused the same.
+    for request in [r#"{"method":"loadUncommittedDetails"}"#, r#"{"method":"compareCommits","params":{"from":"HEAD","to":""}}"#] {
+        assert!(gg_backend::api::page_engine(&f.rt(), request.into()).await.unwrap_err().contains("filter.probe.clean"), "{request}");
+    }
+    let committed = r#"{"method":"loadCommitDetails","params":{"hash":"HEAD"}}"#;
+    assert!(gg_backend::api::page_engine(&f.rt(), committed.into()).await.unwrap().contains("fileChanges"));
     let reset = OpRequest::Reset { commit: "HEAD".into(), mode: ResetMode::Hard };
     let OpResult::NeedsConfirmation { reasons } = f.op(reset.clone()).await else { panic!("a hard reset asks first") };
     assert_eq!(reasons, [Reason::UncommittedDiscarded { count: 1 }], "counted without the filter");

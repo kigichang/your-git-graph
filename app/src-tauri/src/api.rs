@@ -44,7 +44,7 @@ impl Jobs {
 pub struct AllowedFilters(Mutex<std::collections::HashSet<String>>);
 
 impl AllowedFilters {
-    fn has(&self, repo: &str) -> bool {
+    pub fn has(&self, repo: &str) -> bool {
         self.0.lock().unwrap().contains(repo)
     }
 }

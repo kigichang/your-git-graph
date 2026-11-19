@@ -85,20 +85,30 @@ fn page_may_call(request: &str) -> Result<(), String> {
 
 /// One engine call: `{"method", "params"}` in, the method's JSON answer out. Failures ride
 /// in-band as `{"error": "Kind: message"}`. A remote repository's go to its machine. Runs off the main thread - a large repository's
-/// first graph page takes long enough to stall the UI otherwise.
+/// first graph page takes long enough to stall the UI otherwise. A call that reads the
+/// uncommitted changes is refused until the person allowed the repository's own filters
+/// (`gg_backend::filters`), as the typed reads are: a diff window is not taken at its word.
 #[tauri::command]
-async fn engine_request(state: tauri::State<'_, state::State>, remotes: tauri::State<'_, std::sync::Arc<remote::Remotes>>, repo: String, request: String) -> Result<String, String> {
+async fn engine_request(
+    state: tauri::State<'_, state::State>,
+    remotes: tauri::State<'_, std::sync::Arc<remote::Remotes>>,
+    allowed: tauri::State<'_, api::AllowedFilters>,
+    repo: String,
+    request: String,
+) -> Result<String, String> {
     state.listed(&repo)?;
     page_may_call(&request)?;
+    let filters_allowed = allowed.has(&repo);
     if let Some(remote) = remote::parse(&repo)? {
         let session = remotes.session(&remote)?;
-        let body = serde_json::json!({ "op": "engine", "repo": remote.path, "request": request });
+        let body = serde_json::json!({ "op": "engine", "repo": remote.path, "request": request, "filtersAllowed": filters_allowed });
         let answer = session.call(session.next_id(), &body, |_| {}).await?;
         return String::from_utf8(answer).map_err(|e| e.to_string());
     }
-    tauri::async_runtime::spawn_blocking(move || gg_backend::engine(&repo, &request))
-        .await
-        .map_err(|e| e.to_string())
+    let git = std::path::PathBuf::from(&gg_backend::git::locate_git()?.path);
+    let (_cancel, never) = tokio::sync::watch::channel(false);
+    let rt = gg_backend::runtime::LocalRuntime::new(&repo, git, Default::default(), std::sync::Arc::new(|_| {}), never).allow_filters(filters_allowed);
+    gg_backend::api::page_engine(&rt, request).await
 }
 
 /// The host's log line, mirrored to stderr so it shows in the terminal, and appended to this

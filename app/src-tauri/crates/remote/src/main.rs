@@ -21,7 +21,13 @@ use tokio::task::JoinSet;
 #[derive(Deserialize)]
 #[serde(tag = "op", rename_all = "camelCase")]
 enum Request {
-    Engine { repo: String, request: String },
+    /// One engine call of a page (`gg_backend::api::page_engine`).
+    Engine {
+        repo: String,
+        request: String,
+        #[serde(default, rename = "filtersAllowed")]
+        filters_allowed: bool,
+    },
     /// A typed read (`gg_backend::api`): the same code the app runs for a local repository.
     /// `filtersAllowed`: the person allowed the repository's own filters (`gg_backend::filters`).
     Read {
@@ -101,7 +107,12 @@ impl Session {
 
     async fn run(&self, id: u64, request: Request) -> Result<Vec<u8>, String> {
         match request {
-            Request::Engine { repo, request } => blocking(move || Ok(gg_backend::engine(&repo, &request).into_bytes())).await,
+            Request::Engine { repo, request, filters_allowed } => {
+                let rt = self.runtime(id, &repo, false)?.allow_filters(filters_allowed);
+                let result = gg_backend::api::page_engine(&rt, request).await;
+                self.cancels.lock().unwrap().remove(&id);
+                Ok(result?.into_bytes())
+            }
             Request::Read { repo, request, filters_allowed } => {
                 let rt = self.runtime(id, &repo, false)?.allow_filters(filters_allowed);
                 let result = gg_backend::api::read(&rt, request).await;
