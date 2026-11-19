@@ -59,7 +59,7 @@
 			onChange({ ...sidebar, repos: moved.list, groupOf: moved.groupOf });
 			picked = [];
 		};
-		const key = (ev: KeyboardEvent) => { if (ev.key === 'Escape') { started = true; drag = null; window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); } };
+		const key = (ev: KeyboardEvent) => { if (ev.key === 'Escape') { started = true; drag = null; window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); window.removeEventListener('keydown', key); } };
 		window.addEventListener('pointermove', move);
 		window.addEventListener('pointerup', up);
 		window.addEventListener('keydown', key);
