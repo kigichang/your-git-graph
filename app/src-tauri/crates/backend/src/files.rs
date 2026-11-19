@@ -19,7 +19,11 @@ const SKIP_DIRS: [&str; 4] = ["node_modules", "target", "build", "dist"];
 pub fn write_atomic(file: &Path, contents: &[u8]) -> std::io::Result<()> {
     let dir = file.parent().ok_or_else(|| std::io::Error::other("no parent directory"))?;
     std::fs::create_dir_all(dir)?;
-    let tmp = dir.join(format!(".{}.{}.tmp", file.file_name().unwrap_or_default().to_string_lossy(), std::process::id()));
+    // A name of its own for each write: two writes of the same file at once (the state's timer
+    // and a flush, two settings set together) would otherwise share one and remove each other's.
+    static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = dir.join(format!(".{}.{}.{n}.tmp", file.file_name().unwrap_or_default().to_string_lossy(), std::process::id()));
     let write = || {
         // Created new (O_EXCL): never through a symlink a work tree holds at that name.
         let _ = std::fs::remove_file(&tmp);

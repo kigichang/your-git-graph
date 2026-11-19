@@ -174,6 +174,9 @@ pub fn read_settings(file: &Path) -> Result<Map<String, Value>, String> {
 
 /// `file` with one setting set (`Some`) or reset to its default (`None`).
 pub fn write_setting(file: &Path, key: &str, value: Option<Value>) -> Result<(), String> {
+    // Read, change, write: one at a time, or two settings set together lose one of them.
+    static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = WRITING.lock().unwrap_or_else(|e| e.into_inner());
     let mut settings = read_settings(file)?;
     match value {
         Some(v) => settings.insert(key.to_string(), v),
@@ -245,6 +248,21 @@ pub fn open_session_log(log: tauri::State<'_, SessionLog>) -> Result<(), String>
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn settings_set_at_the_same_time_are_all_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("settings.json");
+        std::thread::scope(|scope| {
+            for i in 0..16 {
+                let file = &file;
+                scope.spawn(move || write_setting(file, &format!("key{i}"), Some(json!(i))).unwrap());
+            }
+        });
+        let written = read_settings(&file).unwrap();
+        assert_eq!(written.len(), 16, "{written:?}");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1, "no temporary file left");
+    }
 
     #[test]
     fn the_session_log_is_bounded() {
