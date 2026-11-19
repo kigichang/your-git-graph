@@ -1,10 +1,9 @@
 //! The reads the engine does not offer, through the git CLI: what is in progress, the reflog,
 //! the worktrees, the repository's configuration, ahead/behind.
 
-use std::collections::BTreeMap;
 use std::path::Path;
 
-use crate::api::{Author, BranchConfig, LocalAndGlobal, ReadRequest, ReadResponse, ReflogEntry, RemoteConfig, RepoConfig, Worktree};
+use crate::api::{LocalAndGlobal, ReadRequest, ReadResponse, ReflogEntry, RemoteConfig, RepoConfig, Worktree};
 use crate::ops::{args, error_of, exec};
 use crate::runtime::Runtime;
 
@@ -111,9 +110,7 @@ pub async fn read_git(rt: &dyn Runtime, request: ReadRequest) -> Result<ReadResp
             let local = config_entries(rt, "--local").await?;
             let global = config_entries(rt, "--global").await?;
             let last_of = |entries: &[(String, String)], key: &str| entries.iter().rfind(|(k, _)| k.eq_ignore_ascii_case(key)).map(|(_, v)| v.clone());
-            let effective = |key: &str| last_of(&local, key).or_else(|| last_of(&global, key));
             let mut remotes: Vec<RemoteConfig> = Vec::new();
-            let mut branches: BTreeMap<String, BranchConfig> = BTreeMap::new();
             for (key, value) in &local {
                 let lower = key.to_ascii_lowercase();
                 if let Some(rest) = lower.strip_prefix("remote.") {
@@ -134,31 +131,13 @@ pub async fn read_git(rt: &dyn Runtime, request: ReadRequest) -> Result<ReadResp
                             }
                         }
                     }
-                } else if let Some(rest) = lower.strip_prefix("branch.") {
-                    if let Some((_, field)) = rest.rsplit_once('.') {
-                        if field == "remote" || field == "pushremote" {
-                            let name = &key["branch.".len()..key.len() - field.len() - 1];
-                            let entry = branches.entry(name.to_string()).or_insert(BranchConfig { remote: None, push_remote: None });
-                            if field == "remote" {
-                                entry.remote = Some(value.clone());
-                            } else {
-                                entry.push_remote = Some(value.clone());
-                            }
-                        }
-                    }
                 }
             }
-            let authors: Vec<Author> = rt.engine("authors", serde_json::Value::Null).ok().and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
             Ok(ReadResponse::RepoConfig {
                 config: RepoConfig {
                     remotes,
-                    branches,
                     user_name: LocalAndGlobal { local: last_of(&local, "user.name"), global: last_of(&global, "user.name") },
                     user_email: LocalAndGlobal { local: last_of(&local, "user.email"), global: last_of(&global, "user.email") },
-                    push_default: effective("remote.pushdefault"),
-                    diff_tool: effective("diff.tool"),
-                    gui_diff_tool: effective("diff.guitool"),
-                    authors,
                 },
             })
         }

@@ -670,18 +670,14 @@ async fn ahead_behind() {
 }
 
 #[tokio::test]
-async fn repository_config_remotes_branches_user_and_authors() {
+async fn repository_config_remotes_and_user() {
     let w = World::new();
     let f = w.fixture();
     f.git(&["config", "user.name", "Local User"]);
-    f.git(&["config", "remote.pushDefault", "origin"]);
     let ReadResponse::RepoConfig { config } = read_git(&f.rt(), ReadRequest::RepoConfig).await.unwrap() else { panic!() };
     assert_eq!(config.remotes, [RemoteConfig { name: "origin".into(), url: Some(f.remote.display().to_string()), push_url: None }]);
-    assert_eq!(config.branches.get("main"), Some(&BranchConfig { remote: Some("origin".into()), push_remote: None }));
     assert_eq!(config.user_name, LocalAndGlobal { local: Some("Local User".into()), global: Some("Global User".into()) });
     assert_eq!(config.user_email, LocalAndGlobal { local: None, global: Some("global@example.com".into()) });
-    assert_eq!(config.push_default.as_deref(), Some("origin"));
-    assert_eq!(config.authors, [Author { name: "Global User".into(), email: "global@example.com".into() }]);
 }
 
 #[tokio::test]

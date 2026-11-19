@@ -138,14 +138,6 @@ pub struct RemoteConfig {
     pub push_url: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
-pub struct BranchConfig {
-    pub remote: Option<String>,
-    pub push_remote: Option<String>,
-}
-
 /// A config value as set in the repository and in the user's global configuration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -160,13 +152,8 @@ pub struct LocalAndGlobal {
 #[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
 pub struct RepoConfig {
     pub remotes: Vec<RemoteConfig>,
-    pub branches: BTreeMap<String, BranchConfig>,
     pub user_name: LocalAndGlobal,
     pub user_email: LocalAndGlobal,
-    pub push_default: Option<String>,
-    pub diff_tool: Option<String>,
-    pub gui_diff_tool: Option<String>,
-    pub authors: Vec<Author>,
 }
 
 /* ---------- Operations ---------- */
