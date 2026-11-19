@@ -32,22 +32,41 @@ pub fn settings_get(app: AppHandle) -> Result<SettingsView, String> {
 /// is not valid; otherwise written and announced (`settings-changed`).
 #[tauri::command]
 pub fn settings_set(app: AppHandle, key: String, value: Value) -> Result<(), String> {
-    let mut settings = Settings::default();
-    if !value.is_null() {
-        settings.apply(&key, &value).map_err(|expected| format!("{key}: expected {expected}"))?;
-    } else if settings.value_of(&key).is_none() {
-        return Err(format!("{key}: not a setting of this app"));
-    }
+    check(&key, &value)?;
     let file = state::settings_file(&app)?;
     state::write_setting(&file, &key, if value.is_null() { None } else { Some(value) })?;
     let _ = app.emit("settings-changed", ());
     Ok(())
 }
 
+/// Whether `key` may be set to `value` (`null`: reset to its default).
+fn check(key: &str, value: &Value) -> Result<(), String> {
+    let mut settings = Settings::default();
+    if !value.is_null() {
+        return settings.apply(key, value).map_err(|expected| format!("{key}: expected {expected}"));
+    }
+    // A dialog's default has no value until one is set (the defaults hold none): it is a
+    // setting when its key is shaped like one, which `apply` knows.
+    let known = settings.value_of(key).is_some() || (key.starts_with("dialogs.") && settings.apply(key, value).is_ok());
+    if known { Ok(()) } else { Err(format!("{key}: not a setting of this app")) }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn what_may_be_set_and_reset() {
+        assert!(check("graph.rowHeight", &json!(30)).is_ok());
+        assert!(check("graph.rowHeight", &json!(999)).unwrap_err().contains("expected"));
+        assert!(check("graph.rowHeight", &Value::Null).is_ok(), "back to the default");
+        assert!(check("dialogs.merge.squash", &json!(true)).is_ok());
+        assert!(check("dialogs.merge.squash", &Value::Null).is_ok(), "a dialog's default can be reset too");
+        for unknown in ["nothing", "dialogs.merge", "dialogs..x", "graph.nothing"] {
+            assert!(check(unknown, &Value::Null).unwrap_err().contains("not a setting"), "{unknown}");
+        }
+    }
 
     #[test]
     fn loading_moves_the_old_keys_and_keeps_what_it_cannot_read() {
