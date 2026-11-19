@@ -2,22 +2,11 @@
 //! file) through the schema of `gg_backend::settings`. Reading moves the first version's keys
 //! to today's once; writing takes one key at a time and tells every window.
 
-use gg_backend::settings::{migrate, Ignored, Settings};
-use serde::Serialize;
+use gg_backend::settings::{migrate, Settings, SettingsView};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter};
-use ts_rs::TS;
 
 use crate::state;
-
-/// What `settings_get` answers: the settings, and the keys of the file that were not taken.
-#[derive(Debug, Clone, Serialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../web/src/lib/api/generated/")]
-pub struct SettingsView {
-    pub settings: Settings,
-    pub ignored: Vec<Ignored>,
-}
 
 /// The settings of the file at `file`, after moving the first version's keys (written back).
 pub fn load(file: &std::path::Path) -> Result<SettingsView, String> {

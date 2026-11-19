@@ -183,6 +183,17 @@ pub struct Ignored {
     pub reason: String,
 }
 
+/// What the app's `settings_get` answers: the settings, and the keys of the file that were not
+/// taken. Here, with the types it holds: exported from the app's crate, its file named theirs
+/// by a path that only led somewhere from this crate.
+#[derive(Debug, Clone, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../../../web/src/lib/api/generated/")]
+pub struct SettingsView {
+    pub settings: Settings,
+    pub ignored: Vec<Ignored>,
+}
+
 fn int(value: &Value, min: u32, max: u32) -> Result<u32, String> {
     match value.as_u64() {
         Some(n) if n >= min as u64 && n <= max as u64 => Ok(n as u32),

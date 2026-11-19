@@ -1215,7 +1215,6 @@ dependencies = [
  "tauri-plugin-dialog",
  "tempfile",
  "tokio",
- "ts-rs",
 ]
 
 [[package]]
