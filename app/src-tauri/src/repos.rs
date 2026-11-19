@@ -26,7 +26,10 @@ const MAX_RECENT: usize = 10;
 /// it is named).
 #[tauri::command]
 pub async fn scan_repos(folder: String) -> Result<Vec<String>, String> {
-    Ok(gg_backend::files::scan(Path::new(&folder), gg_backend::files::SCAN_DEPTH).into_iter().map(|p| p.display().to_string()).collect())
+    // Off the async runtime: it walks folders, on a share that may be slow.
+    tauri::async_runtime::spawn_blocking(move || gg_backend::files::scan(Path::new(&folder), gg_backend::files::SCAN_DEPTH).into_iter().map(|p| p.display().to_string()).collect())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /* ---------- Recent folders ---------- */
@@ -225,14 +228,17 @@ pub fn new_window<R: Runtime>(app: &AppHandle<R>, folder: Option<&str>) -> Resul
         None => String::new(),
     };
     app.state::<Windows>().0.lock().unwrap().insert(label.clone(), WindowState::default());
-    tauri::WebviewWindowBuilder::new(app, label, tauri::WebviewUrl::App("index.html".into()))
+    tauri::WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::App("index.html".into()))
         .title("Your Git Graph")
         .inner_size(1280.0, 820.0)
         .min_inner_size(640.0, 400.0)
         .initialization_script(script)
         .build()
         .map(|_| ())
-        .map_err(|e| e.to_string())
+        .map_err(|e| {
+            window_closed(app, &label); // never opened: not a window to show a folder in
+            e.to_string()
+        })
 }
 
 /* ---------- Menus ---------- */
