@@ -47,12 +47,13 @@ pub fn open_url(url: String) -> Result<(), String> {
     run(Command::new("/usr/bin/open").arg("--").arg(&url))
 }
 
-/// What macOS runs instead of showing when it is opened: scripts, installers, and links to
-/// anything. A repository can hold any of them, and a clone has no quarantine flag, so nothing
-/// warns before it runs. Directories (`.app` and other bundles) are never opened at all.
-const RUNS_WHEN_OPENED: [&str; 30] = [
-    "app", "command", "tool", "terminal", "term", "pkg", "mpkg", "jar", "jnlp", "shortcut", "wflow", "mobileconfig", "sh", "bash", "zsh", "csh", "ksh", "tcsh", "fish", "py", "pyw", "pl",
-    "rb", "webloc", "inetloc", "fileloc", "mailloc", "ftploc", "afploc", "url",
+/// What macOS runs, installs or mounts instead of showing when it is opened: scripts, installers,
+/// disk images, and links to anything. A repository can hold any of them, and a clone has no
+/// quarantine flag, so nothing warns before it runs. Directories (`.app` and other bundles) are
+/// never opened at all.
+const RUNS_WHEN_OPENED: &[&str] = &[
+    "app", "command", "tool", "terminal", "term", "pkg", "mpkg", "jar", "jnlp", "shortcut", "wflow", "workflow", "action", "mobileconfig", "prefpane", "saver", "sh", "bash", "zsh", "csh",
+    "ksh", "tcsh", "fish", "py", "pyw", "pl", "rb", "webloc", "inetloc", "fileloc", "mailloc", "ftploc", "afploc", "url", "dmg", "iso", "img", "cdr", "sparseimage", "sparsebundle", "xip",
 ];
 
 /// Whether opening the file `path` would run something: by its extension, or an executable with
@@ -302,6 +303,10 @@ mod tests {
             path
         };
         for runs in [file("a.command", 0o644), file("b.COMMAND", 0o755), file("c.terminal", 0o644), file("d.pkg", 0o644), file("e.webloc", 0o644), file("f.py", 0o644), file("run", 0o755)] {
+            assert!(runs_when_opened(&runs), "{}", runs.display());
+        }
+        // Disk images mount, Automator's and System Settings' files install.
+        for runs in [file("j.dmg", 0o644), file("k.ISO", 0o644), file("l.sparseimage", 0o644), file("m.workflow", 0o644), file("n.action", 0o644), file("o.prefPane", 0o644), file("p.xip", 0o644)] {
             assert!(runs_when_opened(&runs), "{}", runs.display());
         }
         // A share reports every file as executable: its documents still open as documents.
