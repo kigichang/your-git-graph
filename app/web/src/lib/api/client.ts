@@ -31,7 +31,7 @@ export type { Author } from './generated/Author';
 export type { LoadOptions, ReadRequest, ReadResponse };
 
 /** The hash of the row that stands for the uncommitted changes. */
-export const UNCOMMITTED = '*';
+export { UNCOMMITTED } from '../diffspec';
 
 /** The answer to one read of `repo` (a path, or ssh://… for a repository on another machine). */
 export function repoRead(repo: string, request: ReadRequest): Promise<ReadResponse> {

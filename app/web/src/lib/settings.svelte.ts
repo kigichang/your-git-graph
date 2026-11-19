@@ -1,6 +1,7 @@
 // The settings (settings.json, read through Rust: `settings_get`), as reactive state every
 // component reads; `settings-changed` (a change in any window, or a hand edit noticed when
 // the window comes to the front) reloads them.
+import { PALETTE } from './graph/draw';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import type { Settings } from './api/generated/Settings';
@@ -13,7 +14,7 @@ export type { Settings, Ignored };
 /** The defaults, until the file is read (the same as Rust's `Settings::default()`). */
 export const DEFAULT_SETTINGS: Settings = {
 	language: 'auto',
-	graph: { style: 'rounded', rowHeight: 24, fontSize: 13, colours: ['#2f80ed', '#eb5757', '#27ae60', '#d9a400', '#9b51e0', '#1aa39a', '#f2994a', '#e0409a'], combineLocalAndRemoteLabels: true, stickyHeader: true },
+	graph: { style: 'rounded', rowHeight: 24, fontSize: 13, colours: [...PALETTE], combineLocalAndRemoteLabels: true, stickyHeader: true },
 	commits: { initialLoad: 300, loadMore: 100, loadMoreAutomatically: true, order: 'date', showUncommitted: true, showUntracked: true, includeReflog: false, dateType: 'author', dateFormat: 'date-time', markdown: true },
 	repository: { showRemoteBranches: true, showRemoteHeads: true, fetchAndPrune: false, fetchAndPruneTags: false },
 	details: { location: 'inline', fileView: 'list', compactFolders: true, autoCenter: true },

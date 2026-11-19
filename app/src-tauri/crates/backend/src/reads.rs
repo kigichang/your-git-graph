@@ -7,7 +7,8 @@ use crate::api::{LocalAndGlobal, ReadRequest, ReadResponse, ReflogEntry, RemoteC
 use crate::ops::{args, error_of, exec};
 use crate::runtime::Runtime;
 
-const UNIT: char = '\x1f';
+/// What separates the fields of a `--format` line (no subject or name holds it).
+pub(crate) const UNIT: char = '\x1f';
 
 pub async fn read_git(rt: &dyn Runtime, request: ReadRequest) -> Result<ReadResponse, String> {
     match request {

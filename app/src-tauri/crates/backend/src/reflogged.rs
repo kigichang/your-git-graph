@@ -7,9 +7,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::api::{Commit, LoadOptions, UNCOMMITTED};
+use crate::reads::UNIT;
 use crate::runtime::{GitOpts, Runtime};
-
-const UNIT: char = '\u{1f}';
 
 /// Add to `commits` (the engine's list for `options`, in its order, with committer dates) the
 /// commits only reflogs mention; `more`: the list is a page, and older ones come with the next.
