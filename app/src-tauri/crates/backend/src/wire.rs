@@ -72,7 +72,19 @@ pub async fn read_frame<R: AsyncBufRead + Unpin>(from: &mut R) -> io::Result<Opt
 /// `result` as the frames that answer request `id`.
 pub fn answer(id: u64, result: Result<Vec<u8>, String>) -> Vec<Frame> {
     match result {
-        Err(message) => vec![Frame::new(id, b'E', message)],
+        // One frame, so not without end: an error that is all of git's output could pass the
+        // largest frame the other side takes, which would end the connection for every request.
+        Err(mut message) => {
+            if message.len() > CHUNK {
+                let mut end = CHUNK;
+                while !message.is_char_boundary(end) {
+                    end -= 1;
+                }
+                message.truncate(end);
+                message.push_str(" …");
+            }
+            vec![Frame::new(id, b'E', message)]
+        }
         Ok(bytes) => {
             let mut frames: Vec<Frame> = bytes.chunks(CHUNK).map(|part| Frame::new(id, b'P', part)).collect();
             match frames.last_mut() {
@@ -132,5 +144,7 @@ mod tests {
         assert_eq!(kinds(answer(1, Ok(vec![1; CHUNK]))), [('R', CHUNK)]);
         assert_eq!(kinds(answer(1, Ok(vec![1; 2 * CHUNK + 5]))), [('P', CHUNK), ('P', CHUNK), ('R', 5)]);
         assert_eq!(kinds(answer(1, Err("no".into()))), [('E', 2)]);
+        let long = answer(1, Err("é".repeat(MAX_FRAME)));
+        assert!(long[0].body.len() <= CHUNK + 4 && String::from_utf8(long[0].body.clone()).unwrap().ends_with(" …"));
     }
 }
