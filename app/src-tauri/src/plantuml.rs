@@ -11,12 +11,18 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use tauri::AppHandle;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// The setting holding the path of plantuml.jar.
 pub const JAR_SETTING: &str = "plantuml.jar";
 const TIMEOUT: Duration = Duration::from_secs(30);
 const CACHE_LIMIT: usize = 64;
+/// What the cache holds at most, all diagrams together.
+const CACHE_BYTES: usize = 64 * 1024 * 1024;
+/// A drawing larger than this is given up (a preprocessor loop can write without end).
+const MAX_SVG: usize = 16 * 1024 * 1024;
+/// What is kept of what java says when it fails.
+const MAX_SAID: u64 = 64 * 1024;
 /// A diagram's source longer than this is not drawn.
 const MAX_SOURCE: usize = 256 * 1024;
 /// JVMs at a time: a document of many diagrams (all asked for at once) waits its turn instead of
@@ -96,10 +102,12 @@ async fn render(java: &Path, jar: &Path, code: &str, timeout: Duration) -> Resul
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .process_group(0) // with whatever it starts (Graphviz's dot), to end them together
         .kill_on_drop(true)
         .spawn()
         .map_err(|e| format!("Cannot run {}: {e}", java.display()))?;
-    let mut stdin = child.stdin.take().expect("piped");
+    let _group = child.id().map(Group);
+    let (mut stdin, mut stdout, mut stderr) = (child.stdin.take().expect("piped"), child.stdout.take().expect("piped"), child.stderr.take().expect("piped"));
     let source = with_start_end(code);
     let run = async {
         // Written while the output is read: a large diagram fills neither pipe.
@@ -107,21 +115,61 @@ async fn render(java: &Path, jar: &Path, code: &str, timeout: Duration) -> Resul
             let _ = stdin.write_all(source.as_bytes()).await;
             drop(stdin);
         };
-        let (_, output) = tokio::join!(write, child.wait_with_output());
-        output
+        let said = async {
+            let mut said = Vec::new();
+            let _ = (&mut stderr).take(MAX_SAID).read_to_end(&mut said).await;
+            let _ = tokio::io::copy(&mut stderr, &mut tokio::io::sink()).await; // java is not left waiting
+            said
+        };
+        // At most one byte past the limit: java is ended (the group, below) rather than read on.
+        let drawn = async {
+            let mut svg = Vec::new();
+            (&mut stdout).take(MAX_SVG as u64 + 1).read_to_end(&mut svg).await.map(|_| svg)
+        };
+        // The drawing decides: past the limit nothing waits for java to stop talking.
+        let rest = async { tokio::join!(write, said).1 };
+        tokio::pin!(rest, drawn);
+        let mut heard = None;
+        let svg = loop {
+            tokio::select! {
+                svg = &mut drawn => break svg.map_err(|e| e.to_string())?,
+                said = &mut rest, if heard.is_none() => heard = Some(said),
+            }
+        };
+        if svg.len() > MAX_SVG {
+            return Err(format!("The diagram's drawing is too large (more than {} MiB).", MAX_SVG / 1024 / 1024));
+        }
+        let said = match heard {
+            Some(said) => said,
+            None => rest.await,
+        };
+        let status = child.wait().await.map_err(|e| e.to_string())?;
+        Ok((status, svg, said))
     };
-    let output = match tokio::time::timeout(timeout, run).await {
+    let (status, svg, said) = match tokio::time::timeout(timeout, run).await {
         Err(_) => return Err(format!("PlantUML did not finish within {} seconds.", timeout.as_secs())),
-        Ok(Err(e)) => return Err(e.to_string()),
-        Ok(Ok(output)) => output,
+        Ok(result) => result?,
     };
     // A syntax error is drawn as a diagram too: only no SVG at all means the run failed.
-    let svg = String::from_utf8_lossy(&output.stdout);
+    let svg = String::from_utf8_lossy(&svg);
     if svg.contains("<svg") {
         Ok(svg.into_owned())
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        Err(if stderr.is_empty() { format!("PlantUML produced no diagram ({}).", output.status) } else { stderr })
+        let stderr = String::from_utf8_lossy(&said).trim().to_string();
+        Err(if stderr.is_empty() { format!("PlantUML produced no diagram ({status}).") } else { stderr })
+    }
+}
+
+/// java's process group, killed when the run is over however it ended: a timeout or a drawing
+/// too large leaves no child of it (dot) behind. After a normal end there is nobody left in it.
+struct Group(u32);
+
+impl Drop for Group {
+    fn drop(&mut self) {
+        // SAFETY: killpg only sends a signal; the group is the one this run created.
+        unsafe {
+            libc::killpg(self.0 as libc::pid_t, libc::SIGKILL);
+        }
     }
 }
 
@@ -156,7 +204,7 @@ pub async fn render_plantuml(app: AppHandle, cache: tauri::State<'_, Cache>, cod
     }
     let svg = render(&java, &jar, &code, TIMEOUT).await?;
     let mut cache = cache.0.lock().unwrap();
-    if cache.len() >= CACHE_LIMIT {
+    if cache.len() >= CACHE_LIMIT || cache.values().map(String::len).sum::<usize>() + svg.len() > CACHE_BYTES {
         cache.clear();
     }
     cache.insert(key, svg.clone());
@@ -212,6 +260,12 @@ mod tests {
         let started = std::time::Instant::now();
         let slow = render(&fake_java(), &jar, "gg-fake-hang", Duration::from_millis(300)).await.unwrap_err();
         assert!(slow.contains("did not finish") && started.elapsed() < Duration::from_secs(5), "{slow}");
+        // ... and one that draws without end is cut off at the limit, not read into memory.
+        let endless = dir.path().join("java");
+        std::fs::write(&endless, "#!/bin/sh\ncat > /dev/null\nexec yes '<svg>'\n").unwrap();
+        std::fs::set_permissions(&endless, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        let large = render(&endless, &jar, "A -> B", Duration::from_secs(20)).await.unwrap_err();
+        assert!(large.contains("too large"), "{large}");
         let none = render(Path::new("/nonexistent/java"), &jar, "A -> B", Duration::from_secs(10)).await.unwrap_err();
         assert!(none.contains("Cannot run"), "{none}");
     }
