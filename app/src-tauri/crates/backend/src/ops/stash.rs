@@ -40,6 +40,13 @@ pub async fn perform(rt: &dyn Runtime, request: OpRequest) -> Outcome {
             if rt.is_remote() {
                 return Err(Fail::from("Not available for a repository on another machine.".to_string()));
             }
+            // `tar.<format>.command` is a shell command git pipes the archive through, and one
+            // named "zip" even replaces the built-in format: the repository's own configuration
+            // would run it on what looks like a read.
+            let commands = crate::filters::own_config(rt, r"^tar\..*\.command$").await?;
+            if !commands.is_empty() {
+                return Err(Fail::from(format!("No archive is made: this repository's own configuration runs a program for it ({}).", commands.join(", "))));
+            }
             Ok(run(rt, args(&["archive", "-o", &path, &reference])).await?)
         }
         OpRequest::WorktreeAdd { path, branch, new_branch } => {

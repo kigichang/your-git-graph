@@ -573,6 +573,13 @@ async fn clean_untracked_files_reset_one_file_create_an_archive() {
     let (_tx, rx) = watch::channel(false);
     let remote = LocalRuntime::new(f.dir.to_str().unwrap(), w.git.clone(), w.env(), Arc::new(|_| {}), rx).remote();
     assert!(failed(&operate(&remote, OpRequest::CreateArchive { reference: "main".into(), path: zip.display().to_string() }, false).await.unwrap()).contains("another machine"));
+    // A program the repository's own configuration names for archives (one called "zip" takes
+    // the place of the built-in format) is not run.
+    let marker = w.root.path().join("the archive command ran");
+    f.git(&["config", "tar.zip.command", &format!("touch \"{}\"; cat", marker.display())]);
+    std::fs::remove_file(&zip).unwrap();
+    assert!(failed(&f.op(OpRequest::CreateArchive { reference: "main".into(), path: zip.display().to_string() }).await).contains("tar.zip.command"));
+    assert!(!marker.exists() && !zip.exists());
 }
 
 #[tokio::test]

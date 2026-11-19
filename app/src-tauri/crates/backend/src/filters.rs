@@ -59,8 +59,18 @@ fn in_dir(dir: Option<&str>, rest: &[&str]) -> Vec<String> {
 
 /// The filter keys the configuration of the repository in `dir` sets itself.
 async fn filters_in(rt: &dyn Runtime, dir: Option<&str>) -> Result<Vec<String>, String> {
+    own_keys(rt, dir, OWN_PROGRAMS).await
+}
+
+/// The keys matching `pattern` that the repository's own configuration sets (not the person's
+/// global or system one): programs a downloaded or shared repository chose.
+pub async fn own_config(rt: &dyn Runtime, pattern: &str) -> Result<Vec<String>, String> {
+    own_keys(rt, None, pattern).await
+}
+
+async fn own_keys(rt: &dyn Runtime, dir: Option<&str>, pattern: &str) -> Result<Vec<String>, String> {
     // -z: a value may hold a newline (`\n` in the file), and the shell runs every line of it.
-    let r = exec(rt, in_dir(dir, &["config", "-z", "--show-scope", "--includes", "--get-regexp", OWN_PROGRAMS])).await?;
+    let r = exec(rt, in_dir(dir, &["config", "-z", "--show-scope", "--includes", "--get-regexp", pattern])).await?;
     match r.exit_code {
         Some(0) => Ok(own_of(&r.stdout)),
         Some(1) => Ok(vec![]), // none at all
