@@ -999,6 +999,20 @@ async fn the_repositorys_own_filters_run_only_once_allowed() {
     assert_eq!(gg_backend::filters::own_filters(&f.rt()).await.unwrap(), ["filter.probe.clean", "filter.lfs.clean", "lfs.extension.probe.clean"]);
 }
 
+/// An index git cannot read: whether a submodule names a filter is not known, so nothing is
+/// read on a guess. A bare repository has no files to run a filter on.
+#[tokio::test]
+async fn submodules_that_cannot_be_listed_count_as_a_filter() {
+    let w = World::new();
+    let f = w.fixture();
+    assert!(gg_backend::filters::own_filters(&f.rt()).await.unwrap().is_empty());
+    std::fs::write(f.dir.join(".git/index"), b"not an index").unwrap();
+    assert_eq!(gg_backend::filters::own_filters(&f.rt()).await.unwrap(), ["(git could not list the submodules)"]);
+    std::fs::remove_file(f.dir.join(".git/index")).unwrap();
+    f.git(&["config", "core.bare", "true"]);
+    assert!(gg_backend::filters::own_filters(&f.rt()).await.unwrap().is_empty());
+}
+
 /// A filter a submodule's own configuration names runs on that submodule's files when the
 /// superproject's changes are read (git status and the engine look inside it): it keeps them
 /// unread too.

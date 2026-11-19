@@ -32,7 +32,15 @@ pub async fn own_filters(rt: &dyn Runtime) -> Result<Vec<String>, String> {
     let mut keys = filters_in(rt, None).await?;
     let mut pending = match submodules_in(rt, None).await {
         Some(found) => found,
-        None => return Ok(keys),
+        None => {
+            // Without a working tree (a bare repository) there are no files to run anything on;
+            // with one, not knowing its submodules is not knowing whether they name a filter.
+            let inside = exec(rt, args(&["rev-parse", "--is-inside-work-tree"])).await?;
+            if inside.exit_code != Some(0) || inside.stdout.trim() != "false" {
+                keys.push("(git could not list the submodules)".to_string());
+            }
+            return Ok(keys);
+        }
     };
     let mut seen = 0;
     while let Some((dir, shown)) = pending.pop() {
