@@ -11,7 +11,9 @@ import { errorText } from '../web/src/lib/errors';
 const md = new MarkdownIt({ html: false, linkify: true });
 md.use(taskLists, { enabled: false });
 // The katex plugin is transpiled CommonJS: some loaders hand over the namespace, not the function.
-md.use(katexPlugin.default ?? katexPlugin);
+// maxSize: a length a document gives (\rule, \kern) is at most this many em - one of a
+// million would push everything else out of the page.
+md.use(katexPlugin.default ?? katexPlugin, { maxSize: 50, maxExpand: 1000, trust: false });
 
 /* Where each block starts in the source. */
 md.core.ruler.push('gg_source_lines', (state) => {
@@ -20,13 +22,15 @@ md.core.ruler.push('gg_source_lines', (state) => {
 	}
 });
 
-const DIAGRAMS = { mermaid: 'mermaid', plantuml: 'plantuml', puml: 'plantuml' };
+// A Map: looked up by what a document wrote after ```, which may be "constructor".
+const DIAGRAMS = new Map([['mermaid', 'mermaid'], ['plantuml', 'plantuml'], ['puml', 'plantuml']]);
 const fence = md.renderer.rules.fence;
 md.renderer.rules.fence = (tokens, idx, options, env, self) => {
 	const token = tokens[idx];
-	const kind = DIAGRAMS[token.info.trim().toLowerCase()];
+	const kind = DIAGRAMS.get(token.info.trim().toLowerCase());
 	if (kind === undefined) return fence(tokens, idx, options, env, self);
-	return `<pre class="${kind}" data-line="${token.map[0] + 1}">${md.utils.escapeHtml(token.content)}</pre>\n`;
+	const line = token.map === null ? '' : ` data-line="${token.map[0] + 1}"`;
+	return `<pre class="${kind}"${line}>${md.utils.escapeHtml(token.content)}</pre>\n`;
 };
 
 /** The HTML of a Markdown document. Never throws: a failure is shown in place of the page. */

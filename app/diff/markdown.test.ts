@@ -37,6 +37,16 @@ test('code is left to the window; mermaid and plantuml fences become containers'
 	assert.match(html, /<pre class="mermaid" data-line="5">graph TD; A--&gt;B\n<\/pre>/);
 	assert.match(html, /<pre class="plantuml" data-line="9">A -&gt; B\n<\/pre>/);
 	assert.match(html, /<pre class="plantuml" data-line="13">C -&gt; D\n<\/pre>/);
+	// A language named like something every object has is a language, not a diagram.
+	for (const name of ['constructor', 'toString', '__proto__', 'hasOwnProperty']) {
+		assert.match(renderMarkdown('```' + name + '\nx\n```\n'), /^<pre><code[^>]*>x\n<\/code><\/pre>/, name);
+	}
+});
+
+test('a length in the maths is bounded', () => {
+	const html = renderMarkdown('$\\rule{1000000em}{1000000em}$\n');
+	assert.match(html, /border-right-width:50em/);
+	assert.doesNotMatch(html, /width:1000000em|height:1000000em/);
 });
 
 test('blocks carry the source line they start at', () => {
