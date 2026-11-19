@@ -76,7 +76,13 @@ const EDITOR_OPTIONS = {
 	readOnly: true, automaticLayout: true, scrollBeyondLastLine: false, minimap: { enabled: false },
 	fontFamily: 'SF Mono, Menlo, Monaco, monospace', fontSize: 12, renderWhitespace: 'selection'
 };
-const prefs = (() => { try { return JSON.parse(localStorage.getItem('gg.diffPrefs') || '{}'); } catch (_) { return {}; } })();
+// Whatever is stored there ("null", a list, a number): the preferences are an object.
+const prefs = (() => {
+	try {
+		const stored = JSON.parse(localStorage.getItem('gg.diffPrefs') || '{}');
+		return typeof stored === 'object' && stored !== null && !Array.isArray(stored) ? stored : {};
+	} catch (_) { return {}; }
+})();
 const savePrefs = () => { try { localStorage.setItem('gg.diffPrefs', JSON.stringify(prefs)); } catch (_) { /* storage unavailable */ } };
 
 let diffEditor = null, singleEditor = null, models = [];
