@@ -220,7 +220,7 @@ app/scripts/build-app.sh [--universal] [--dmg] [--install]           # 打包（
 
 ### 狀態與設定（`state.rs`）
 
-- `state.json`：`store.set` 經 `state_set`，Rust 合併 300ms 後原子寫入，結束時 flush，發 `state-changed` 給其他視窗。`localStorage` 不受 `GG_DATA_DIR` 影響，所以設了 `GG_DATA_DIR` 時 Rust 先標記 `migratedFromLocalStorage`。
+- `state.json`：`store.set` 經 `state_set`，Rust 合併 300ms 後原子寫入，結束時 flush，發 `state-changed` 給其他視窗。
 - `settings.json`：每次重新讀檔、逐 key 改寫；無法解析時拒絕寫入、不覆蓋、以預設值執行。經 App 改動發 `settings-changed`；手動編輯在視窗取得焦點時生效。
 - `log.enabled` 開啟時 `host_log` 也寫 `session.log`（每次啟動清空）：`host_log` 每次讀設定檔（改了立即生效），只有這個設定決定寫不寫；每行最多 8 KiB、整個檔案最多 10 MiB。self-test 在開著時記一行，`selftest.sh` 檢查只有那一行進了檔案。
 - **設定改了不一定重載 graph**：`App.svelte` 只比對決定載入內容的設定（`commits.*` 除了 `markdown`、`dateFormat`、`loadMoreAutomatically`，加上 `repository.*`）；外觀、語言、log 等在顯示的地方即時套用。不然改一個無關的設定也會重載，self-test 接著呼叫的 `load()` 會因為「載入中」直接回 false。

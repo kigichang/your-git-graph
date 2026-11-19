@@ -239,11 +239,6 @@ fn main() {
             app.state::<repos::Windows>().0.lock().unwrap().entry("main".into()).or_default();
             let data = state::data_dir(app.handle());
             let saved = state::State::open(data.as_ref().map(|d| d.join("state.json")));
-            // localStorage is shared by every launch whatever its data directory: only the
-            // default one may take over what earlier versions kept there.
-            if std::env::var_os("GG_DATA_DIR").is_some() && !saved.snapshot().contains_key("migratedFromLocalStorage") {
-                saved.set("migratedFromLocalStorage".into(), Some(serde_json::Value::Bool(true)));
-            }
             let dropped = saved.migrate_v2();
             if dropped > 0 {
                 eprintln!("[state] dropped {dropped} keys of the first version's state");

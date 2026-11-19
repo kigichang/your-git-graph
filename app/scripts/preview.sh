@@ -38,7 +38,7 @@ log="$data/log"
 # running in front of everything, nor its data behind.
 pid=""
 trap '[ -n "$pid" ] && kill "$pid" 2>/dev/null; rm -rf "$data"' EXIT
-[ "$appearance" != system ] && printf '{"appearance":"%s","migratedFromLocalStorage":true}' "$appearance" > "$data/state.json"
+[ "$appearance" != system ] && printf '{"appearance":"%s"}' "$appearance" > "$data/state.json"
 GG_DATA_DIR="$data" GG_PREVIEW="$scenes" "$app" "$repo" > "$log" 2>&1 &
 pid=$!
 for _ in $(seq 1 60); do grep -q "preview: " "$log" && break; sleep 0.5; done
