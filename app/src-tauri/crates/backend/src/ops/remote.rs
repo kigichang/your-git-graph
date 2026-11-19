@@ -183,6 +183,16 @@ mod tests {
     }
 
     #[test]
+    fn values_that_would_not_stay_one_argument() {
+        use super::super::unsafe_arg;
+        assert!(unsafe_arg(["main", "v1.0", "origin/a b", "héllo"]).is_ok());
+        assert!(unsafe_arg(["main", "--exec=x"]).unwrap_err().contains("must not start"));
+        for bad in ["a\u{3}b", "a\nb", "a\u{15}", "\u{1b}[2J", "a\0b"] {
+            assert!(unsafe_arg([bad]).unwrap_err().contains("control character"), "{bad:?}");
+        }
+    }
+
+    #[test]
     fn exit_codes_and_messages() {
         use super::super::error_of;
         let r = |code: Option<i32>, out: &str, err: &str| crate::git::GitExecResult { exit_code: code, stdout: out.into(), stderr: err.into(), cancelled: false };

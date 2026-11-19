@@ -28,12 +28,19 @@ impl From<String> for Fail {
 pub type Outcome = Result<(), Fail>;
 
 /// Values from the front end reach git's command line: one starting with `-` would be read as
-/// an option (`--upload-pack=…`, `-oProxyCommand=…`). Refuse it instead of passing it on.
+/// an option (`--upload-pack=…`, `-oProxyCommand=…`). Refuse it instead of passing it on. Nor a
+/// control character: no name, revision or path holds one for a good reason, and typed into a
+/// terminal (an interactive rebase) it is a key pressed.
 pub fn unsafe_arg<'a>(values: impl IntoIterator<Item = &'a str>) -> Result<(), String> {
-    match values.into_iter().find(|v| v.starts_with('-')) {
-        Some(bad) => Err(format!("Invalid argument \"{bad}\": it must not start with \"-\".")),
-        None => Ok(()),
+    for value in values {
+        if value.starts_with('-') {
+            return Err(format!("Invalid argument \"{value}\": it must not start with \"-\"."));
+        }
+        if value.chars().any(char::is_control) {
+            return Err(format!("Invalid argument {value:?}: it must not hold a control character."));
+        }
     }
+    Ok(())
 }
 
 /// The error text of a finished run, or `None` when it succeeded.

@@ -151,7 +151,13 @@ fn remote_line(remote: &crate::remote::Remote, git_args: Option<&[String]>) -> S
     format!("ssh -t{port} -- {} {}", shell_quote(&remote.dest), shell_quote(&there))
 }
 
+/// Terminal types `line` into a shell, through a terminal: a control character in it is a key
+/// pressed, not text - Ctrl-C or Ctrl-U inside the quotes ends the line there, and what follows
+/// is read as a command of its own. No path or argument holds one for a good reason.
 fn terminal_do(line: &str) -> Result<(), String> {
+    if line.chars().any(char::is_control) {
+        return Err("Not run in Terminal: the path or an argument holds a control character.".into());
+    }
     let script = format!(
         "tell application \"Terminal\"\nactivate\ndo script {}\nend tell",
         applescript_quote(line)
@@ -282,6 +288,15 @@ mod tests {
         let there = Command::new("sh").args(["-c", &format!("cd() {{ printf '%s|' \"$1\"; }}; git() {{ printf '%s|' \"$@\"; }}; {}", words[5])]).output().unwrap();
         assert_eq!(String::from_utf8(there.stdout).unwrap(), r"/srv/it's here|rebase|-i|a b\'c|");
         assert!(remote_line(&remote, None).ends_with("exec $SHELL -l'"));
+    }
+
+    /// Nothing is typed into Terminal with a control character in it (refused before osascript).
+    #[test]
+    fn a_control_character_is_not_typed_into_terminal() {
+        for line in ["cd '/tmp/a\u{3}touch x' && git 'rebase'", "cd '/tmp' && git 'rebase' 'a\u{15}b'", "cd '/tmp/a\nb'", "cd '/tmp/a\u{1b}[2J'"] {
+            assert!(terminal_do(line).unwrap_err().contains("control character"), "{line:?}");
+        }
+        assert!(terminal("ssh://me@host/srv/a\u{3}b".into(), None).is_err());
     }
 
     #[test]

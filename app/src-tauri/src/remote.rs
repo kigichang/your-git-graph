@@ -58,7 +58,8 @@ pub fn parse(repo: &str) -> Result<Option<Remote>, String> {
     let bad = |why: &str| Err(format!("{repo} is not an SSH repository ({why})."));
     let Some(slash) = rest.find('/') else { return bad("no path") };
     let (authority, path) = rest.split_at(slash);
-    if path.contains(['\0', '\n', '\r']) {
+    // A terminal over ssh is typed into (`system::terminal_do`): a control character is a key.
+    if path.chars().any(char::is_control) {
         return bad("the path");
     }
     let (user, host_port) = match authority.rsplit_once('@') {
@@ -453,7 +454,7 @@ mod tests {
         assert_eq!((v6.dest.as_str(), v6.port, v6.authority.as_str()), ("git@fe80::1", Some(22), "git@[fe80::1]:22"));
         for bad in [
             "ssh://host", "ssh:///path", "ssh://-oProxyCommand=x/p", "ssh://-u@host/p", "ssh://u@-host/p", "ssh://a b/p", "ssh://h:0/p",
-            "ssh://h:99999/p", "ssh://h:x/p", "ssh://u@@h/p", "ssh://h;id/p", "ssh://[::1/p", "ssh://[x y]/p", "ssh://h/p\nq", "ssh://$(id)/p",
+            "ssh://h:99999/p", "ssh://h:x/p", "ssh://u@@h/p", "ssh://h;id/p", "ssh://[::1/p", "ssh://[x y]/p", "ssh://h/p\nq", "ssh://h/p\u{3}q", "ssh://h/p\u{15}q", "ssh://$(id)/p",
         ] {
             assert!(parse(bad).is_err(), "{bad}");
         }
