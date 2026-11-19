@@ -28,8 +28,9 @@ async fn fetch(curl: &str, url: &str) -> Result<String, String> {
     let seconds = TIMEOUT.as_secs().to_string();
     let write_out = format!("%{{stderr}}\n{TYPE_MARK}%{{content_type}}");
     let mut child = tokio::process::Command::new(curl)
-        // -q first: no ~/.curlrc.
-        .args(["-q", "--silent", "--show-error", "--fail", "--location", "--max-redirs", "5"])
+        // -q first: no ~/.curlrc. --globoff: `{a,b}` and `[1-9]` in a URL are not lists of URLs
+        // (each fetched, all answers run together, only the last one's type seen).
+        .args(["-q", "--silent", "--show-error", "--fail", "--globoff", "--location", "--max-redirs", "5"])
         .args(["--proto", "=http,https", "--proto-redir", "=http,https"])
         .args(["--max-time", &seconds, "--max-filesize", &max, "--write-out", &write_out, "--", url])
         .stdin(Stdio::null())
@@ -142,6 +143,14 @@ mod tests {
         let started = std::time::Instant::now();
         assert!(fetch(curl.to_str().unwrap(), "http://example.com/a.png").await.unwrap_err().contains("larger than"));
         assert!(started.elapsed() < TIMEOUT / 2, "took {:?}", started.elapsed());
+    }
+
+    /// `{a,b}` in a URL is one address, not two fetched in turn with only the last one's type
+    /// checked: the first answer (not an image) would come back in front of the image.
+    #[tokio::test]
+    async fn braces_and_brackets_are_not_lists_of_urls() {
+        let base = serve(vec![response("200 OK", "text/plain", b"secret", ""), response("200 OK", "image/png", b"\x89PNG", "")]);
+        assert!(fetch("/usr/bin/curl", &format!("{base}/{{secret,a.png}}")).await.unwrap_err().contains("not an image"));
     }
 
     #[tokio::test]
