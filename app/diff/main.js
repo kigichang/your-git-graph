@@ -243,6 +243,11 @@ function repositoryImages(page, side, remote) {
 }
 
 let mermaidTheme = null;
+let mermaidDrawn = 0;
+/** Mermaid blocks, each drawn to an SVG shown as an image, never as elements of this page: the
+ * diagram's own styles (a document may give it any, `themeCSS`) and whatever else it holds stay
+ * inside the picture, where nothing of them can cover or reach the window. Labels are SVG
+ * text: HTML ones are not drawn in an image. */
 async function drawMermaid(page, appearance) {
 	const nodes = Array.from(page.querySelectorAll('pre.mermaid'));
 	if (nodes.length === 0) return;
@@ -250,17 +255,31 @@ async function drawMermaid(page, appearance) {
 		await loadBundle('mermaid', false);
 		const theme = appearance.dark ? 'dark' : 'default';
 		if (theme !== mermaidTheme) {
-			window.__ggMermaid.initialize({ startOnLoad: false, theme, securityLevel: 'strict' });
+			window.__ggMermaid.initialize({ startOnLoad: false, theme, securityLevel: 'strict', htmlLabels: false, flowchart: { htmlLabels: false }, suppressErrorRendering: true });
 			mermaidTheme = theme;
 		}
-		for (const node of nodes) {
-			// Drawn before (the appearance changed): from its source again.
-			if (node.dataset.source === undefined) node.dataset.source = node.textContent;
-			else { node.textContent = node.dataset.source; node.removeAttribute('data-processed'); }
-		}
-		await window.__ggMermaid.run({ nodes, suppressErrors: true });
 	} catch (e) {
 		log('mermaid: ' + errorText(e)); // the diagrams stay as their source
+		return;
+	}
+	for (const node of nodes) {
+		// Drawn before (the appearance changed): from its source again.
+		if (node.dataset.source === undefined) node.dataset.source = node.textContent;
+		try {
+			const { svg } = await window.__ggMermaid.render('gg-mermaid-' + ++mermaidDrawn, node.dataset.source);
+			const img = document.createElement('img');
+			img.src = 'data:image/svg+xml,' + encodeURIComponent(svg);
+			img.alt = 'Mermaid diagram';
+			// The SVG is as wide as its container: as an image it needs its own width.
+			const box = /viewBox="[-\d.]+ [-\d.]+ ([\d.]+) [\d.]+"/.exec(svg);
+			if (box !== null) img.style.width = Math.ceil(Number(box[1])) + 'px';
+			node.replaceChildren(img);
+			node.classList.add('rendered');
+		} catch (e) {
+			log('mermaid: ' + errorText(e));
+			node.textContent = node.dataset.source; // stays as its source
+			node.classList.remove('rendered');
+		}
 	}
 }
 
@@ -382,7 +401,9 @@ async function renderPreview(pane, side, text) {
 		remoteWaiting: remote.length,
 		remoteLoaded: page.querySelectorAll('img[data-asked]').length,
 		katex: page.querySelectorAll('.katex').length,
-		mermaid: page.querySelectorAll('pre.mermaid svg').length,
+		mermaid: page.querySelectorAll('pre.mermaid.rendered > img').length,
+		mermaidInline: page.querySelectorAll('pre.mermaid svg, pre.mermaid style').length,
+		mermaidHtml: Array.from(page.querySelectorAll('pre.mermaid.rendered > img')).filter((img) => !/%3Ctext/i.test(img.src) || /foreignObject/i.test(img.src)).length,
 		plantuml: page.querySelectorAll('pre.plantuml.rendered img').length,
 		notes: Array.from(page.querySelectorAll('.diagramNote:not(.remoteImages) span')).map((n) => n.textContent),
 		scripts: page.querySelectorAll('script').length

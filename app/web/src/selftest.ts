@@ -47,7 +47,7 @@ type AppHandle = {
 const app = (): AppHandle => (window as unknown as { __gg: { app: AppHandle } }).__gg.app;
 
 type PreviewReport = {
-	shown: boolean; error?: string; blocks?: number; coloured?: number; images?: number; katex?: number; mermaid?: number;
+	shown: boolean; error?: string; blocks?: number; coloured?: number; images?: number; katex?: number; mermaid?: number; mermaidInline?: number; mermaidHtml?: number;
 	plantuml?: number; notes?: string[]; scripts?: number; synced?: boolean | null;
 	remoteWaiting?: number; remoteLoaded?: number; remoteAsked?: number; remoteAnswer?: string | null;
 };
@@ -735,6 +735,8 @@ async function checkPreview(check: Check, config: Record<string, unknown>): Prom
 			// The window may call fetch_image, and the app answers: it asks nothing of this machine itself.
 			check(/this machine itself/.test(p.remoteAnswer ?? ''), 'the app is asked for it: ' + p.remoteAnswer);
 			check(p.mermaid === 1, 'the Mermaid diagram is drawn: ' + p.mermaid);
+			check(p.mermaidInline === 0, 'as an image, not as elements of the page: ' + p.mermaidInline);
+			check(p.mermaidHtml === 0, 'its labels are SVG text (HTML ones are not drawn in an image): ' + p.mermaidHtml);
 			if (jar !== null) check(p.plantuml === 1, 'the PlantUML diagram is drawn: ' + p.plantuml + ' ' + JSON.stringify(p.notes));
 			else check(p.notes?.length === 1, 'without a jar, the PlantUML block says so: ' + JSON.stringify(p.notes));
 			check(p.scripts === 0, 'a <script> stays text');
