@@ -773,9 +773,10 @@
 		};
 	}
 
-	// What the self-test and the benchmark reach for.
-	(window as unknown as { __gg: unknown }).__gg = {
-		app: {
+	/** What the self-test and the previews reach for: main.ts hands it to them when one runs,
+	 * and to nothing otherwise. */
+	export function testHandle() {
+		return {
 			state: () => ({ repo, data, info, error, status, firstPaintMs, details, branches, settings: settings.current, menu, dialog, inProgress, ops, sidebar, repoStatus, recent, booted }),
 			load,
 			reload,
@@ -804,8 +805,8 @@
 			repoState,
 			saveRepoState,
 			setAuthors: (a: string[] | null) => { authorFilter = a; saveRepoState({ authors: a }); return reload(); }
-		}
-	};
+		};
+	}
 </script>
 
 <main class="gg-main">

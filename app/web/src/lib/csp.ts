@@ -4,5 +4,6 @@
 export const cspViolations: string[] = [];
 
 document.addEventListener('securitypolicyviolation', (e) => {
-	cspViolations.push(e.violatedDirective + ': ' + (e.blockedURI || e.sample));
+	// The first hundred say what is wrong: a page that keeps trying does not fill the memory.
+	if (cspViolations.length < 100) cspViolations.push(e.violatedDirective + ': ' + (e.blockedURI || e.sample));
 });
