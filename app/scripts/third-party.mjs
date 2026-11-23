@@ -219,6 +219,8 @@ const engine = allCrates.find((c) => c.name === ENGINE);
 const rustCrates = allCrates.filter((c) => c.name !== ENGINE);
 const diffPackages = (await buildDiff()).map(npmPackage);
 const graphPackages = webPackages().map(npmPackage);
+// A package both windows bundle (@tauri-apps/api) is in both tables but has its notice once.
+const uniquePackages = [...new Map([...rustCrates, ...diffPackages, ...graphPackages].map((p) => [`${p.name} ${p.version}`, p])).values()];
 const notice = engineNotice();
 const licences = new Set();
 for (const r of [...rustCrates, ...diffPackages, ...graphPackages]) for (const l of r.license.split(/\s+(?:OR|AND|\/)\s+|\//).map((s) => s.replace(/[()]/g, '').trim())) if (l) licences.add(l);
@@ -298,7 +300,7 @@ The notices of the packages above, each as the package ships it for the licence 
 (or, for a package that ships none, that licence's standard text in the name of the authors its
 manifest gives). A text shared by several packages is printed once.
 
-${licenceTexts([...rustCrates, ...diffPackages, ...graphPackages])}
+${licenceTexts(uniquePackages)}
 `;
 
 fs.writeFileSync(path.join(rootDir, 'THIRD-PARTY.md'), text);
