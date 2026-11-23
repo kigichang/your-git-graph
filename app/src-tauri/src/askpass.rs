@@ -192,7 +192,8 @@ fn remove_stale_dirs(temp: &Path) {
 
 fn process_alive(pid: i32) -> bool {
     // SAFETY: signal 0 only checks that the process exists (EPERM: it exists, owned by someone else).
-    unsafe { libc::kill(pid, 0) == 0 || *libc::__error() == libc::EPERM }
+    let sent = unsafe { libc::kill(pid, 0) } == 0;
+    sent || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
 }
 
 /// When this process was started as an askpass helper (by git or ssh), do that job and return the
