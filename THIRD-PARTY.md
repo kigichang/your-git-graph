@@ -580,6 +580,7 @@ preview and the diagrams.
 | @chevrotain/utils | 13.2.0 | Apache-2.0 | [github.com/Chevrotain/chevrotain](https://github.com/Chevrotain/chevrotain) |
 | @iconify/utils | 3.1.7 | MIT | [github.com/iconify/iconify](https://github.com/iconify/iconify) |
 | @mermaid-js/parser | 2.0.1 | MIT | [github.com/mermaid-js/mermaid](https://github.com/mermaid-js/mermaid) |
+| @tauri-apps/api | 2.12.4 | Apache-2.0 OR MIT | [github.com/tauri-apps/tauri](https://github.com/tauri-apps/tauri) |
 | @upsetjs/venn.js | 2.0.0 | MIT | [github.com/upsetjs/venn.js](https://github.com/upsetjs/venn.js) |
 | @vscode/markdown-it-katex | 1.1.2 | MIT | [github.com/microsoft/vscode-markdown-it-katex](https://github.com/microsoft/vscode-markdown-it-katex) |
 | chevrotain | 13.2.0 | Apache-2.0 | [github.com/Chevrotain/chevrotain](https://github.com/Chevrotain/chevrotain) |
@@ -2476,10 +2477,12 @@ THE SOFTWARE.
 
 ### 29. MIT
 
-Used by: serde_spanned 0.6.9, serde_spanned 1.1.2, toml 1.1.8+spec-1.1.0, toml_datetime 1.1.2+spec-1.1.0, toml_edit 0.19.15, toml_edit 0.20.2, toml_edit 0.25.17+spec-1.1.0, toml_parser 1.1.5+spec-1.1.0, toml_writer 1.1.3+spec-1.1.0.
+Used by: tauri 2.12.5, tauri-codegen 2.7.4, tauri-macros 2.7.4, tauri-plugin-dialog 2.8.4, tauri-plugin-fs 2.7.1, tauri-runtime 2.12.2, tauri-runtime-wry 2.12.3, tauri-utils 2.10.2, @tauri-apps/api 2.12.4, @tauri-apps/api 2.12.4.
 
 ~~~text
-Copyright (c) Individual contributors
+MIT License
+
+Copyright (c) 2017 - Present Tauri Apps Contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -2502,12 +2505,10 @@ SOFTWARE.
 
 ### 30. MIT
 
-Used by: tauri 2.12.5, tauri-codegen 2.7.4, tauri-macros 2.7.4, tauri-plugin-dialog 2.8.4, tauri-plugin-fs 2.7.1, tauri-runtime 2.12.2, tauri-runtime-wry 2.12.3, tauri-utils 2.10.2, @tauri-apps/api 2.12.4.
+Used by: serde_spanned 0.6.9, serde_spanned 1.1.2, toml 1.1.8+spec-1.1.0, toml_datetime 1.1.2+spec-1.1.0, toml_edit 0.19.15, toml_edit 0.20.2, toml_edit 0.25.17+spec-1.1.0, toml_parser 1.1.5+spec-1.1.0, toml_writer 1.1.3+spec-1.1.0.
 
 ~~~text
-MIT License
-
-Copyright (c) 2017 - Present Tauri Apps Contributors
+Copyright (c) Individual contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
