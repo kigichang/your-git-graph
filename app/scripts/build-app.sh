@@ -70,7 +70,26 @@ if ! git -C "$app_dir" diff --quiet -- ../THIRD-PARTY.md; then
 fi
 
 echo "==> build ($bundles${target_args:+, universal})"
-(cd "$tauri_dir" && cargo tauri build --bundles "$bundles" ${target_args[@]+"${target_args[@]}"})
+# Keep the build machine's paths ($HOME, cargo registry, rustup sysroot, checkout) out of panic strings.
+root_dir="$(cd "$app_dir/.." && pwd -P)"
+sep=$'\x1f'
+remap=(
+	"--remap-path-prefix=${HOME}=~"
+	"--remap-path-prefix=${RUSTUP_HOME:-$HOME/.rustup}=/rustup"
+	"--remap-path-prefix=$(rustc --print sysroot)=/rustc"
+	"--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo"
+	"--remap-path-prefix=${root_dir}=."
+)
+encoded="$(IFS="$sep"; echo "${remap[*]}")"
+if [ -n "${CARGO_ENCODED_RUSTFLAGS:-}" ]; then
+	encoded_flags="${CARGO_ENCODED_RUSTFLAGS}${sep}${encoded}"
+elif [ -n "${RUSTFLAGS:-}" ]; then
+	existing="$(printf '%s' "$RUSTFLAGS" | tr ' ' "$sep")"
+	encoded_flags="${existing}${sep}${encoded}"
+else
+	encoded_flags="$encoded"
+fi
+(cd "$tauri_dir" && CARGO_ENCODED_RUSTFLAGS="$encoded_flags" cargo tauri build --bundles "$bundles" ${target_args[@]+"${target_args[@]}"})
 
 bundle="$out/macos/Your Git Graph.app"
 echo "==> check $bundle"

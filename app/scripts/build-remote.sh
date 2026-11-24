@@ -14,8 +14,30 @@
 set -euo pipefail
 
 tauri_dir="$(cd "$(dirname "$0")/../src-tauri" && pwd)"
+root_dir="$(cd "$tauri_dir/../.." && pwd -P)"
 dist="$tauri_dir/remote-dist"
 mkdir -p "$dist"
+
+# Keep the build machine's paths ($HOME, cargo registry, rustup sysroot, checkout) out of panic strings.
+# rustc applies the last matching --remap-path-prefix first, so go from general ($HOME) to specific.
+sep=$'\x1f'
+remap=(
+	"--remap-path-prefix=${HOME}=~"
+	"--remap-path-prefix=${RUSTUP_HOME:-$HOME/.rustup}=/rustup"
+	"--remap-path-prefix=$(rustc --print sysroot)=/rustc"
+	"--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo"
+	"--remap-path-prefix=${root_dir}=."
+)
+encoded="$(IFS="$sep"; echo "${remap[*]}")"
+if [ -n "${CARGO_ENCODED_RUSTFLAGS:-}" ]; then
+	export CARGO_ENCODED_RUSTFLAGS="${CARGO_ENCODED_RUSTFLAGS}${sep}${encoded}"
+elif [ -n "${RUSTFLAGS:-}" ]; then
+	# Preserve caller-supplied whitespace-separated RUSTFLAGS before appending ours.
+	existing="$(printf '%s' "$RUSTFLAGS" | tr ' ' "$sep")"
+	export CARGO_ENCODED_RUSTFLAGS="${existing}${sep}${encoded}"
+else
+	export CARGO_ENCODED_RUSTFLAGS="$encoded"
+fi
 
 pack() { # <platform> <binary>
 	gzip -9 -n -c "$2" > "$dist/$1.gz"
